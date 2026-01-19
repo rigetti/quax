@@ -1,0 +1,51 @@
+# Copyright 2026 Rigetti & Co, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+repos:
+- repo: local
+  hooks:
+    - id: format
+      name: Format
+      description: "Format source code and example notebooks"
+      entry: make
+      language: system
+      require_serial: true
+      types_or: [python, pyi, jupyter]
+      files: '(src|test|examples)\/.*'
+      args:
+        - format
+    - id: check
+      name: Check Style, Format, and Types
+      description: "Check style, format, and types as defined in the Makefile"
+      entry: make
+      language: system
+      require_serial: true
+      types_or: [python, pyi, jupyter]
+      files: '(src|test|examples)\/.*'
+      args:
+        - check-all
+    - id: nbstripout
+      name: nbstripout
+      description: "nbstripout removes the cell outputs from version-controlled notebooks."
+      entry: nbstripout
+      language: python
+      require_serial: true
+      types_or: [jupyter]
+      files: ^examples/
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace

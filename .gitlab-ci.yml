@@ -1,0 +1,204 @@
+# Copyright 2026 Rigetti & Co, LLC.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+include:
+  - project: rigetti/infrastructure/infrastructure
+    ref: ci/0.5.6
+    file: ci/docker.yml
+
+stages:
+  - test
+  - build
+  - publish
+
+# This CI workflow operates entirely using branch pipelines. It excludes tag pipelines because certain publication
+# jobs cause tags to be added and we do not need to re-run the pipeline when this occurs. If scheduled or any other
+# pipeline type is needed in the future, it will need to be enabled in this top-level workflow rule set. We do not
+# run pipelines for a branch commit that is also not part of an open MR; such pipelines are not normally inspected.
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS  # e.g. Branch commit but only on an open MR.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH       # e.g. Manual or MR merge commit to "main".
+
+.base:
+  image: python:3.12
+  before_script:
+    - apt update
+    - pip install --upgrade pip
+    - pip install --upgrade setuptools
+    - apt install pipx -y
+    - pipx install poetry
+    - pipx ensurepath
+    - export PATH="/root/.local/bin:$PATH"
+    - poetry config requests.max-retries 2
+    - poetry config http-basic.rigetti gitlab-ci-token $CI_JOB_TOKEN
+    - poetry config http-basic.rigetti-collab gitlab-ci-token $CI_JOB_TOKEN
+    - poetry install --no-interaction --no-ansi
+    - export JAX_ENABLE_X64=1
+
+# Tests are all simple wrappers around the functionality codified in the Makefile, which developers can reproduce.
+.test:
+  extends: .base
+  stage: test
+
+check-all:
+  extends: .test
+  script:
+    - make check-all
+
+build_image:
+  extends: .docker_gitlab
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "push"
+      changes:
+        - Dockerfile
+        - docker-compose.yml
+        - poetry.lock
+        - .gitlab-ci.yml
+      when: always
+  variables:
+    DOCKER_BAKE: true
+    IMAGE_TAG: $CI_COMMIT_REF_SLUG
+    HOME: /root
+
+test-package:
+  extends: .test
+  tags:
+    - flexible
+  variables:
+    KUBERNETES_CPU_REQUEST: 8
+    KUBERNETES_MEMORY_LIMIT: 12Gi
+    KUBERNETES_NODE_SELECTOR_INSTANCE_CATEGORY: karpenter.k8s.aws/instance-category=c
+  script:
+    - make test-package
+
+test-examples:
+  extends: .test
+  script:
+    - make test-examples
+
+# Documentation is also built using a simple wrapper around Makefile functionality. However, to assist the reviewer we
+# create per-branch deployed environments which host the latest documentation build for that branch. This is accessed
+# via the "View App" button in the relevant merge request. The documentation is kept as an artifact for publication.
+
+build-docs:
+  extends: .base
+  stage: build
+  needs: [] # This stage does not need tests to pass
+  variables:
+    INDEX_HTML: "docs/_build/index.html"
+  script:  # See: https://docs.gitlab.com/ee/ci/environments/#set-dynamic-environment-urls-after-a-job-finishes
+    - make build-docs
+    - INDEX_HTML_URL=https://rigetti.gitlab.io/-/${CI_PROJECT_PATH#*/}/-/jobs/${CI_JOB_ID}/artifacts/${INDEX_HTML}
+    - echo INDEX_HTML_URL=${INDEX_HTML_URL} >> deploy.env
+    - echo Deploying to ${INDEX_HTML_URL} for "View App".
+  artifacts:
+    paths:
+      - docs/_build
+    reports:
+      dotenv: deploy.env
+  environment:
+    name: build-docs/$CI_COMMIT_BRANCH
+    url: ${INDEX_HTML_URL}
+
+# Publication of the Python package distribution and documentation to the project's Package Registry is automatic for a
+# commit to the default branch, and can be manually initiated by the user to generate a development version otherwise.
+# The development version is given a version suffix "-devNNN"; NNN is a small integer which is guaranteed to increase
+# with time, but is not guaranteed to be contiguous. On successful completion the relevant commit will also be tagged.
+#
+# Note: This step requires a deploy key to have been established with write access to the repository (see Settings |
+#       Repository | Deploy keys), and with the private key made available to this pipeline as DEPLOY_KEY_FILE_PATH
+#       (see Settings | CI/CD | Variables, and use a file-type variable).
+
+.publish-python-package:
+  extends: .base
+  stage: publish
+  dependencies:
+    - build-docs
+  variables:
+    JOB_TOKEN_HEADER: 'JOB-TOKEN:'  # colon needs to be escaped in YAML
+  script:
+    # Part 1: Publish the Python package distribution to this project's package repository.
+    - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
+    - if [ ! -z "${DEV_VERSION+X}" ]; then poetry version "$(poetry version -s)-dev${DEV_VERSION}"; fi
+    - poetry config repositories.project-internal "${PACKAGES_URL}/pypi"
+    - poetry config http-basic.project-internal gitlab-ci-token -- "${CI_JOB_TOKEN}"
+    - poetry publish --build -r project-internal
+    # Part 2: Publish the Python package documentation to this project's package repository.
+    - package=$(poetry version | awk '{print $1;}')
+    - version=$(poetry version | awk '{print $2;}')
+    - HEADER="${JOB_TOKEN_HEADER} ${CI_JOB_TOKEN}"
+    - UPLOAD_FILE="${package}-docs-html-${version}.tar.gz"
+    - UPLOAD_FILE_URL="${PACKAGES_URL}/generic/${package}-docs-html/${version}/${UPLOAD_FILE}"
+    - tar czf - -C ./docs/_build . | curl --header "${HEADER}" --upload-file - "${UPLOAD_FILE_URL}"
+    # Part 3: Tag the release in Git (requires a DEPLOY_KEY with write permission in CI).
+    # - git config --global user.email "support@rigetti.com"
+    # - git config --global user.name "Rigetti Support"
+    # - git tag "v${version}"
+    # - git push https://oauth2:${GITLAB_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git v${version}
+
+publish-python-package-branch:
+  extends: .publish-python-package
+  variables:
+    DEV_VERSION: "${CI_PIPELINE_IID}"
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: on_success
+
+publish-python-package:
+  extends: .publish-python-package
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+
+# Documentation build for a successful default branch is no longer under review and besides being stored in the Package
+# registry, it is also published to GitLab pages for convenient access. Refer to the README for the relevant hyperlink.
+
+publish-gitlab-pages-branch:
+  extends: .base
+  stage: publish
+  pages: true  # specifies that this is a Pages job and publishes the default public directory
+  dependencies:
+    - build-docs
+  script:
+    - PAGES_URL="https://rigetti.gitlab.io/-/qpu-hybrid-benchmark/quax/-/jobs/${CI_JOB_ID}/artifacts/public/index.html"
+    - rm -rf ./public
+    - cp -r ./docs/_build ./public
+  artifacts:
+    paths:
+      - public
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: on_success
+
+publish-gitlab-pages:
+  extends: .base
+  stage: publish
+  pages: true  # specifies that this is a Pages job and publishes the default public directory
+  dependencies:
+    - build-docs
+  script:
+    - rm -rf ./public
+    - cp -r ./docs/_build ./public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
