@@ -1,0 +1,10 @@
+# Sphinx build outputs
+_build/
+_autosummary/
+
+# Generated files
+generated/
+
+# IDE
+.vscode/
+.idea/
