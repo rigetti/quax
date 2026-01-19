@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, Iterator, Self, Tuple
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jaxtyping import Array as JaxArray
+from jaxtyping import Complex, Float
 
 if TYPE_CHECKING:
     import qutip
@@ -34,7 +36,9 @@ if TYPE_CHECKING:
 class State:
     """Base class for a quantum state."""
 
-    data: Array
+    data: (
+        Array  # Complex[JaxArray, "*ensemble d"] for StateVector, Complex[JaxArray, "*ensemble d d"] for DensityMatrix
+    )
     """The operator or state."""
 
     dims: Tuple[int, ...]
@@ -127,7 +131,7 @@ class State:
 class Operator:
     """Base class for a quantum operator."""
 
-    data: Array
+    data: Array  # Complex[JaxArray, "*ensemble d_out d_in"] for most operators
     """The operator or state."""
 
     dims: Tuple[Tuple[int, ...], Tuple[int, ...]]
@@ -251,7 +255,9 @@ class SuperOperator(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class StateVector(State):
-    """State vector |psi>, shape (d,) or (..., d)."""
+    """State vector |psi>, shape (*ensemble, d)."""
+
+    data: Complex[JaxArray, "*ensemble d"]
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
@@ -352,7 +358,9 @@ class StateVector(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class DensityMatrix(State):
-    """Density matrix ρ, shape (d, d)."""
+    """Density matrix ρ, shape (*ensemble, d, d)."""
+
+    data: Complex[JaxArray, "*ensemble d d"]
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
@@ -457,7 +465,9 @@ class DensityMatrix(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Unitary(Operator):
-    """Unitary operator U, shape (d, d)."""
+    """Unitary operator U, shape (*ensemble, d_out, d_in)."""
+
+    data: Complex[JaxArray, "*ensemble d_out d_in"]
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
@@ -611,7 +621,9 @@ class Unitary(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Kraus(Operator):
-    """Kraus superoperator, shape (d, d)."""
+    """Kraus operator, shape (*ensemble, d_out, d_in)."""
+
+    data: Complex[JaxArray, "*ensemble d_out d_in"]
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
@@ -646,7 +658,9 @@ class Kraus(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class SuperOp(SuperOperator):
-    """SuperOp matrix (also known as Superoperator) S, shape (d^2, d^2)."""
+    """SuperOp matrix (also known as Superoperator) S, shape (*ensemble, d2, d2)."""
+
+    data: Complex[JaxArray, "*ensemble d2 d2"]
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
@@ -795,7 +809,9 @@ class SuperOp(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class KrausMap(SuperOperator):
-    """Kraus channel, shape (d^2, d, d)."""
+    """Kraus channel, shape (*ensemble, n_kraus, d_out, d_in)."""
+
+    data: Complex[JaxArray, "*ensemble n_kraus d_out d_in"]
 
     def _to_qobj(self) -> list["qutip.Qobj"]:
         """Convert to a QuTiP Qobj for interoperability testing.
@@ -935,7 +951,10 @@ class KrausMap(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Choi(SuperOperator):
-    """Choi matrix C, shape (d^2, d^2)."""
+    """Choi matrix C, shape (*ensemble, d2, d2)."""
+
+    data: Complex[JaxArray, "*ensemble d2 d2"]
+    dims: Tuple[Tuple[int, ...], Tuple[int, ...]]
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
@@ -1182,7 +1201,10 @@ class Chi(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class PauliLiouville(SuperOperator):
-    """Pauli-Liouville matrix P, shape (d^2, d^2)."""
+    """Pauli-Liouville matrix P, shape (*ensemble, d2, d2)."""
+
+    data: Float[JaxArray, "*ensemble d2 d2"]
+    dims: Tuple[Tuple[int, ...], Tuple[int, ...]]
 
     def _to_qobj(self):
         """Convert to a QuTiP Qobj for interoperability testing.

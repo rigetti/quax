@@ -19,12 +19,15 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jaxtyping import Array as JaxArray, Complex
 
 from ._quantum_objects import Choi, DensityMatrix, StateVector, Unitary
 
 
 @partial(jax.jit, static_argnames=("dim", "k", "size"))
-def ginibre_matrix_complex(dim: int, k: int, key: Array, size: Tuple[int, ...] = ()) -> Array:
+def ginibre_matrix_complex(
+    dim: int, k: int, key: Array, size: Tuple[int, ...] = ()
+) -> Complex[JaxArray, "*ensemble dim k"]:
     r"""
     Given a scalars dim and k, returns a dim by k matrix, drawn from the complex Ginibre
     ensemble [IM]_.

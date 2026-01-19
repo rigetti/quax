@@ -108,7 +108,7 @@ def test_random_unitaries_are_unitary(num_qubits):
 
     assert unitaries.data.shape == num_unitaries + (d, d)
 
-    assert all(jax.vmap(is_unitary)(unitaries.data.reshape(-1, d, d)))
+    assert jnp.all(jax.vmap(is_unitary)(unitaries.data.reshape(-1, d, d)))
 
 
 @pytest.mark.parametrize("num_qubits", [1])

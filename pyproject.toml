@@ -23,7 +23,8 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "jax (>=0.8.2)"
+    "jax (>=0.8.2)",
+    "jaxtyping (>=0.3.5,<0.4.0)"
 ]
 
 [dependency-groups]
@@ -59,3 +60,6 @@ typeCheckingMode = "basic"
 [tool.ruff]
 line-length = 120
 src = ["src"]
+
+[tool.ruff.lint]
+ignore = ["F722", "F821"]  # Allow jaxtyping's starred type annotations and dimension variables

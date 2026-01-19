@@ -12,17 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import reduce, singledispatch
+from functools import reduce, singledispatch, lru_cache
 from operator import mul
 from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jaxtyping import Array as JaxArray, Complex
+
 
 from ._quantum_objects import Choi, DensityMatrix, Kraus, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
 
+
+# Characters for einsums
+CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
 
 def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> DensityMatrix:
     """Apply a superoperator to a density matrix.
@@ -57,6 +62,60 @@ def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> Den
 
     return DensityMatrix(data=rho_out, dims=rho.dims)
 
+
+def targeted_apply_superop(
+    operator: SuperOp, rho: DensityMatrix, subsystem: Tuple[int, ...]
+) -> DensityMatrix:
+    """
+    Apply a superoperator to a density matrix. Sρ
+
+    :param superoperator: The superoperator.
+    :param rho: The density matrix.
+    :param subsystem: The qubit indices of the operator.
+    :return: A density matrix.
+    """
+    # Reshape the operator into a tensor format.
+    support = int(jnp.log(operator.shape[0]) / jnp.log(4))
+    d = len(rho.shape)
+    einsum_str = _generate_superop_contraction(subsystem, d)
+    super_tensor = jnp.reshape(operator, (2,) * support * 4)
+    rho = jnp.einsum(
+        einsum_str,
+        super_tensor.data,
+        rho.data,
+        optimize="optimal" if d >= 12 else False,
+    )
+    return DensityMatrix(data=rho, dims=rho.dims)
+
+@lru_cache(maxsize=1000)
+def _generate_superop_contraction(qubits: Tuple[int, ...], d: int) -> str:
+    """
+    Generate the einsum string for operating on a density matrix which performs
+    Sρ where S is a superoperator.
+
+    :param qubits: The qubit indices of the operator.
+    :param d: The number of dimensions in the density tensor.
+    :return: The einsum string.
+    """
+    num_qubits = d // 2
+    operator_support = len(qubits)
+    right_qubits = [q + num_qubits for q in qubits]
+    return (
+        CHARS[: 2 * operator_support]
+        + "".join(CHARS[2 * operator_support + q] for q in right_qubits)
+        + "".join(CHARS[2 * operator_support + q] for q in qubits)
+        + ","
+        + CHARS[2 * operator_support : 2 * operator_support + d]
+        + "->"
+        + "".join(
+            CHARS[qubits.index(i) + operator_support]
+            if i in qubits
+            else CHARS[right_qubits.index(i)]
+            if i in right_qubits
+            else CHARS[2 * operator_support + i]
+            for i in range(d)
+        )
+    )
 
 def apply_choi_to_density_matrix(choi: Choi, rho: DensityMatrix) -> DensityMatrix:
     """Apply a Choi matrix to a density matrix.
@@ -169,7 +228,9 @@ def _(rho: Choi, indices: Tuple[int, ...]) -> DensityMatrix:
 
 
 @jax.jit(static_argnames=("dims", "keep"))
-def _partial_trace_data(data: Array, dims: Tuple[int, ...], keep: Tuple[int, ...]) -> Array:
+def _partial_trace_data(
+    data: Complex[JaxArray, "*ensemble D D"], dims: Tuple[int, ...], keep: Tuple[int, ...]
+) -> Complex[JaxArray, "*ensemble D_keep D_keep"]:
     """
     Batched partial trace of a matrix.
 

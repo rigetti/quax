@@ -47,13 +47,15 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from jax import Array
+from jaxtyping import Array as JaxArray, Complex
 
 from ._quantum_objects import Choi, DensityMatrix, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import choi_to_superop, kraus_to_superop, superop_to_choi, superop_to_kraus
 
 
-def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
+def _matrix_power_via_eig(
+    matrix: Complex[JaxArray, "*ensemble n n"], power: float
+) -> Complex[JaxArray, "*ensemble n n"]:
     """
     Compute matrix power using eigendecomposition.
 
@@ -81,7 +83,9 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     return result
 
 
-def _matrix_power_via_lindbladian(matrix: Array, power: float) -> Array:
+def _matrix_power_via_lindbladian(
+    matrix: Complex[JaxArray, "*ensemble n n"], power: float
+) -> Complex[JaxArray, "*ensemble n n"]:
     """
     Compute matrix power using Lindbladian approach: M^α = exp(α·log(M)).
 

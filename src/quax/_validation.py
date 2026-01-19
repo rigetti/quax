@@ -18,6 +18,7 @@ from operator import mul
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jaxtyping import Array as JaxArray, Complex
 
 from ._apply import partial_trace
 from ._quantum_objects import SuperOperator, Unitary
@@ -26,7 +27,7 @@ from .ensembles import PAULI_ENSEMBLE
 from .gates import SWAP
 
 
-def is_unitary(operator: Array, atol: float = 1e-8):
+def is_unitary(operator: Complex[JaxArray, "..."], atol: float = 1e-8) -> Array:
     """
     Validates whether a given operator is unitary.
 
@@ -44,7 +45,7 @@ def is_unitary(operator: Array, atol: float = 1e-8):
 
 
 @jax.jit(static_argnames=("atol",))
-def is_one_design(ensemble: Unitary, atol: float = 1e-2) -> jax.Array:
+def is_one_design(ensemble: Unitary, atol: float = 1e-2) -> Array:
     """
     Check whether a 1-qubit unitary ensemble approximately forms a 1-design
     by testing that the Pauli twirl sends X,Y,Z to ~0 on average.
@@ -78,7 +79,7 @@ def is_one_design(ensemble: Unitary, atol: float = 1e-2) -> jax.Array:
 
 
 @jax.jit(static_argnames=("atol",))
-def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> jax.Array:
+def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> Array:
     """
     Check if a 1-qubit unitary ensemble approximately forms a 2-design by comparing
     empirical vs Haar 2nd moment operator.

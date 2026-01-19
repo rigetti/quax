@@ -21,6 +21,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import Array, jit
+from jaxtyping import Array as JaxArray, Float
 
 from ._compose import compose_superop
 from ._quantum_objects import Choi, SuperOp, Unitary, Kraus
@@ -61,7 +62,9 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
     )
 
 
-def thermal_relaxation_choi(t1s: Array, tphis: Array, duration: float) -> Choi:
+def thermal_relaxation_choi(
+    t1s: Float[JaxArray, "n_qubits"], tphis: Float[JaxArray, "n_qubits"], duration: float
+) -> Choi:
     """
     Construct a multi-qubit thermal relaxation channel.
 

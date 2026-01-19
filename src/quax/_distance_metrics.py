@@ -21,13 +21,14 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
+from jaxtyping import Array as JaxArray, Float
 
 from ._quantum_objects import Choi, DensityMatrix, KrausMap, PauliLiouville, State, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import to_choi
 
 
 @jax.jit
-def fidelity(rho: State, sigma: State) -> Array:
+def fidelity(rho: State, sigma: State) -> Float[JaxArray, "*ensemble"]:
     r"""
     Compute the Jozsa fidelity between two quantum states rho and sigma using JAX.
 
@@ -77,7 +78,7 @@ def fidelity(rho: State, sigma: State) -> Array:
 
 
 @jax.jit
-def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Array:
+def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Float[JaxArray, "*ensemble"]:
     r"""
     Return the entanglement fidelity between two unitary operators using JAX.
 
@@ -106,7 +107,7 @@ def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Arr
 def process_fidelity(
     superoperator_0: Choi | SuperOp | PauliLiouville | KrausMap | Unitary,
     superoperator_1: Choi | SuperOp | PauliLiouville | KrausMap | Unitary | None = None,
-) -> Array:
+) -> Float[JaxArray, "*ensemble"]:
     r"""
     Return the process fidelity between two superoperators.
 
@@ -167,7 +168,7 @@ def process_fidelity(
 
 
 @jax.jit
-def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1) -> Array:
+def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1) -> Float[JaxArray, "..."]:
     """
     Convert the depolarizing constant to the average fidelity.
 
@@ -181,7 +182,7 @@ def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1) ->
 
 
 @jax.jit
-def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int) -> Array:
+def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int) -> Float[JaxArray, "..."]:
     """
     Convert the depolarizing constant to the process fidelity.
 
@@ -195,7 +196,7 @@ def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int) -> Arr
 
 
 @jax.jit
-def average_fidelity_to_process_fidelity(F: ArrayLike, num_sys: int) -> Array:
+def average_fidelity_to_process_fidelity(F: ArrayLike, num_sys: int) -> Float[JaxArray, "..."]:
     """
     Convert the average gate fidelity to the process fidelity.
 
