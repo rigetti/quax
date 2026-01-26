@@ -29,33 +29,33 @@ from quax import (
 def test_zero_state_vector(num_qubits):
     """Check that the zero state vector is constructed correctly."""
     psi = zero_state_vector(num_qubits)
-    assert psi.data.shape == (2**num_qubits,)
+    assert psi.matrix.shape == (2**num_qubits,)
     assert psi.dims == (2,) * num_qubits
-    assert jnp.allclose(psi.data[1:], jnp.zeros(2**num_qubits - 1))
-    assert jnp.isclose(psi.data[0], 1.0)
+    assert jnp.allclose(psi.matrix[1:], jnp.zeros(2**num_qubits - 1))
+    assert jnp.isclose(psi.matrix[0], 1.0)
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3, 4])
 def test_zero_state_matrix(num_qubits):
     """Check that the zero state matrix is constructed correctly."""
     rho = zero_state_matrix(num_qubits)
-    assert rho.data.shape == (2**num_qubits, 2**num_qubits)
+    assert rho.matrix.shape == (2**num_qubits, 2**num_qubits)
     assert rho.dims == (2,) * num_qubits
-    assert jnp.allclose(rho.data[0, 0], 1.0)
-    assert jnp.allclose(rho.data[0, 1:], jnp.zeros(2**num_qubits - 1))
-    assert jnp.allclose(rho.data[1:, 0], jnp.zeros(2**num_qubits - 1))
-    assert jnp.allclose(rho.data[1:, 1:], jnp.zeros((2**num_qubits - 1, 2**num_qubits - 1)))
+    assert jnp.allclose(rho.matrix[0, 0], 1.0)
+    assert jnp.allclose(rho.matrix[0, 1:], jnp.zeros(2**num_qubits - 1))
+    assert jnp.allclose(rho.matrix[1:, 0], jnp.zeros(2**num_qubits - 1))
+    assert jnp.allclose(rho.matrix[1:, 1:], jnp.zeros((2**num_qubits - 1, 2**num_qubits - 1)))
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3, 4])
 def test_mixed_state_matrix(num_qubits):
     """Check that the mixed state matrix is constructed correctly."""
     rho = mixed_state_matrix(num_qubits)
-    assert rho.data.shape == (2**num_qubits, 2**num_qubits)
+    assert rho.matrix.shape == (2**num_qubits, 2**num_qubits)
     assert rho.dims == (2,) * num_qubits
 
     qt_ref = qt.maximally_mixed_dm(rho.d).full()
-    assert jnp.allclose(rho.data, qt_ref)
+    assert jnp.allclose(rho.matrix, qt_ref)
 
 
 @pytest.mark.parametrize("num_qubits_a,num_qubits_b", [(1, 1), (1, 2), (2, 1), (2, 2)])
@@ -66,9 +66,9 @@ def test_tensor_state_vectors(num_qubits_a, num_qubits_b):
     tensor_state = tensor_state_vectors(state_a, state_b)
     expected_dims = (2,) * (num_qubits_a + num_qubits_b)
     assert tensor_state.dims == expected_dims
-    assert tensor_state.data.shape == (2 ** (num_qubits_a + num_qubits_b),)
-    assert jnp.isclose(tensor_state.data[0], 1.0)
-    assert jnp.allclose(tensor_state.data[1:], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
+    assert tensor_state.matrix.shape == (2 ** (num_qubits_a + num_qubits_b),)
+    assert jnp.isclose(tensor_state.matrix[0], 1.0)
+    assert jnp.allclose(tensor_state.matrix[1:], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
 
 
 @pytest.mark.parametrize("num_qubits_a,num_qubits_b", [(1, 1), (1, 2), (2, 1), (2, 2)])
@@ -79,11 +79,11 @@ def test_tensor_density_matrices(num_qubits_a, num_qubits_b):
     tensor_state = tensor_density_matrices(state_a, state_b)
     expected_dims = (2,) * (num_qubits_a + num_qubits_b)
     assert tensor_state.dims == expected_dims
-    assert tensor_state.data.shape == (2 ** (num_qubits_a + num_qubits_b), 2 ** (num_qubits_a + num_qubits_b))
-    assert jnp.isclose(tensor_state.data[0, 0], 1.0)
-    assert jnp.allclose(tensor_state.data[0, 1:], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
-    assert jnp.allclose(tensor_state.data[1:, 0], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
+    assert tensor_state.matrix.shape == (2 ** (num_qubits_a + num_qubits_b), 2 ** (num_qubits_a + num_qubits_b))
+    assert jnp.isclose(tensor_state.matrix[0, 0], 1.0)
+    assert jnp.allclose(tensor_state.matrix[0, 1:], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
+    assert jnp.allclose(tensor_state.matrix[1:, 0], jnp.zeros(2 ** (num_qubits_a + num_qubits_b) - 1))
     assert jnp.allclose(
-        tensor_state.data[1:, 1:],
+        tensor_state.matrix[1:, 1:],
         jnp.zeros((2 ** (num_qubits_a + num_qubits_b) - 1, 2 ** (num_qubits_a + num_qubits_b) - 1)),
     )

@@ -37,17 +37,18 @@ def compose_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
     assert k1.dims == k2.dims, "Kraus operators must act on the same space to be composed."
     dims = k1.dims
     d_out, d_in = k1.d
-    n1 = k1.data.shape[-3]
-    n2 = k2.data.shape[-3]
+    n1 = k1.matrix.shape[-3]
+    n2 = k2.matrix.shape[-3]
 
     ensemble_size = jnp.broadcast_shapes(k1.ensemble_size, k2.ensemble_size)
-    k1_data = jnp.broadcast_to(k1.data, ensemble_size + (n1, d_out, d_in))
-    k2_data = jnp.broadcast_to(k2.data, ensemble_size + (n2, d_out, d_in))
+    num_ensemble_dims = len(ensemble_size)
+    k1_mat = jnp.broadcast_to(k1.matrix, ensemble_size + (n1, d_out, d_in))
+    k2_mat = jnp.broadcast_to(k2.matrix, ensemble_size + (n2, d_out, d_in))
 
-    kraus_data = jnp.einsum("...iab,...jbc->...ijac", k1_data, k2_data)
+    kraus_data = jnp.einsum("...iab,...jbc->...ijac", k1_mat, k2_mat)
     kraus_data = kraus_data.reshape(ensemble_size + (n1 * n2, d_out, d_in))
 
-    return KrausMap(data=kraus_data, dims=dims)
+    return KrausMap.from_matrix(kraus_data, dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -66,10 +67,13 @@ def compose_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     """
     assert U1.dims == U2.dims, "Unitaries must act on the same space to be composed."
 
-    # Use einsum with ellipsis to handle arbitrary batch dimensions
-    data = jnp.einsum("...ab,...bc->...ac", U1.data, U2.data)
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
+    data = jnp.einsum("...ab,...bc->...ac", U1.matrix, U2.matrix)
 
-    return Unitary(data=data, dims=U1.dims)
+    ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+
+    return Unitary.from_matrix(data, U1.dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -88,10 +92,13 @@ def compose_superop(S1: SuperOp, S2: SuperOp) -> SuperOp:
     """
     assert S1.dims == S2.dims, "Superoperators must act on the same space to be composed."
 
-    # Use matmul which automatically broadcasts batch dimensions
-    data = S1.data @ S2.data
+    # Use matmul which automatically broadcasts ensemble dimensions
+    data = S1.matrix @ S2.matrix
 
-    return SuperOp(data=data, dims=S1.dims)
+    ensemble_size = jnp.broadcast_shapes(S1.ensemble_size, S2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+
+    return SuperOp.from_matrix(data, S1.dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -149,7 +156,10 @@ def compose_pauli_liouville(P1: PauliLiouville, P2: PauliLiouville) -> PauliLiou
     """
     assert P1.dims == P2.dims, "Pauli-Liouville matrices must act on the same space to be composed."
 
-    # Use matmul which automatically broadcasts batch dimensions
-    data = P1.data @ P2.data
+    # Use matmul which automatically broadcasts ensemble dimensions
+    data = P1.matrix @ P2.matrix
 
-    return PauliLiouville(data=data, dims=P1.dims)
+    ensemble_size = jnp.broadcast_shapes(P1.ensemble_size, P2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+
+    return PauliLiouville.from_matrix(data, P1.dims, num_ensemble_dims)

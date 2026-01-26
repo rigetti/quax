@@ -25,7 +25,7 @@ class TestFractionalUnitaryPower:
 
     def test_fractional_power_identity(self):
         """Test that identity^(1/n) = identity."""
-        identity = qx.Unitary(data=jnp.eye(2, dtype=jnp.complex128), dims=((2,), (2,)))
+        identity = qx.Unitary.from_matrix(jnp.eye(2, dtype=jnp.complex128), ((2,), (2,)), 0)
 
         for n in [2, 3, 5, 10]:
             result = fractional_unitary_power(identity, 1.0 / n)
@@ -107,13 +107,13 @@ class TestFractionalUnitaryPower:
         U, _ = jnp.linalg.qr(A)
 
         # Compute fractional power
-        U_frac = fractional_unitary_power(qx.Unitary(U, dims=((2, 2), (2, 2))), 0.3)
+        U_frac = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2, 2), (2, 2)), 0), 0.3)
 
         # Check unitarity: U^† U = I
         result = U_frac.h @ U_frac
 
         fid = qx.unitary_entanglement_fidelity(
-            result, qx.Unitary(jnp.eye(4, dtype=jnp.complex128), dims=((2, 2), (2, 2)))
+            result, qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
         )
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(1/3)"
 
@@ -122,17 +122,18 @@ class TestFractionalUnitaryPower:
         # For unitary matrices, |det(U)| = 1
         # det(U^(1/n)) should also have magnitude 1
         theta = jnp.pi / 4
-        U = qx.Unitary(
-            data=jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
-            dims=((2,), (2,)),
+        U = qx.Unitary.from_matrix(
+            jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
+            ((2,), (2,)),
+            0,
         )
 
         n = 5
         U_frac = fractional_unitary_power(U, 1.0 / n)
         # Both should have magnitude 1
 
-        det_U = jnp.linalg.det(U.data)
-        det_U_frac = jnp.linalg.det(U_frac.data)
+        det_U = jnp.linalg.det(U.matrix)
+        det_U_frac = jnp.linalg.det(U_frac.matrix)
 
         fid = qx.unitary_entanglement_fidelity(U_frac**n, U)
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(1/n) composition"
@@ -151,9 +152,10 @@ class TestFractionalUnitaryPower:
         # Test that U @ U^(-1) = I
         theta = jnp.pi / 6
 
-        U = qx.Unitary(
-            data=jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
-            dims=((2,), (2,)),
+        U = qx.Unitary.from_matrix(
+            jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
+            ((2,), (2,)),
+            0,
         )
         U_inv = fractional_unitary_power(U, -1.0)
         result = U @ U_inv
@@ -171,7 +173,7 @@ class TestFractionalUnitaryPower:
         result = compute_frac_power(qx.gates.H)
 
         # Should not raise errors and should be a valid matrix
-        assert result.data.shape == (2, 2)
+        assert result.matrix.shape == (2, 2)
 
         # Test that it's actually computing the right thing
         result_squared = result @ result
@@ -215,12 +217,12 @@ class TestFractionalUnitaryPower:
         def loss_fn(theta):
             # Create RZ(theta) gate
             U = jnp.array([[jnp.exp(-1j * theta / 2), 0.0], [0.0, jnp.exp(1j * theta / 2)]], dtype=jnp.complex128)
-            U_half = fractional_unitary_power(qx.Unitary(data=U, dims=((2,), (2,))), 0.5)
+            U_half = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2,), (2,)), 0), 0.5)
             # Loss: measure deviation from expected half-angle rotation
             expected = jnp.array(
                 [[jnp.exp(-1j * theta / 4), 0.0], [0.0, jnp.exp(1j * theta / 4)]], dtype=jnp.complex128
             )
-            diff = U_half.data - expected
+            diff = U_half.matrix - expected
             return jnp.real(jnp.sum(jnp.abs(diff) ** 2))
 
         # Compute gradient - this should now work!
@@ -247,7 +249,7 @@ class TestThermalRelaxationChoi:
         duration = 1e-6  # 1 microsecond
 
         choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
-        assert choi.data.shape == (4, 4)
+        assert choi.matrix.shape == (4, 4)
 
     def test_two_qubit_thermal_relaxation_shape(self):
         """Test that two qubit thermal relaxation has correct shape."""
@@ -256,7 +258,7 @@ class TestThermalRelaxationChoi:
         duration = 1e-6
 
         choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
-        assert choi.data.shape == (16, 16)
+        assert choi.matrix.shape == (16, 16)
 
     def test_thermal_relaxation_preserves_trace(self):
         """Test that thermal relaxation channel is approximately trace-preserving.
@@ -273,7 +275,7 @@ class TestThermalRelaxationChoi:
         # For a trace-preserving channel, partial trace over output should give identity
         # Reshape to (d_out, d_in, d_out, d_in)
         d = 4  # 2 qubits
-        choi_reshaped = choi.data.reshape(d, d, d, d)
+        choi_reshaped = choi.matrix.reshape(d, d, d, d)
 
         # Partial trace: sum over first and third indices
         ptrace = jnp.einsum("ijik->jk", choi_reshaped)
@@ -297,7 +299,7 @@ class TestThermalRelaxationChoi:
         # Identity channel Choi matrix
         expected = jnp.array([[1, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 1]], dtype=jnp.complex128)
 
-        assert jnp.allclose(jnp.array(choi.data), jnp.array(expected), rtol=1e-5, atol=1e-7)
+        assert jnp.allclose(jnp.array(choi.matrix), jnp.array(expected), rtol=1e-5, atol=1e-7)
 
     def test_thermal_relaxation_jit_compatible(self):
         """Test that thermal_relaxation_choi works (note: not fully JIT-compatible due to Python loop)."""
@@ -307,7 +309,7 @@ class TestThermalRelaxationChoi:
 
         # Can be called directly (though not fully JIT-able)
         choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
-        assert choi.data.shape == (16, 16)
+        assert choi.matrix.shape == (16, 16)
 
         # Test that calling again gives same result
         choi2 = qx.thermal_relaxation_choi(t1s, tphis, duration)
@@ -325,11 +327,11 @@ class TestThermalRelaxationChoi:
 
         # After long time, should be close to projecting onto ground state
         # The (0,0) element should be close to 1, others near 0
-        choi_00 = choi.data[0, 0]
+        choi_00 = choi.matrix[0, 0]
         assert abs(choi_00 - 1.0) < 0.1
 
         # Off-diagonal coherences should decay
-        choi_03 = choi.data[0, 3]
+        choi_03 = choi.matrix[0, 3]
         assert abs(choi_03) < 0.1
 
 
@@ -339,7 +341,7 @@ class TestIntegratedThermalSuperoperator:
     def test_integrated_thermal_shape(self):
         """Test that integrated thermal superoperator has correct shape."""
         # Two-qubit unitary
-        unitary = qx.Unitary(data=jnp.eye(4, dtype=jnp.complex128), dims=((2, 2), (2, 2)))
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
@@ -347,11 +349,11 @@ class TestIntegratedThermalSuperoperator:
         superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
 
         # Superoperator for 2 qubits should be 16x16
-        assert superop.data.shape == (16, 16)
+        assert superop.matrix.shape == (16, 16)
 
     def test_integrated_thermal_identity_unitary(self):
         """Test integrated thermal with identity unitary equals pure thermal."""
-        unitary = qx.Unitary(data=jnp.eye(4, dtype=jnp.complex128), dims=((2, 2), (2, 2)))
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
@@ -370,8 +372,8 @@ class TestIntegratedThermalSuperoperator:
         """Test integrated thermal with zero duration gives unitary channel."""
         # Random 2-qubit unitary
         theta = 0.5
-        unitary = qx.Unitary(
-            data=jnp.array(
+        unitary = qx.Unitary.from_matrix(
+            jnp.array(
                 [
                     [jnp.cos(theta), 0, 0, -jnp.sin(theta)],
                     [0, 1, 0, 0],
@@ -380,7 +382,8 @@ class TestIntegratedThermalSuperoperator:
                 ],
                 dtype=jnp.complex128,
             ),
-            dims=((2, 2), (2, 2)),
+            ((2, 2), (2, 2)),
+            0,
         )
 
         t1s = jnp.array([50e-6, 45e-6])
@@ -402,14 +405,14 @@ class TestIntegratedThermalSuperoperator:
         def compute_integrated(unitary, t1s, tphis, duration):
             return qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
 
-        unitary = qx.Unitary(data=jnp.eye(4, dtype=jnp.complex128), dims=((2, 2), (2, 2)))
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
 
         # Should not raise any errors
         superop = compute_integrated(unitary, t1s, tphis, duration)
-        assert superop.data.shape == (16, 16)
+        assert superop.matrix.shape == (16, 16)
 
         # Test that calling again uses cached version
         superop2 = compute_integrated(unitary, t1s, tphis, duration)
@@ -419,8 +422,8 @@ class TestIntegratedThermalSuperoperator:
     def test_integrated_thermal_convergence(self):
         """Test that more steps gives better approximation."""
         theta = 0.3
-        unitary = qx.Unitary(
-            data=jnp.array(
+        unitary = qx.Unitary.from_matrix(
+            jnp.array(
                 [
                     [jnp.cos(theta), -jnp.sin(theta), 0, 0],
                     [jnp.sin(theta), jnp.cos(theta), 0, 0],
@@ -429,7 +432,8 @@ class TestIntegratedThermalSuperoperator:
                 ],
                 dtype=jnp.complex128,
             ),
-            dims=((2, 2), (2, 2)),
+            ((2, 2), (2, 2)),
+            0,
         )
 
         t1s = jnp.array([50e-6, 45e-6])
@@ -451,12 +455,13 @@ class TestIntegratedThermalSuperoperator:
         """Test integrated thermal for single qubit."""
         # Single-qubit rotation
         theta = jnp.pi / 4
-        unitary = qx.Unitary(
-            data=jnp.array(
+        unitary = qx.Unitary.from_matrix(
+            jnp.array(
                 [[jnp.cos(theta / 2), -1j * jnp.sin(theta / 2)], [-1j * jnp.sin(theta / 2), jnp.cos(theta / 2)]],
                 dtype=jnp.complex128,
             ),
-            dims=((2,), (2,)),
+            ((2,), (2,)),
+            0,
         )
 
         t1s = jnp.array([50e-6])
@@ -466,15 +471,15 @@ class TestIntegratedThermalSuperoperator:
         superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=50)
 
         # Should have correct shape for single qubit
-        assert superop.data.shape == (4, 4)
+        assert superop.matrix.shape == (4, 4)
 
     def test_integrated_thermal_large_coherence_times(self):
         """Test that integrated thermal reproduces unitary in limit of very large T1 and Tphi."""
         # Two-qubit unitary (non-trivial gate)
         theta = jnp.pi / 3
         phi = jnp.pi / 6
-        unitary = qx.Unitary(
-            data=jnp.array(
+        unitary = qx.Unitary.from_matrix(
+            jnp.array(
                 [
                     [jnp.cos(theta), 0, 0, -1j * jnp.sin(theta) * jnp.exp(-1j * phi)],
                     [0, 1, 0, 0],
@@ -483,7 +488,8 @@ class TestIntegratedThermalSuperoperator:
                 ],
                 dtype=jnp.complex128,
             ),
-            dims=((2, 2), (2, 2)),
+            ((2, 2), (2, 2)),
+            0,
         )
 
         # Very large coherence times (relative to gate duration)
@@ -507,22 +513,22 @@ class TestDepolarizingChannelSuperoperator:
         """Test that depolarizing channel has correct shape."""
         # Single qubit
         superop_1q = qx.depolarizing_channel_superoperator(0.1, num_qubits=1)
-        assert superop_1q.data.shape == (4, 4)
+        assert superop_1q.matrix.shape == (4, 4)
 
         # Two qubits
         superop_2q = qx.depolarizing_channel_superoperator(0.1, num_qubits=2)
-        assert superop_2q.data.shape == (16, 16)
+        assert superop_2q.matrix.shape == (16, 16)
 
         # Three qubits
         superop_3q = qx.depolarizing_channel_superoperator(0.1, num_qubits=3)
-        assert superop_3q.data.shape == (64, 64)
+        assert superop_3q.matrix.shape == (64, 64)
 
     def test_depolarizing_zero_probability(self):
         """Test that zero depolarizing probability gives identity channel."""
         superop = qx.depolarizing_channel_superoperator(0.0, num_qubits=2)
 
         # Should be identity superoperator
-        expected = qx.SuperOp(data=jnp.eye(16, dtype=jnp.complex128), dims=((2, 2), (2, 2)))
+        expected = qx.SuperOp.from_matrix(jnp.eye(16, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
 
         fid = qx.process_fidelity(qx.superop_to_choi(superop), qx.superop_to_choi(expected))
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for zero depolarizing probability"
@@ -536,7 +542,7 @@ class TestDepolarizingChannelSuperoperator:
         superop = jitted_fn(0.2, 2)
 
         # Verify shape
-        assert superop.data.shape == (16, 16)
+        assert superop.matrix.shape == (16, 16)
 
         # Verify it gives same result as non-jitted version
         superop_nojit = qx.depolarizing_channel_superoperator(0.2, 2)
@@ -554,9 +560,9 @@ class TestDepolarizingChannelSuperoperator:
         superop3 = jitted_fn(0.9, 2)
 
         # All should have correct shape
-        assert superop1.data.shape == (16, 16)
-        assert superop2.data.shape == (16, 16)
-        assert superop3.data.shape == (16, 16)
+        assert superop1.matrix.shape == (16, 16)
+        assert superop2.matrix.shape == (16, 16)
+        assert superop3.matrix.shape == (16, 16)
 
         # Results should be different
         fid_12 = qx.process_fidelity(qx.superop_to_choi(superop1), qx.superop_to_choi(superop2))
@@ -571,9 +577,9 @@ class TestDepolarizingChannelSuperoperator:
         superop_max = qx.depolarizing_channel_superoperator(1.0, num_qubits=1)
 
         # Both should be valid superoperators
-        assert superop_min.data.shape == (4, 4)
-        assert superop_max.data.shape == (4, 4)
+        assert superop_min.matrix.shape == (4, 4)
+        assert superop_max.matrix.shape == (4, 4)
 
         # Test intermediate value
         superop_mid = qx.depolarizing_channel_superoperator(0.5, num_qubits=1)
-        assert superop_mid.data.shape == (4, 4)
+        assert superop_mid.matrix.shape == (4, 4)

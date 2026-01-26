@@ -98,7 +98,8 @@ def _random_lindbladian(
         chois.append(choi)
 
     data = jnp.asarray(chois).reshape(size + (d2, d2))
-    return Choi(data=data, dims=((2,) * num_qubits, (2,) * num_qubits))
+    num_ensemble_dims = len(size)
+    return Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits), num_ensemble_dims)
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
@@ -115,8 +116,9 @@ def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
     random_pauli_liouville = choi_to_pauli_liouville(random_choi)
 
     # here we use scipy.linalg.fractional_matrix_power as a reference implementation
-    powered_reference_superop = SuperOp(
-        data=jnp.asarray(fractional_matrix_power(np.array(random_superop.data), power)), dims=dims
+    num_ensemble_dims = len(ensemble_size)
+    powered_reference_superop = SuperOp.from_matrix(
+        jnp.asarray(fractional_matrix_power(np.array(random_superop.matrix), power)), dims, num_ensemble_dims
     )
     powered_reference_choi = superop_to_choi(powered_reference_superop)
 
@@ -124,26 +126,28 @@ def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
     powered_superop = power_superop(random_superop, power)
     fid = process_fidelity(powered_superop, powered_reference_superop)
 
-    assert jnp.allclose(superop_to_choi(powered_superop).data, powered_reference_choi.data, atol=1e-6)
+    assert jnp.allclose(superop_to_choi(powered_superop).matrix, powered_reference_choi.matrix, atol=1e-6)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
 
     # Test Choi power
     powered_choi = power_choi(random_choi, power)
     fid = process_fidelity(powered_choi, powered_reference_choi)
-    assert jnp.allclose(powered_choi.data, powered_reference_choi.data, atol=1e-6)
+    assert jnp.allclose(powered_choi.matrix, powered_reference_choi.matrix, atol=1e-6)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
 
     # Test Kraus power
     powered_kraus = power_kraus(random_kraus, power)
     fid = process_fidelity(kraus_to_choi(powered_kraus), powered_reference_choi)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
-    assert jnp.allclose(kraus_to_choi(powered_kraus).data, powered_reference_choi.data, atol=1e-5)
+    assert jnp.allclose(kraus_to_choi(powered_kraus).matrix, powered_reference_choi.matrix, atol=1e-5)
 
     # Test Pauli-Liouville power
     powered_pauli_liouville = power_pauli_liouville(random_pauli_liouville, power)
     fid = process_fidelity(pauli_liouville_to_choi(powered_pauli_liouville), powered_reference_choi)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
-    assert jnp.allclose(pauli_liouville_to_choi(powered_pauli_liouville).data, powered_reference_choi.data, atol=1e-6)
+    assert jnp.allclose(
+        pauli_liouville_to_choi(powered_pauli_liouville).matrix, powered_reference_choi.matrix, atol=1e-6
+    )
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
@@ -162,10 +166,13 @@ def test_power_unitarys(num_qubits, power, seed, ensemble_size):
     powered_U = power_unitary(random_U, power)
 
     # Use scipy as reference
-    powered_reference = Unitary(data=jnp.asarray(fractional_matrix_power(np.array(random_U.data), power)), dims=dims)
+    num_ensemble_dims = len(ensemble_size)
+    powered_reference = Unitary.from_matrix(
+        jnp.asarray(fractional_matrix_power(np.array(random_U.matrix), power)), dims, num_ensemble_dims
+    )
 
     # Check they match
-    assert jnp.allclose(powered_U.data, powered_reference.data, atol=1e-6)
+    assert jnp.allclose(powered_U.matrix, powered_reference.matrix, atol=1e-6)
 
     # Check unitarity is preserved (U^† @ U = I)
     result = powered_U.h @ powered_U
@@ -179,7 +186,7 @@ def test_power_unitarys(num_qubits, power, seed, ensemble_size):
     else:
         identity = jnp.eye(identity_shape[0])
 
-    assert jnp.allclose(result.data, identity, atol=1e-6)
+    assert jnp.allclose(result.matrix, identity, atol=1e-6)
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
@@ -200,16 +207,17 @@ def test_density_matrix_powers(num_qubits, power, seed, ensemble_size):
     powered_rho = density_matrix_power(random_rho, power)
 
     # Use scipy as reference
-    powered_reference = DensityMatrix(
-        data=jnp.asarray(fractional_matrix_power(np.array(random_rho.data), power)), dims=dims
+    num_ensemble_dims = len(ensemble_size)
+    powered_reference = DensityMatrix.from_matrix(
+        jnp.asarray(fractional_matrix_power(np.array(random_rho.matrix), power)), dims, num_ensemble_dims
     )
 
     # Check they match
-    assert jnp.allclose(powered_rho.data, powered_reference.data, atol=1e-6)
+    assert jnp.allclose(powered_rho.matrix, powered_reference.matrix, atol=1e-6)
 
     # Check Hermiticity is preserved
-    assert jnp.allclose(powered_rho.data, jnp.conj(jnp.swapaxes(powered_rho.data, -2, -1)), atol=1e-6)
+    assert jnp.allclose(powered_rho.matrix, jnp.conj(jnp.swapaxes(powered_rho.matrix, -2, -1)), atol=1e-6)
 
     # Check positive semidefiniteness (eigenvalues should be non-negative)
-    eigvals = jnp.linalg.eigvalsh(powered_rho.data)
+    eigvals = jnp.linalg.eigvalsh(powered_rho.matrix)
     assert jnp.all(eigvals >= -1e-6), f"Negative eigenvalues found: min={jnp.min(eigvals)}"

@@ -22,116 +22,126 @@ from ._quantum_objects import Unitary
 from .gates import RX, RZ, I, RY, X, Y, Z
 
 
-SIC_PREP = Unitary(
-    data=jnp.array(
+SIC_PREP = Unitary.from_matrix(
+    jnp.array(
         [
-            I.data,  # SIC0
-            (RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)).data,  # SIC1
-            (RZ(float(-2 * pi / 3)) @ RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)).data,  # SIC2
-            (RZ(float(+2 * pi / 3)) @ RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)).data,  # SIC3
+            I.matrix,  # SIC0
+            (RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)).matrix,  # SIC1
+            (
+                RZ(float(-2 * pi / 3)) @ RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)
+            ).matrix,  # SIC2
+            (
+                RZ(float(+2 * pi / 3)) @ RX(-pi / 2) @ RZ(float(2 * arccos(1 / sqrt(3)) - pi)) @ RX(-pi / 2)
+            ).matrix,  # SIC3
         ]
     ),
-    dims=((2,), (2,)),
+    ((2,), (2,)),
+    1,
 )
 """The unitary operators that prepare the SIC states from |0> in the order SIC0, SIC1, SIC2, SIC3."""
 
 SIC_STATE_PREP_OPERATORS = {
-    "SIC0": SIC_PREP.data[0],
-    "SIC1": SIC_PREP.data[1],
-    "SIC2": SIC_PREP.data[2],
-    "SIC3": SIC_PREP.data[3],
+    "SIC0": SIC_PREP.matrix[0],
+    "SIC1": SIC_PREP.matrix[1],
+    "SIC2": SIC_PREP.matrix[2],
+    "SIC3": SIC_PREP.matrix[3],
 }
 """The unitary operators that prepare the SIC states from |0>."""
 
-PAULI_PREP = Unitary(
-    data=jnp.array(
+PAULI_PREP = Unitary.from_matrix(
+    jnp.array(
         [
-            RY(pi / 2).data,  # X+
-            RY(-pi / 2).data,  # X-
-            RX(-pi / 2).data,  # Y+
-            RX(pi / 2).data,  # Y-
-            I.data,  # Z+
-            RX(pi).data,  # Z-
+            RY(pi / 2).matrix,  # X+
+            RY(-pi / 2).matrix,  # X-
+            RX(-pi / 2).matrix,  # Y+
+            RX(pi / 2).matrix,  # Y-
+            I.matrix,  # Z+
+            RX(pi).matrix,  # Z-
         ]
     ),
-    dims=((2,), (2,)),
+    ((2,), (2,)),
+    1,
 )
 """The unitary operators that prepare the Pauli states from |0> in the order X+, X-, Y+, Y-, Z+, Z-."""
 
 PAULI_STATE_PREP_OPERATORS = {
-    "X+": PAULI_PREP.data[0],
-    "X-": PAULI_PREP.data[1],
-    "Y+": PAULI_PREP.data[2],
-    "Y-": PAULI_PREP.data[3],
-    "Z+": PAULI_PREP.data[4],
-    "Z-": PAULI_PREP.data[5],
+    "X+": PAULI_PREP.matrix[0],
+    "X-": PAULI_PREP.matrix[1],
+    "Y+": PAULI_PREP.matrix[2],
+    "Y-": PAULI_PREP.matrix[3],
+    "Z+": PAULI_PREP.matrix[4],
+    "Z-": PAULI_PREP.matrix[5],
 }
 """The unitary operators that prepare the Pauli states from |0>."""
 
 
 # Ensembles and Groups
-PAULI_ENSEMBLE = PAULIS = Unitary(data=jnp.asarray([I.data, X.data, Y.data, Z.data], dtype=complex), dims=((2,), (2,)))
+PAULI_ENSEMBLE = PAULIS = Unitary.from_matrix(
+    jnp.asarray([I.matrix, X.matrix, Y.matrix, Z.matrix], dtype=complex), ((2,), (2,)), 1
+)
 """The ensemble of Pauli operators."""
 
-TETRAHEDRAL_ENSEMBLE = Unitary(
-    data=jnp.asarray(
+TETRAHEDRAL_ENSEMBLE = Unitary.from_matrix(
+    jnp.asarray(
         [
-            I.data,
-            X.data,
-            (Z @ X).data,  # Y
-            Z.data,
-            (RX(+pi / 2) @ RZ(+pi / 2)).data,
-            (RX(+pi / 2) @ RZ(-pi / 2)).data,
-            (RX(-pi / 2) @ RZ(+pi / 2)).data,
-            (RX(-pi / 2) @ RZ(-pi / 2)).data,
-            (RZ(+pi / 2) @ RX(+pi / 2)).data,
-            (RZ(+pi / 2) @ RX(-pi / 2)).data,
-            (RZ(-pi / 2) @ RX(+pi / 2)).data,
-            (RZ(-pi / 2) @ RX(-pi / 2)).data,
+            I.matrix,
+            X.matrix,
+            (Z @ X).matrix,  # Y
+            Z.matrix,
+            (RX(+pi / 2) @ RZ(+pi / 2)).matrix,
+            (RX(+pi / 2) @ RZ(-pi / 2)).matrix,
+            (RX(-pi / 2) @ RZ(+pi / 2)).matrix,
+            (RX(-pi / 2) @ RZ(-pi / 2)).matrix,
+            (RZ(+pi / 2) @ RX(+pi / 2)).matrix,
+            (RZ(+pi / 2) @ RX(-pi / 2)).matrix,
+            (RZ(-pi / 2) @ RX(+pi / 2)).matrix,
+            (RZ(-pi / 2) @ RX(-pi / 2)).matrix,
         ],
         dtype=complex,
     ),
-    dims=((2,), (2,)),
+    ((2,), (2,)),
+    1,
 )
 """The tetrahedral ensemble of operators."""
 
-CLIFFORD_ENSEMBLE = OCTAHEDRAL_ENSEMBLE = Unitary(
-    data=jnp.asarray(
+CLIFFORD_ENSEMBLE = OCTAHEDRAL_ENSEMBLE = Unitary.from_matrix(
+    jnp.asarray(
         [
             # 0: Identity
-            I.data,
+            I.matrix,
             # 1..3: Paulis
-            X.data,
-            (Z @ X).data,  # Y
-            Z.data,
+            X.matrix,
+            (Z @ X).matrix,  # Y
+            Z.matrix,
             # sX, sZ
-            RX(+pi / 2).data,
-            RX(-pi / 2).data,
-            RZ(+pi / 2).data,
-            RZ(-pi / 2).data,
+            RX(+pi / 2).matrix,
+            RX(-pi / 2).matrix,
+            RZ(+pi / 2).matrix,
+            RZ(-pi / 2).matrix,
             # ZsX, XsZ
-            (Z @ RX(+pi / 2)).data,
-            (Z @ RX(-pi / 2)).data,
-            (X @ RZ(+pi / 2)).data,
-            (X @ RZ(-pi / 2)).data,
+            (Z @ RX(+pi / 2)).matrix,
+            (Z @ RX(-pi / 2)).matrix,
+            (X @ RZ(+pi / 2)).matrix,
+            (X @ RZ(-pi / 2)).matrix,
             # sZsX
-            (RX(+pi / 2) @ RZ(+pi / 2)).data,
-            (RX(+pi / 2) @ RZ(-pi / 2)).data,
-            (RX(-pi / 2) @ RZ(+pi / 2)).data,
-            (RX(-pi / 2) @ RZ(-pi / 2)).data,
-            (RZ(+pi / 2) @ RX(+pi / 2)).data,
-            (RZ(+pi / 2) @ RX(-pi / 2)).data,
-            (RZ(-pi / 2) @ RX(+pi / 2)).data,
-            (RZ(-pi / 2) @ RX(-pi / 2)).data,
+            (RX(+pi / 2) @ RZ(+pi / 2)).matrix,
+            (RX(+pi / 2) @ RZ(-pi / 2)).matrix,
+            (RX(-pi / 2) @ RZ(+pi / 2)).matrix,
+            (RX(-pi / 2) @ RZ(-pi / 2)).matrix,
+            (RZ(+pi / 2) @ RX(+pi / 2)).matrix,
+            (RZ(+pi / 2) @ RX(-pi / 2)).matrix,
+            (RZ(-pi / 2) @ RX(+pi / 2)).matrix,
+            (RZ(-pi / 2) @ RX(-pi / 2)).matrix,
             # sZsXsZ
-            (RZ(+pi / 2) @ RX(+pi / 2) @ RZ(-pi / 2)).data,  # sY
-            (RZ(-pi / 2) @ RX(+pi / 2) @ RZ(-pi / 2)).data,  # -H
-            (RZ(+pi / 2) @ RX(-pi / 2) @ RZ(-pi / 2)).data,  # -sY
-            (RZ(-pi / 2) @ RX(-pi / 2) @ RZ(-pi / 2)).data,  # H
+            (RZ(+pi / 2) @ RX(+pi / 2) @ RZ(-pi / 2)).matrix,  # sY
+            (RZ(-pi / 2) @ RX(+pi / 2) @ RZ(-pi / 2)).matrix,  # -H
+            (RZ(+pi / 2) @ RX(-pi / 2) @ RZ(-pi / 2)).matrix,  # -sY
+            (RZ(-pi / 2) @ RX(-pi / 2) @ RZ(-pi / 2)).matrix,  # H
         ],
         dtype=complex,
     ),
-    dims=((2,), (2,)),
+    ((2,), (2,)),
+    1,
 )
 """The ensemble of single-qubit Clifford operators."""
 
@@ -212,7 +222,7 @@ def _generate_binary_icosahedral_group() -> Unitary:
     )
 
     icosahedral_unitaries = jnp.array([quaternion_to_unitary(*q) for q in icosahedral_quaternions])
-    return Unitary(data=icosahedral_unitaries, dims=((2,), (2,)))
+    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)), 1)
 
 
 @cache
@@ -259,7 +269,7 @@ def _generate_icosahedral_rotation_group() -> Unitary:
     )
 
     icosahedral_unitaries = jnp.array([quaternion_to_unitary(*q) for q in icosahedral_quaternions])
-    return Unitary(data=icosahedral_unitaries, dims=((2,), (2,)))
+    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)), 1)
 
 
 ICOSAHEDRAL_ENSEMBLE = ICOSAHEDRAL_GROUP = _generate_icosahedral_rotation_group()
@@ -287,7 +297,7 @@ def n_qubit_pauli_operators(n: int = 1) -> Unitary:
 
     # Build tensor products recursively
 
-    paulis_1q = [I.data, X.data, Y.data, Z.data]
+    paulis_1q = [I.matrix, X.matrix, Y.matrix, Z.matrix]
     n_qubit_paulis = []
 
     for pauli_tuple in product(paulis_1q, repeat=n):
@@ -295,4 +305,4 @@ def n_qubit_pauli_operators(n: int = 1) -> Unitary:
         result = reduce(jnp.kron, pauli_tuple)
         n_qubit_paulis.append(result)
 
-    return Unitary(data=jnp.array(n_qubit_paulis, dtype=complex), dims=((2,) * n, (2,) * n))
+    return Unitary.from_matrix(jnp.array(n_qubit_paulis, dtype=complex), ((2,) * n, (2,) * n), 1)

@@ -156,13 +156,30 @@ Qutrit: 3-dimensional qubit
 Quart: 4-dimensional qubit
 Qudit: d-dimensional qubit
 
+#### Data Representation: Tensor Format
 
-1. **State Vectors**: Column vectors with shape `(prod(dims),)`
-2. **Density Matrices**: Square matrices with shape `(prod(dims), prod(dims))`
-3. **Unitaries**: Square matrices with shape `(prod(dims), prod(dims))`
-4. **Kraus Operators**: List/array of matrices
-5. **Superoperators**: Matrices with shape `(prod(dims)**2, prod(dims)**2)`
-6. **Choi Matrices**: Matrices with shape `(prod(dims)**2, prod(dims)**2)`
+All quantum objects store their data in **tensor format**, preserving the structure of individual qudits. This enables efficient tensor network operations and makes qudit indexing natural. The `.matrix` property provides the flattened matrix representation when needed.
+
+1. **State Vectors**: Tensor with shape `(*ensemble, d0, d1, ...)` where each `di` is a qudit dimension
+   - Example: 2-qubit state has shape `(2, 2)`
+   - `.matrix` returns shape `(*ensemble, prod(dims))`
+
+2. **Density Matrices**: Tensor with shape `(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`
+   - Example: 2-qubit density matrix has shape `(2, 2, 2, 2)`
+   - `.matrix` returns shape `(*ensemble, prod(dims), prod(dims))`
+
+3. **Unitaries/Operators**: Tensor with shape `(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`
+   - Example: 2-qubit unitary has shape `(2, 2, 2, 2)`
+   - `.matrix` returns shape `(*ensemble, prod(dims_out), prod(dims_in))`
+
+4. **Kraus Maps**: Tensor with shape `(*ensemble, num_kraus, d0_out, d1_out, ..., d0_in, d1_in, ...)`
+   - Example: single-qubit Kraus map with 4 operators has shape `(4, 2, 2)`
+   - `.matrix` returns shape `(*ensemble, num_kraus, d_out, d_in)`
+
+5. **Superoperators** (SuperOp, Choi, PauliLiouville): Tensor with 4 groups of dimensions:
+   `(*ensemble, d0_out_bra, ..., d0_out_ket, ..., d0_in_bra, ..., d0_in_ket, ...)`
+   - Example: single-qubit superoperator has shape `(2, 2, 2, 2)`
+   - `.matrix` returns shape `(*ensemble, prod(dims_out)**2, prod(dims_in)**2)`
 
 ## Common Tasks
 

@@ -50,8 +50,8 @@ def test_fidelity_pure_states(seed, num_qubits):
     phi = phi / jnp.linalg.norm(phi)
 
     # Convert to JAX arrays
-    psi_jax = StateVector(data=jnp.array(psi), dims=(2,) * num_qubits)
-    phi_jax = StateVector(data=jnp.array(phi), dims=(2,) * num_qubits)
+    psi_jax = StateVector.from_matrix(jnp.array(psi), (2,) * num_qubits, 0)
+    phi_jax = StateVector.from_matrix(jnp.array(phi), (2,) * num_qubits, 0)
 
     # Our fidelity is the square of the standard definition used in qutip
     fid_qutip = qutip.fidelity(qutip.Qobj(psi[:, jnp.newaxis]), qutip.Qobj(phi[:, jnp.newaxis])) ** 2
@@ -77,8 +77,8 @@ def test_fidelity_density_matrices(seed, num_qubits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    rho_jax = DensityMatrix(data=jnp.array(rho), dims=(2,) * num_qubits)
-    sigma_jax = DensityMatrix(data=jnp.array(sigma), dims=(2,) * num_qubits)
+    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (2,) * num_qubits, 0)
+    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (2,) * num_qubits, 0)
 
     # Compute fidelities
     # Our fidelity is the square of the standard definition used in qutip
@@ -103,8 +103,8 @@ def test_fidelity_mixed_pure_density(seed, num_qubits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    psi_jax = StateVector(data=jnp.array(psi), dims=(2,) * num_qubits)
-    sigma_jax = DensityMatrix(data=jnp.array(sigma), dims=(2,) * num_qubits)
+    psi_jax = StateVector.from_matrix(jnp.array(psi), (2,) * num_qubits, 0)
+    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (2,) * num_qubits, 0)
 
     # Compute fidelities
     # Our fidelity is the square of the standard definition used in qutip
@@ -125,7 +125,7 @@ def test_fidelity_self_is_one(seed, num_qubits):
     rho = A @ A.conj().T
     rho = rho / jnp.trace(rho)
 
-    rho_jax = DensityMatrix(data=jnp.array(rho), dims=(2,) * num_qubits)
+    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (2,) * num_qubits, 0)
     fid_jax = float(fidelity(rho_jax, rho_jax))
 
     assert jnp.isclose(fid_jax, 1.0, atol=1e-6)
@@ -202,7 +202,7 @@ def test_process_fidelity_unitaries(seed, num_qubits):
 
     # Check process fidelity against identity channel
     Identity_mat = jnp.eye(d)
-    choi_I = unitary_to_choi(Unitary(data=Identity_mat, dims=dims))
+    choi_I = unitary_to_choi(Unitary.from_matrix(Identity_mat, dims, 0))
     fid_identity_jax = float(process_fidelity(choi_U, choi_I))
     fid_identity_qutip = qutip.process_fidelity(
         U._to_qobj(),
@@ -245,7 +245,7 @@ def test_process_fidelity_random_maps(seed, num_qubits):
 
     # Check process fidelity against identity channel
     Identity_mat = jnp.eye(d)
-    choi_I = unitary_to_choi(Unitary(data=Identity_mat, dims=dims))
+    choi_I = unitary_to_choi(Unitary.from_matrix(Identity_mat, dims, 0))
     fid_identity_jax = float(process_fidelity(choi_U_jax, choi_I))
     fid_identity_qutip = qutip.process_fidelity(
         choi_U_jax._to_qobj(),

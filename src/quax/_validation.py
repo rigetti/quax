@@ -57,15 +57,15 @@ def is_one_design(ensemble: Unitary, atol: float = 1e-2) -> jax.Array:
     if ensemble.dims != ((2,), (2,)):
         raise ValueError("Only supports 1-qubit unitaries with dims ((2,), (2,)).")
 
-    unitaries = ensemble.data
-    # Accept either (n,2,2) or (...,2,2) and flatten batch dims:
+    unitaries = ensemble.matrix
+    # Accept either (n,2,2) or (...,2,2) and flatten ensemble dims:
     unitaries = unitaries.reshape((-1, 2, 2))  # (n,2,2)
 
     # Conjugate: U P U† for each unitary and each Pauli
     # U: (n,a,b), P: (p,b,c), U†: (n,c,d) -> out: (n,p,a,d)
     unitaries_dag = jnp.conj(jnp.swapaxes(unitaries, -1, -2))
     # Only use X, Y, Z Paulis (ignore I)
-    twirled = jnp.einsum("nab,pbc,ncd->npad", unitaries, PAULI_ENSEMBLE.data[1:], unitaries_dag)  # (n,3,2,2)
+    twirled = jnp.einsum("nab,pbc,ncd->npad", unitaries, PAULI_ENSEMBLE.matrix[1:], unitaries_dag)  # (n,3,2,2)
 
     # Average over ensemble: (3,2,2)
     avg = jnp.mean(twirled, axis=0)
@@ -88,7 +88,7 @@ def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> jax.Array:
     if ensemble.dims != ((2,), (2,)):
         raise ValueError("Only supports 1-qubit unitaries with dims ((2,), (2,)).")
 
-    # unitaries = ensemble.data.reshape((-1, 2, 2))  # (N,2,2)
+    # unitaries = ensemble.matrix.reshape((-1, 2, 2))  # (N,2,2)
     ensemble_axes = ensemble.ensemble_size
     N = reduce(mul, ensemble_axes)
     if N <= 1:
@@ -96,7 +96,7 @@ def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> jax.Array:
 
     # ----- Analytic Haar second moment M_haar -----
     I4 = jnp.eye(4, dtype=complex)
-    S = SWAP.data
+    S = SWAP.matrix
 
     P_sym = 0.5 * (I4 + S)
     P_asym = 0.5 * (I4 - S)
@@ -114,7 +114,7 @@ def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> jax.Array:
 
     # S(U) = (U2) ⊗ (U2*)  -> (N,16,16)
     # (your code used conj, not conjugate-transpose, which matches the standard Liouville construction)
-    su = (u2 | u2.conj()).data
+    su = (u2 | u2.conj()).matrix
     # SU = _kron2_batch(U2, jnp.conj(U2))
 
     M_ens = jnp.mean(su, axis=list(range(len(ensemble_axes))))  # (16,16)
@@ -164,7 +164,7 @@ def is_trace_preserving(superoperator: SuperOperator):
     choi = to_choi(superoperator)
     indices = tuple(range(len(choi.dims[0])))
     id_iff_tp = partial_trace(choi, indices=indices)  # expected (..., d, d)
-    return is_identity_matrix(id_iff_tp.data)
+    return is_identity_matrix(id_iff_tp.matrix)
 
 
 @jax.jit
@@ -178,7 +178,7 @@ def is_completely_positive(superoperator: SuperOperator):
     :return: (...) bool
     """
     choi = to_choi(superoperator)
-    return is_positive_semidefinite_matrix(choi.data)
+    return is_positive_semidefinite_matrix(choi.matrix)
 
 
 @jax.jit

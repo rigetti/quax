@@ -47,8 +47,8 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
     t2 = 1 / (1 / tphi + 1 / (2 * t1))
     e2 = jnp.exp(-duration / t2)
 
-    return Choi(
-        data=jnp.array(
+    return Choi.from_matrix(
+        jnp.array(
             [
                 [1, 0, 0, e2],
                 [0, 0, 0, 0],
@@ -57,7 +57,8 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
             ],
             dtype=jnp.complex64,
         ),
-        dims=((2,), (2,)),
+        ((2,), (2,)),
+        0,
     )
 
 
@@ -101,7 +102,7 @@ def depolarizing_channel_superoperator(depolarizing_prob: float, num_qubits: int
 
     depolarizing_super_data = (1 - depolarizing_prob) * identity_super + depolarizing_prob * max_mixed_super
     dims = (tuple([2] * num_qubits), tuple([2] * num_qubits))
-    return SuperOp(data=depolarizing_super_data, dims=dims)
+    return SuperOp.from_matrix(depolarizing_super_data, dims, 0)
 
 
 @jax.custom_vjp
@@ -122,21 +123,21 @@ def fractional_unitary_power(unitary: Unitary, exponent: float) -> Unitary:
     :param exponent: The exponent (e.g., 1/n for the n-th root).
     :return: The matrix U^exponent as a Unitary object.
     """
-    eigvals, eigvecs = jnp.linalg.eig(unitary.data)
+    eigvals, eigvecs = jnp.linalg.eig(unitary.matrix)
     fractional_eigvals = jnp.power(eigvals, exponent)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ jnp.linalg.inv(eigvecs)
-    return Unitary(data=result_data, dims=unitary.dims)
+    return Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
 
 
 def _fractional_unitary_power_fwd(unitary: Unitary, exponent: float):
     """Forward pass: compute U^exponent and save values for backward pass."""
-    eigvals, eigvecs = jnp.linalg.eig(unitary.data)
+    eigvals, eigvecs = jnp.linalg.eig(unitary.matrix)
     fractional_eigvals = jnp.power(eigvals, exponent)
     V_inv = jnp.linalg.inv(eigvecs)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ V_inv
-    result = Unitary(data=result_data, dims=unitary.dims)
+    result = Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
     # Save for backward pass
-    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims)
+    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims, unitary.num_ensemble_dims)
 
 
 def _fractional_unitary_power_bwd(residuals, g: Unitary):
@@ -147,13 +148,13 @@ def _fractional_unitary_power_bwd(residuals, g: Unitary):
 
     We compute this using a more efficient formulation with eigenvalues.
     """
-    eigvals, eigvecs, V_inv, exponent, dims = residuals
+    eigvals, eigvecs, V_inv, exponent, dims, num_ensemble_dims = residuals
 
     # g is the gradient w.r.t. output U^α, as a Unitary object
     # We need to compute gradient w.r.t. input U
 
     # Transform g to eigenspace: G = V^(-1) @ g @ V
-    G = V_inv @ g.data @ eigvecs
+    G = V_inv @ g.matrix @ eigvecs
 
     # Compute gradient in eigenspace using Loewner matrix
     # For diagonal matrices, D[diag(λ)^α] @ diag(δλ) involves (λ_i^α - λ_j^α)/(λ_i - λ_j)
@@ -177,7 +178,7 @@ def _fractional_unitary_power_bwd(residuals, g: Unitary):
 
     # Transform back to original space
     grad_unitary_data = eigvecs @ G_eigen @ V_inv
-    grad_unitary = Unitary(data=grad_unitary_data, dims=dims)
+    grad_unitary = Unitary.from_matrix(grad_unitary_data, dims, num_ensemble_dims)
 
     return (grad_unitary, None)  # None for exponent (not differentiable)
 
@@ -247,8 +248,8 @@ def bit_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus(data=jnp.sqrt(1.0 - p) * I.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p) * X.data, dims=((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p) * X.matrix, ((2,), (2,)), 0),
     )
 
 
@@ -261,8 +262,8 @@ def phase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus(data=jnp.sqrt(1.0 - p) * I.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p) * Z.data, dims=((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p) * Z.matrix, ((2,), (2,)), 0),
     )
 
 
@@ -275,8 +276,8 @@ def bitphase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus(data=jnp.sqrt(1.0 - p) * I.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p) * Y.data, dims=((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p) * Y.matrix, ((2,), (2,)), 0),
     )
 
 
@@ -291,8 +292,8 @@ def dephasing_operators(p: float) -> tuple[Kraus, Kraus]:
     sqrt_p2 = jnp.sqrt(p / 2.0)
     sqrt_1mp2 = jnp.sqrt(1.0 - p / 2.0)
     return (
-        Kraus(data=sqrt_1mp2 * I.data, dims=((2,), (2,))),
-        Kraus(data=sqrt_p2 * Z.data, dims=((2,), (2,))),
+        Kraus.from_matrix(sqrt_1mp2 * I.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(sqrt_p2 * Z.matrix, ((2,), (2,)), 0),
     )
 
 
@@ -306,10 +307,10 @@ def depolarizing_operators(p: float) -> tuple[Kraus, Kraus, Kraus, Kraus]:
     :return: Tuple of four 2x2 Kraus operators (K0, K1, K2, K3)
     """
     return (
-        Kraus(data=jnp.sqrt(1.0 - p) * I.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p / 3.0) * X.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p / 3.0) * Y.data, dims=((2,), (2,))),
-        Kraus(data=jnp.sqrt(p / 3.0) * Z.data, dims=((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * X.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Y.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Z.matrix, ((2,), (2,)), 0),
     )
 
 
@@ -322,8 +323,8 @@ def relaxation_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus(data=jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), dims=((2,), (2,))),
-        Kraus(data=jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), dims=((2,), (2,))),
+        Kraus.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), ((2,), (2,)), 0),
     )
 
 

@@ -46,8 +46,8 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
     and matching ensembles tensor element-wise.
     """
 
-    d0_in_dims, d0_out_dims = choi_0.dims
-    d1_in_dims, d1_out_dims = choi_1.dims
+    d0_out_dims, d0_in_dims = choi_0.dims
+    d1_out_dims, d1_in_dims = choi_1.dims
     d0_in = reduce(mul, d0_in_dims)
     d0_out = reduce(mul, d0_out_dims)
     d1_in = reduce(mul, d1_in_dims)
@@ -55,19 +55,22 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
 
     d_in = d0_in * d1_in
     d_out = d0_out * d1_out
-    new_dims = (d0_in_dims + d1_in_dims, d0_out_dims + d1_out_dims)
+    new_dims = (d0_out_dims + d1_out_dims, d0_in_dims + d1_in_dims)
 
     # In our convention, the Choi matrix J is such that J.reshape(d_out, d_in, d_out, d_in)
     # has indices (a, i, b, j) where ``|a><b|`` is in L(H_out) and ``|i><j|`` is in L(H_in).
     # This corresponds to J_{ai,bj}
-    J0 = choi_0.data.reshape(choi_0.ensemble_size + (d0_out, d0_in, d0_out, d0_in))
-    J1 = choi_1.data.reshape(choi_1.ensemble_size + (d1_out, d1_in, d1_out, d1_in))
+    J0 = choi_0.matrix.reshape(choi_0.ensemble_size + (d0_out, d0_in, d0_out, d0_in))
+    J1 = choi_1.matrix.reshape(choi_1.ensemble_size + (d1_out, d1_in, d1_out, d1_in))
 
-    # Build J_tensored_{a0a1,i0i1,b0b1,j0j1} using einsum with ellipsis for batch dims
+    # Build J_tensored_{a0a1,i0i1,b0b1,j0j1} using einsum with ellipsis for ensemble dims
     J = jnp.einsum("...aibj,...ckdl->...acikbdjl", J0, J1)
-    data = J.reshape(choi_0.ensemble_size + (d_out * d_in, d_out * d_in))
 
-    return Choi(data=data, dims=new_dims)
+    ensemble_size = jnp.broadcast_shapes(choi_0.ensemble_size, choi_1.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+    data = J.reshape(ensemble_size + (d_out * d_in, d_out * d_in))
+
+    return Choi.from_matrix(data, new_dims, num_ensemble_dims)
 
 
 def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
@@ -91,11 +94,11 @@ def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
     assert len(k1) > 0 and len(k2) > 0
     dims1 = k1[0].dims
     dims2 = k2[0].dims
-    # dims are (in, out), and each is a tuple of dimensions for subsystems
+    # dims are (out, in), and each is a tuple of dimensions for subsystems
     new_dims = (dims2[0] + dims1[0], dims2[1] + dims1[1])
 
-    kraus_data = [jnp.kron(k2l.data, k1j.data) for k1j in k1 for k2l in k2]
-    return [Kraus(data=kd, dims=new_dims) for kd in kraus_data]
+    kraus_data = [jnp.kron(k2l.matrix, k1j.matrix) for k1j in k1 for k2l in k2]
+    return [Kraus.from_matrix(kd, new_dims, 0) for kd in kraus_data]
 
 
 @jax.jit
@@ -107,8 +110,8 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
     """
     new_dims = (k1.dims[0] + k2.dims[0], k1.dims[1] + k2.dims[1])
 
-    K1 = k1.data
-    K2 = k2.data
+    K1 = k1.matrix
+    K2 = k2.matrix
 
     ensemble_size_1 = k1.ensemble_size
     ensemble_size_2 = k2.ensemble_size
@@ -121,16 +124,17 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
 
     # Broadcast ensemble dims to a common leading shape
     ensemble_size_12 = jnp.broadcast_shapes(ensemble_size_1, ensemble_size_2)
+    num_ensemble_dims = len(ensemble_size_12)
     K1b = jnp.broadcast_to(K1, ensemble_size_12 + (n1, d1_out, d1_in))
     K2b = jnp.broadcast_to(K2, ensemble_size_12 + (n2, d2_out, d2_in))
 
-    # Introduce pair axes i and j in a batch-safe way:
+    # Introduce pair axes i and j in an ensemble-safe way:
     # A: (..., N1, 1, d1_out, d1_in)
     # B: (..., 1, N2, d2_out, d2_in)
     A = K1b[..., :, None, :, :]
     B = K2b[..., None, :, :, :]
 
-    # Kronecker per (i,j), preserving batch dims:
+    # Kronecker per (i,j), preserving ensemble dims:
     # (..., N1, N2, d1_out, d1_in) x (..., N1, N2, d2_out, d2_in)
     # -> (..., N1, N2, d1_out, d2_out, d1_in, d2_in)
     tensor6 = jnp.einsum("...ijab,...ijcd->...ijacbd", A, B)
@@ -143,7 +147,7 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
     # Collapse (N1, N2) -> (N1*N2)
     tensor_data = tensor4.reshape(ensemble_size_12 + (n1 * n2, d_out, d_in))
 
-    return KrausMap(data=tensor_data, dims=new_dims)
+    return KrausMap.from_matrix(tensor_data, new_dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -165,11 +169,14 @@ def tensor_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     m, n = U1.d
     p, q = U2.d
 
-    # Use einsum with ellipsis to handle arbitrary batch dimensions
-    out = jnp.einsum("...ab,...cd->...acbd", U1.data, U2.data)
-    data = out.reshape(U1.ensemble_size + (m * p, n * q))
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
+    out = jnp.einsum("...ab,...cd->...acbd", U1.matrix, U2.matrix)
 
-    return Unitary(data=data, dims=new_dims)
+    ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+    data = out.reshape(ensemble_size + (m * p, n * q))
+
+    return Unitary.from_matrix(data, new_dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -231,12 +238,15 @@ def tensor_state_vector(psi1: StateVector, psi2: StateVector) -> StateVector:
     d1 = reduce(mul, psi1.dims)
     d2 = reduce(mul, psi2.dims)
 
-    # Use einsum with ellipsis to handle arbitrary batch dimensions
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
     # |ψ1⟩ ⊗ |ψ2⟩ -> concatenate the tensor factors
-    out = jnp.einsum("...a,...b->...ab", psi1.data, psi2.data)
-    data = out.reshape(psi1.ensemble_size + (d1 * d2,))
+    out = jnp.einsum("...a,...b->...ab", psi1.matrix, psi2.matrix)
 
-    return StateVector(data=data, dims=new_dims)
+    ensemble_size = jnp.broadcast_shapes(psi1.ensemble_size, psi2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+    data = out.reshape(ensemble_size + (d1 * d2,))
+
+    return StateVector.from_matrix(data, new_dims, num_ensemble_dims)
 
 
 @jax.jit
@@ -258,10 +268,13 @@ def tensor_density_matrix(rho1: DensityMatrix, rho2: DensityMatrix) -> DensityMa
     d1 = reduce(mul, rho1.dims)
     d2 = reduce(mul, rho2.dims)
 
-    # Use einsum with ellipsis to handle arbitrary batch dimensions
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
     # ρ1 ⊗ ρ2: (d1, d1) ⊗ (d2, d2) -> (d1*d2, d1*d2)
     # The tensor product of matrices is: (ρ1 ⊗ ρ2)_{(i1,i2),(j1,j2)} = ρ1_{i1,j1} * ρ2_{i2,j2}
-    out = jnp.einsum("...ab,...cd->...acbd", rho1.data, rho2.data)
-    data = out.reshape(rho1.ensemble_size + (d1 * d2, d1 * d2))
+    out = jnp.einsum("...ab,...cd->...acbd", rho1.matrix, rho2.matrix)
 
-    return DensityMatrix(data=data, dims=new_dims)
+    ensemble_size = jnp.broadcast_shapes(rho1.ensemble_size, rho2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+    data = out.reshape(ensemble_size + (d1 * d2, d1 * d2))
+
+    return DensityMatrix.from_matrix(data, new_dims, num_ensemble_dims)

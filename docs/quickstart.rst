@@ -52,19 +52,30 @@ Density Matrices
 Working with Gates
 ------------------
 
+Quax stores all quantum objects in **tensor format**, where each qudit dimension is preserved
+as a separate axis. This enables efficient tensor network operations. You can access the
+traditional matrix representation via the ``.matrix`` property.
+
 .. code-block:: python
 
    import jax.numpy as jnp
    import quax as qx
    
-   # Define Pauli matrices
-   X = jnp.array([[0, 1], [1, 0]], dtype=complex)
-   Y = jnp.array([[0, -1j], [1j, 0]], dtype=complex)
-   Z = jnp.array([[1, 0], [0, -1]], dtype=complex)
+   # Define Pauli matrices (in matrix form)
+   X_matrix = jnp.array([[0, 1], [1, 0]], dtype=complex)
+   Y_matrix = jnp.array([[0, -1j], [1j, 0]], dtype=complex)
+   Z_matrix = jnp.array([[1, 0], [0, -1]], dtype=complex)
    
-   # Create unitaries from matrices
-   U_x = qx.Unitary(data=X, dims=((2,), (2,)))
-   U_y = qx.Unitary(data=Y, dims=((2,), (2,)))
+   # Create unitaries from matrices using from_matrix
+   U_x = qx.Unitary.from_matrix(X_matrix, dims=((2,), (2,)))
+   U_y = qx.Unitary.from_matrix(Y_matrix, dims=((2,), (2,)))
+   
+   # Or create directly in tensor form (shape matches dims)
+   # For a single qubit: data shape is (d_out, d_in) = (2, 2)
+   U_z = qx.Unitary(data=Z_matrix, num_ensemble_dims=0)  # Already tensor-shaped
+   
+   # Access the matrix representation
+   print(U_x.matrix)  # Shape: (2, 2)
 
 Superoperator Conversions
 --------------------------

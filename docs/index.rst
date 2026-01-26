@@ -41,6 +41,7 @@ Overview
 
 Quax provides JAX-based quantum operator transformations with support for:
 
+* **Tensor-native data representation** - All quantum objects stored in tensor format for efficient operations
 * **Multiple quantum state representations** - State vectors and density matrices
 * **Multiple superoperator representations** - Kraus, Choi, Pauli-Liouville, and SuperOp
 * **Quantum channel operations** - Compose and apply quantum channels
@@ -53,6 +54,9 @@ Key Features
 
 High Performance
    Built on JAX for GPU/TPU acceleration and automatic differentiation
+
+Tensor-Native Storage
+   Data stored in tensor format preserving qudit structure; matrix views available via ``.matrix`` property
 
 Multiple Representations
    Seamlessly convert between different quantum operator representations
