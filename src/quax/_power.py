@@ -62,7 +62,7 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
 
     Used for states, unitaries, and integer powers of superoperators.
 
-    :param matrix: Matrix or batch of matrices with shape (..., n, n)
+    :param matrix: Matrix or ensemble of matrices with shape (..., n, n)
     :param power: The power to raise the matrix to
     :return: Matrix power with same shape as input
     """
@@ -91,7 +91,7 @@ def _matrix_power_via_lindbladian(matrix: Array, power: float) -> Array:
     For a channel Φ that can be written as Φ = exp(t·ℒ) for some generator ℒ,
     the fractional power is Φ^α = exp(α·t·ℒ) = exp(α·log(Φ)).
 
-    :param matrix: Matrix or batch of matrices with shape (..., n, n)
+    :param matrix: Matrix or ensemble of matrices with shape (..., n, n)
     :param power: The power to raise the matrix to
     :return: Matrix power with same shape as input
     """
@@ -147,8 +147,8 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
     :param power: The power to raise the superoperator to.
     :return: The superoperator raised to the specified power.
     """
-    powered_data = _matrix_power_via_eig(superop.data, power)
-    return SuperOp(data=powered_data, dims=superop.dims)
+    powered_data = _matrix_power_via_eig(superop.matrix, power)
+    return SuperOp.from_matrix(powered_data, superop.dims, superop.num_ensemble_dims)
 
 
 @jax.jit
@@ -164,8 +164,8 @@ def power_pauli_liouville(pauli_liouville: PauliLiouville, power: float) -> Paul
     :param power: The power to raise the Pauli-Liouville matrix to.
     :return: The Pauli-Liouville matrix raised to the specified power.
     """
-    powered_data = _matrix_power_via_eig(pauli_liouville.data, power)
-    return PauliLiouville(data=powered_data, dims=pauli_liouville.dims)
+    powered_data = _matrix_power_via_eig(pauli_liouville.matrix, power)
+    return PauliLiouville.from_matrix(powered_data, pauli_liouville.dims, pauli_liouville.num_ensemble_dims)
 
 
 @jax.jit
@@ -199,8 +199,8 @@ def density_matrix_power(density_matrix: DensityMatrix, power: float) -> Density
     :param power: The fractional power to raise the density matrix to.
     :return: The density matrix raised to the specified fractional power.
     """
-    powered_data = _matrix_power_via_eig(density_matrix.data, power)
-    return DensityMatrix(data=powered_data, dims=density_matrix.dims)
+    powered_data = _matrix_power_via_eig(density_matrix.matrix, power)
+    return DensityMatrix.from_matrix(powered_data, density_matrix.dims, density_matrix.num_ensemble_dims)
 
 
 @jax.jit
@@ -216,13 +216,13 @@ def state_vector_power(state_vector: StateVector, power: float) -> StateVector:
     :return: The state vector with elements raised to the specified power (normalized).
     """
     # Element-wise power
-    powered_data = jnp.power(state_vector.data, power)
+    powered_data = jnp.power(state_vector.matrix, power)
 
     # Re-normalize to maintain unit norm
     norm = jnp.linalg.norm(powered_data, axis=-1, keepdims=True)
     normalized_data = powered_data / norm
 
-    return StateVector(data=normalized_data, dims=state_vector.dims)
+    return StateVector.from_matrix(normalized_data, state_vector.dims, state_vector.num_ensemble_dims)
 
 
 @jax.jit
@@ -234,8 +234,8 @@ def power_unitary(unitary: Unitary, power: float) -> Unitary:
     :param power: The power to raise the unitary to.
     :return: The unitary raised to the specified power.
     """
-    powered_data = _matrix_power_via_eig(unitary.data, power)
-    return Unitary(data=powered_data, dims=unitary.dims)
+    powered_data = _matrix_power_via_eig(unitary.matrix, power)
+    return Unitary.from_matrix(powered_data, unitary.dims, unitary.num_ensemble_dims)
 
 
 @jax.custom_vjp
@@ -256,21 +256,21 @@ def fractional_power_unitary(unitary: Unitary, exponent: float) -> Unitary:
     :param exponent: The exponent (e.g., 1/n for the n-th root).
     :return: The matrix U^exponent as a Unitary object.
     """
-    eigvals, eigvecs = jnp.linalg.eig(unitary.data)
+    eigvals, eigvecs = jnp.linalg.eig(unitary.matrix)
     fractional_eigvals = jnp.power(eigvals, exponent)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ jnp.linalg.inv(eigvecs)
-    return Unitary(data=result_data, dims=unitary.dims)
+    return Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
 
 
 def _fractional_power_unitary_fwd(unitary: Unitary, exponent: float):
     """Forward pass: compute U^exponent and save values for backward pass."""
-    eigvals, eigvecs = jnp.linalg.eig(unitary.data)
+    eigvals, eigvecs = jnp.linalg.eig(unitary.matrix)
     fractional_eigvals = jnp.power(eigvals, exponent)
     V_inv = jnp.linalg.inv(eigvecs)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ V_inv
-    result = Unitary(data=result_data, dims=unitary.dims)
+    result = Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
     # Save for backward pass
-    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims)
+    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims, unitary.num_ensemble_dims)
 
 
 def _fractional_power_unitary_bwd(residuals, g: Unitary):
@@ -281,13 +281,13 @@ def _fractional_power_unitary_bwd(residuals, g: Unitary):
 
     We compute this using a more efficient formulation with eigenvalues.
     """
-    eigvals, eigvecs, V_inv, exponent, dims = residuals
+    eigvals, eigvecs, V_inv, exponent, dims, num_ensemble_dims = residuals
 
     # g is the gradient w.r.t. output U^α, as a Unitary object
     # We need to compute gradient w.r.t. input U
 
     # Transform g to eigenspace: G = V^(-1) @ g @ V
-    G = V_inv @ g.data @ eigvecs
+    G = V_inv @ g.matrix @ eigvecs
 
     # Compute gradient in eigenspace using Loewner matrix
     # For diagonal matrices, D[diag(λ)^α] @ diag(δλ) involves (λ_i^α - λ_j^α)/(λ_i - λ_j)
@@ -311,7 +311,7 @@ def _fractional_power_unitary_bwd(residuals, g: Unitary):
 
     # Transform back to original space
     grad_unitary_data = eigvecs @ G_eigen @ V_inv
-    grad_unitary = Unitary(data=grad_unitary_data, dims=dims)
+    grad_unitary = Unitary.from_matrix(grad_unitary_data, dims, num_ensemble_dims)
 
     return (grad_unitary, None)  # None for exponent (not differentiable)
 

@@ -41,8 +41,7 @@ Further references include:
 
 """
 
-from functools import reduce
-from operator import mul
+import string
 from typing import Tuple
 
 import jax.numpy as jnp
@@ -64,13 +63,14 @@ def partial_trace(rho: DensityMatrix, indices: Tuple[int, ...]):
 
         ρ_a = Tr_b(ρ)
 
-    :param rho: 2D array, the matrix to trace.
-    :param indices: An tuple of indices of the spaces to keep after being traced. For instance,
-                 if the space is A x B x C x D and we want to trace out B and D, keep = [0, 2].
-    :return:  ρ_a, a 2D array i.e. the traced matrix
+    :param rho: DensityMatrix to trace. The tensor data has shape
+                (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...).
+    :param indices: A tuple of indices of the spaces to keep after being traced. For instance,
+                 if the space is A x B x C x D and we want to trace out B and D, indices = (0, 2).
+    :return: ρ_a, the traced DensityMatrix
     """
-    # Dimension handling and validation (static)
-    dims: Tuple[int, ...] = rho.dims  # e.g. (2,2,4)
+    # Dimension handling and validation
+    dims: Tuple[int, ...] = rho.dims  # e.g. (2, 2, 4)
     n = len(dims)
 
     if len(indices) != len(set(indices)):
@@ -79,31 +79,53 @@ def partial_trace(rho: DensityMatrix, indices: Tuple[int, ...]):
         raise IndexError(f"indices must be in [0, {n - 1}].")
 
     indices = tuple(sorted(indices))  # sort the indices
-    trace = tuple(i for i in range(n) if i not in indices)
+    trace_indices = tuple(i for i in range(n) if i not in indices)
 
-    if len(trace) == 0:
+    if len(trace_indices) == 0:
         return rho  # keep everything
 
-    d_keep = reduce(mul, [dims[i] for i in indices], 1)
-    d_trace = reduce(mul, [dims[i] for i in trace], 1)
+    # Work directly with tensor data: shape (*ensemble, d0_out, ..., dn_out, d0_in, ..., dn_in)
+    tensor = rho.data
+    num_ensemble = rho.num_ensemble_dims
 
-    # Permute axes to: keep_row, trace_row, keep_col, trace_col
-    perm = indices + trace + tuple(i + n for i in indices) + tuple(i + n for i in trace)
+    # Build axis permutation to group: ensemble, keep_out, trace_out, keep_in, trace_in
+    # Then contract trace_out with trace_in via einsum
+    out_axes = tuple(num_ensemble + i for i in indices)
+    trace_out_axes = tuple(num_ensemble + i for i in trace_indices)
+    in_axes = tuple(num_ensemble + n + i for i in indices)
+    trace_in_axes = tuple(num_ensemble + n + i for i in trace_indices)
+    ensemble_axes = tuple(range(num_ensemble))
 
-    new_subdims = tuple(dims[i] for i in indices)
+    # Permute to: ensemble, keep_out, trace_out, keep_in, trace_in
+    perm = ensemble_axes + out_axes + trace_out_axes + in_axes + trace_in_axes
+    tensor_perm = jnp.transpose(tensor, perm)
 
-    # Core math (jitted) -----------------
-    rho_nd = rho.data.reshape(dims + dims)
+    # Now shape is: (*ensemble, *keep_out_dims, *trace_out_dims, *keep_in_dims, *trace_in_dims)
+    # We need to contract trace_out with trace_in (diagonal elements)
+    # Build einsum string for the trace
+    n_keep = len(indices)
+    n_trace = len(trace_indices)
 
-    rho_perm = jnp.transpose(rho_nd, perm)
+    # Create einsum indices
+    # ensemble dims: a, b, c, ... (first num_ensemble)
+    # keep_out dims: i, j, k, ... (next n_keep)
+    # trace_out dims: p, q, r, ... (next n_trace)
+    # keep_in dims: same as keep_out (i, j, k, ...)
+    # trace_in dims: same as trace_out (p, q, r, ...) - these get contracted
 
-    # Group into (d_keep, d_trace, d_keep, d_trace)
-    rho_grp = rho_perm.reshape((d_keep, d_trace, d_keep, d_trace))
+    all_chars = string.ascii_lowercase
+    ensemble_chars = all_chars[:num_ensemble]
+    keep_chars = all_chars[num_ensemble : num_ensemble + n_keep]
+    trace_chars = all_chars[num_ensemble + n_keep : num_ensemble + n_keep + n_trace]
 
-    # Trace over the traced subsystem: sum over matching trace indices
-    # result shape: (d_keep, d_keep)
-    rho_red = jnp.trace(rho_grp, axis1=1, axis2=3)
-    return type(rho)(data=rho_red, dims=new_subdims)
+    # Input: ensemble + keep_out + trace_out + keep_in + trace_in
+    input_str = ensemble_chars + keep_chars + trace_chars + keep_chars + trace_chars
+    # Output: ensemble + keep_out + keep_in (trace dims are contracted)
+    output_str = ensemble_chars + keep_chars + keep_chars
+
+    result = jnp.einsum(f"{input_str}->{output_str}", tensor_perm)
+
+    return type(rho)(data=result, num_ensemble_dims=num_ensemble)
 
 
 def compute_kraus_observables_from_states(

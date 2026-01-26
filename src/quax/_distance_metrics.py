@@ -48,12 +48,12 @@ def fidelity(rho: State, sigma: State) -> Array:
     :return: Fidelity value in [0, 1]
     """
     # --- Convert to density matrices (batched) ---
-    rho_data = rho.data
+    rho_data = rho.matrix
     if isinstance(rho, StateVector):
         # (..., d) -> (..., d, d)
         rho_data = jnp.einsum("...i,...j->...ij", rho_data, jnp.conj(rho_data))
 
-    sigma_data = sigma.data
+    sigma_data = sigma.matrix
     if isinstance(sigma, StateVector):
         sigma_data = jnp.einsum("...i,...j->...ij", sigma_data, jnp.conj(sigma_data))
 
@@ -98,7 +98,7 @@ def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Arr
     # For matrices: einsum('...ij,...jk->...ik', E^H, F) then trace with '...ii'
     trace = jnp.einsum(
         "...ii",
-        jnp.einsum("...ij,...jk->...ik", jnp.moveaxis(unitary_e.data.conj(), -1, -2), unitary_f.data),
+        jnp.einsum("...ij,...jk->...ik", jnp.moveaxis(unitary_e.matrix.conj(), -1, -2), unitary_f.matrix),
     )
     return jnp.abs(trace / d) ** 2
 
@@ -134,16 +134,16 @@ def process_fidelity(
     choi_0 = to_choi(superoperator_0)
 
     d2 = choi_0.d2[0]
-    dims_in = choi_0.dims[0]
-    dims_out = choi_0.dims[1]
+    dims_out = choi_0.dims[0]
+    dims_in = choi_0.dims[1]
 
     if dims_out != dims_in:
         raise NotImplementedError("Process fidelity only implemented for dimension-preserving operators.")
 
     if superoperator_1 is None:
-        omega = jnp.eye(choi_0.d[0], dtype=choi_0.data.dtype).reshape(-1)
+        omega = jnp.eye(choi_0.d[0], dtype=choi_0.matrix.dtype).reshape(-1)
         id_choi_data = jnp.outer(omega, jnp.conj(omega))  # Tr = d
-        choi_1 = Choi(data=id_choi_data, dims=choi_0.dims)
+        choi_1 = Choi.from_matrix(id_choi_data, choi_0.dims, 0)
     else:
         choi_1 = to_choi(superoperator_1)
         if choi_1.dims != choi_0.dims:
@@ -152,9 +152,11 @@ def process_fidelity(
     # The definition of fidelity assumes trace 1 states. Choi matrices have trace d.
     # So we should normalize them before passing to fidelity.
 
-    # We treat J/d as a density matrix.
-    rho = DensityMatrix(data=choi_0.data, dims=choi_0.dims[0])
-    sigma = DensityMatrix(data=choi_1.data, dims=choi_1.dims[0])
+    # We treat J/d as a density matrix. The Choi matrix is (d_out^2 x d_in^2) and we
+    # treat it as a single-system density matrix with dimension d^2.
+    choi_dm_dims = (choi_0.d2[0],)  # e.g., (16,) for 2-qubit
+    rho = DensityMatrix.from_matrix(choi_0.matrix, choi_dm_dims, choi_0.num_ensemble_dims)
+    sigma = DensityMatrix.from_matrix(choi_1.matrix, choi_dm_dims, choi_1.num_ensemble_dims)
 
     # Compute state fidelity between normalized Choi matrices
     state_fid = fidelity(rho, sigma)

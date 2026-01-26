@@ -26,7 +26,7 @@ def promote_state_vector_to_density_matrix(
     :param state: State vector to promote.
     :return: Density matrix corresponding to the state vector.
     """
-    state_data = state.data
-    # Compute density matrix: ρ = |ψ⟩⟨ψ|
-    rho_data = jnp.einsum("...a,...b->...ab", state_data, jnp.conj(state_data))
-    return DensityMatrix(data=rho_data, dims=state.dims)
+    # Use matrix form to compute outer product: ρ = |ψ⟩⟨ψ|
+    state_vec = state.matrix  # shape (*ensemble, d)
+    rho_matrix = jnp.einsum("...a,...b->...ab", state_vec, jnp.conj(state_vec))
+    return DensityMatrix.from_matrix(rho_matrix, state.dims, state.num_ensemble_dims)

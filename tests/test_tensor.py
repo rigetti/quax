@@ -99,7 +99,8 @@ def test_tensor_superoperators(seed, num_qubits, size_a, size_b):
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
 
     # Use qt_super_tensor helper for broadcasting
-    qobj_tensored_ref = Choi(data=qt_super_tensor(qobj_a, qobj_b), dims=tensor_dims)
+    num_ensemble_dims = len(ensemble_size)
+    qobj_tensored_ref = Choi.from_matrix(qt_super_tensor(qobj_a, qobj_b), tensor_dims, num_ensemble_dims)
     assert qobj_tensored_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     # Tensor product chois
@@ -146,6 +147,7 @@ def test_tensor_unitaries(seed, num_qubits, size_a, size_b):
 
     # Generate two random unitaries
     dims = ((2,) * num_qubits, (2,) * num_qubits)
+    tensor_dims = ((2,) * num_qubits * 2, (2,) * num_qubits * 2)
     unitary_a = random_unitary(dims=dims, key=key1, size=size_a)
     unitary_b = random_unitary(dims=dims, key=key2, size=size_b)
 
@@ -156,7 +158,8 @@ def test_tensor_unitaries(seed, num_qubits, size_a, size_b):
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
 
     # Use qt_tensor helper for broadcasting
-    qobj_composed_ref = Unitary(data=qt_tensor(qobj_a, qobj_b), dims=dims)
+    num_ensemble_dims = len(ensemble_size)
+    qobj_composed_ref = Unitary.from_matrix(qt_tensor(qobj_a, qobj_b), tensor_dims, num_ensemble_dims)
     assert qobj_composed_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     tensored_unitaries = tensor_unitary(unitary_a, unitary_b)
@@ -190,7 +193,8 @@ def test_tensor_state_vectors(seed, num_qubits, size_a, size_b):
     tensored_data = qt_tensor(qobj_a, qobj_b)
     # Flatten the last dimension (d, d) -> (d*d,) for each element
     tensored_data = tensored_data.reshape(ensemble_size + (-1,))
-    qobj_tensored_ref = StateVector(data=tensored_data, dims=tensor_dims)
+    num_ensemble_dims = len(ensemble_size)
+    qobj_tensored_ref = StateVector.from_matrix(tensored_data, tensor_dims, num_ensemble_dims)
     assert qobj_tensored_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     tensored_states = tensor_state_vector(psi_a, psi_b)
@@ -223,7 +227,8 @@ def test_tensor_density_matrices(seed, num_qubits, size_a, size_b):
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
 
     # Use qt_tensor helper for broadcasting
-    qobj_tensored_ref = DensityMatrix(data=qt_tensor(qobj_a, qobj_b), dims=tensor_dims)
+    num_ensemble_dims = len(ensemble_size)
+    qobj_tensored_ref = DensityMatrix.from_matrix(qt_tensor(qobj_a, qobj_b), tensor_dims, num_ensemble_dims)
     assert qobj_tensored_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     tensored_states = tensor_density_matrix(rho_a, rho_b)

@@ -108,7 +108,7 @@ def random_superop_channels(random_choi_channels):
         # Reshape back to original ensemble shape
         superop_data = jnp.stack(superop_list).reshape(choi.ensemble_size + choi.d2)
 
-    return SuperOp(data=superop_data, dims=choi.dims)
+    return SuperOp.from_matrix(superop_data, choi.dims, len(choi.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -141,7 +141,7 @@ def random_kraus_channels(random_choi_channels):
         kraus_data = jnp.asarray([_to_kraus(qobj) for qobj in qobjs.flatten()])
         kraus_data = kraus_data.reshape(choi.ensemble_size + kraus_data.shape[-3:])
 
-    return KrausMap(data=kraus_data, dims=choi.dims)
+    return KrausMap.from_matrix(kraus_data, choi.dims, len(choi.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -158,11 +158,11 @@ def random_pauli_liouville_channels(random_choi_channels):
 
     if choi.ensemble_size == ():
         # Scalar case
-        pl_data = choi2pauli_liouville(choi.data)  # type: ignore
+        pl_data = choi2pauli_liouville(choi.matrix)  # type: ignore
     else:
         # Batched case - convert each element
-        flat_shape = (-1,) + choi.data.shape[-2:]
-        flat_choi = choi.data.reshape(flat_shape)
+        flat_shape = (-1,) + choi.matrix.shape[-2:]
+        flat_choi = choi.matrix.reshape(flat_shape)
 
         pl_list = []
         for i in range(flat_choi.shape[0]):
@@ -172,7 +172,7 @@ def random_pauli_liouville_channels(random_choi_channels):
         # Reshape back to original ensemble shape
         pl_data = jnp.stack(pl_list).reshape(choi.ensemble_size + flat_choi.shape[-2:])
 
-    return PauliLiouville(data=jnp.array(pl_data), dims=choi.dims)
+    return PauliLiouville.from_matrix(jnp.array(pl_data), choi.dims, len(choi.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -199,7 +199,7 @@ def random_unitaries_chois(random_unitaries):
         # Reshape back to original ensemble shape
         choi_data = jnp.stack(choi_list).reshape(unitary.ensemble_size + unitary.d2)
 
-    return Choi(data=choi_data, dims=unitary.dims)
+    return Choi.from_matrix(choi_data, unitary.dims, len(unitary.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -226,7 +226,7 @@ def random_unitaries_superops(random_unitaries):
         # Reshape back to original ensemble shape
         superop_data = jnp.stack(superop_list).reshape(unitary.ensemble_size + unitary.d2)
 
-    return SuperOp(data=superop_data, dims=unitary.dims)
+    return SuperOp.from_matrix(superop_data, unitary.dims, len(unitary.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -243,15 +243,15 @@ def random_unitaries_pauli_liouvilles(random_unitaries):
 
     if unitary.ensemble_size == ():
         # Scalar case
-        pauli_liouville_data = jnp.array(kraus2pauli_liouville([unitary.data]))
+        pauli_liouville_data = jnp.array(kraus2pauli_liouville([unitary.matrix]))
     else:
-        unitaries = unitary.data.reshape(-1, unitary.d[0], unitary.d[1])
+        unitaries = unitary.matrix.reshape(-1, unitary.d[0], unitary.d[1])
         pauli_liouville_data = [kraus2pauli_liouville([u]) for u in unitaries]
 
         # Reshape back to original ensemble shape
         pauli_liouville_data = jnp.stack(pauli_liouville_data).reshape(unitary.ensemble_size + unitary.d2)
 
-    return PauliLiouville(data=pauli_liouville_data, dims=unitary.dims)
+    return PauliLiouville.from_matrix(pauli_liouville_data, unitary.dims, len(unitary.ensemble_size))
 
 
 @pytest.fixture(scope="session")
@@ -282,4 +282,4 @@ def random_unitaries_kraus_maps(random_unitaries):
         # Reshape back to original ensemble shape
         kraus_data = kraus_list.reshape(unitary.ensemble_size + unitary.d2)
 
-    return KrausMap(data=kraus_data, dims=unitary.dims)
+    return KrausMap.from_matrix(kraus_data, unitary.dims, len(unitary.ensemble_size))

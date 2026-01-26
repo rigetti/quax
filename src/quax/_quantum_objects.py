@@ -35,18 +35,19 @@ class State:
     """Base class for a quantum state."""
 
     data: Array
-    """The operator or state."""
+    """The state tensor with shape (*ensemble, d0, d1, ...) for state vectors or
+    (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) for density matrices."""
 
-    dims: Tuple[int, ...]
-    """The dimensions of each qudit."""
+    num_ensemble_dims: int = 0
+    """The number of leading ensemble dimensions in the data array."""
 
     def __neg__(self) -> Self:
         """Multiply the unitary by -1."""
-        return type(self)(-self.data, self.dims)
+        return type(self)(-self.data, self.num_ensemble_dims)
 
     def __mul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
-        return type(self)(self.data * scalar, self.dims)
+        return type(self)(self.data * scalar, self.num_ensemble_dims)
 
     def __rmul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
@@ -87,16 +88,16 @@ class State:
         raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
 
     def tree_flatten(self):
-        return (self.data,), self.dims
+        return (self.data,), self.num_ensemble_dims
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         (data,) = children
-        return cls(data=data, dims=aux_data)
+        return cls(data=data, num_ensemble_dims=aux_data)
 
     def conj(self):
         """Complex conjugate of the states(s)"""
-        return type(self)(data=jnp.conjugate(self.data), dims=self.dims)
+        return type(self)(data=jnp.conjugate(self.data), num_ensemble_dims=self.num_ensemble_dims)
 
     @property
     def T(self):
@@ -107,6 +108,11 @@ class State:
     def h(self):
         """Hermitian conjugate of the operator(s)"""
         raise NotImplementedError(f"Hermitian conjugate not implemented for {type(self)}.")
+
+    @property
+    def dims(self) -> Tuple[int, ...]:
+        """The dimensions of each qudit, inferred from data shape."""
+        raise NotImplementedError("Subclasses must implement dims property.")
 
     @property
     def d(self) -> int:
@@ -121,6 +127,16 @@ class State:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
         raise NotImplementedError("Subclasses must implement ensemble_size property.")
 
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation of the state."""
+        raise NotImplementedError("Subclasses must implement matrix property.")
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> Self:
+        """Construct from matrix representation."""
+        raise NotImplementedError("Subclasses must implement from_matrix class method.")
+
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
@@ -128,18 +144,18 @@ class Operator:
     """Base class for a quantum operator."""
 
     data: Array
-    """The operator or state."""
+    """The operator tensor with shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)."""
 
-    dims: Tuple[Tuple[int, ...], Tuple[int, ...]]
-    """The (input, output) dimensions of each qudit."""
+    num_ensemble_dims: int = 0
+    """The number of leading ensemble dimensions in the data array."""
 
     def __neg__(self) -> Self:
         """Multiply the unitary by -1."""
-        return type(self)(-self.data, self.dims)
+        return type(self)(-self.data, self.num_ensemble_dims)
 
     def __mul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
-        return type(self)(self.data * scalar, self.dims)
+        return type(self)(self.data * scalar, self.num_ensemble_dims)
 
     def __rmul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
@@ -150,8 +166,8 @@ class Operator:
         # By default, only support integer exponents
         # matrix_power is not _correct_ for all operators
         if jnp.isclose(int(jnp.abs(exponent)), exponent):
-            new_data = jnp.linalg.matrix_power(self.data, exponent)
-            return type(self)(new_data, self.dims)
+            new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
+            return type(self).from_matrix(new_data, self.dims, self.num_ensemble_dims)
         else:
             raise TypeError(f"Exponent must be an integer, but got {type(exponent)}.")
 
@@ -186,27 +202,34 @@ class Operator:
         raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
 
     def tree_flatten(self):
-        return (self.data,), self.dims
+        return (self.data,), self.num_ensemble_dims
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         (data,) = children
-        return cls(data=data, dims=aux_data)
+        return cls(data=data, num_ensemble_dims=aux_data)
 
     def conj(self):
         """Complex conjugate of the operator(s)"""
-        return type(self)(data=jnp.conjugate(self.data), dims=self.dims)
+        return type(self)(data=jnp.conjugate(self.data), num_ensemble_dims=self.num_ensemble_dims)
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        raise NotImplementedError("Subclasses must implement dims property.")
 
     @property
     def T(self):
         """Transpose of the operator(s)"""
         # use the swapaxes function to swap the last two axes
-        return type(self)(data=jnp.swapaxes(self.data, -1, -2), dims=(self.dims[1], self.dims[0]))
+        matrix_t = jnp.swapaxes(self.matrix, -1, -2)
+        return type(self).from_matrix(matrix_t, (self.dims[1], self.dims[0]), self.num_ensemble_dims)
 
     @property
     def h(self):
         """Hermitian conjugate of the operator(s)"""
-        return type(self)(data=jnp.conjugate(jnp.swapaxes(self.data, -1, -2)), dims=(self.dims[1], self.dims[0]))
+        matrix_h = jnp.conjugate(jnp.swapaxes(self.matrix, -1, -2))
+        return type(self).from_matrix(matrix_h, (self.dims[1], self.dims[0]), self.num_ensemble_dims)
 
     @property
     def d(self) -> Tuple[int, int]:
@@ -219,20 +242,42 @@ class Operator:
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
         """Returns the size of the ensemble if the operator represents an ensemble of operators."""
-        if len(self.data.shape) > 2:
-            return self.data.shape[:-2]
-        else:
-            return ()
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation (*ensemble, d_out, d_in) of the operator."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        d_out = reduce(mul, qudit_shape[:n_qudits], 1)
+        d_in = reduce(mul, qudit_shape[n_qudits:], 1)
+        return self.data.reshape(ensemble_shape + (d_out, d_in))
+
+    @classmethod
+    def from_matrix(
+        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
+    ) -> Self:
+        """Construct from matrix representation.
+
+        :param matrix: Array with shape (*ensemble, d_out, d_in)
+        :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
+        :param num_ensemble_dims: Number of leading ensemble dimensions
+        :return: Operator with tensor data
+        """
+        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        tensor = matrix.reshape(ensemble_shape + dims[0] + dims[1])
+        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
 
     def __iter__(self) -> Iterator[Self]:
-        if self.data.ndim == 2:
+        if self.num_ensemble_dims == 0:
             raise TypeError(
-                "This Operator is not batched (data.ndim == 2), so it cannot be iterated. "
-                "If you intended a batch, make data shape (N, d_out, d_in) (or higher-rank)."
+                "This Operator is not ensembled (num_ensemble_dims == 0), so it cannot be iterated. "
+                "If you intended an ensemble, make data shape (N, d0_out, d1_out, ..., d0_in, d1_in, ...) (or higher-rank)."
             )
-        # iterate over axis 0 only; remaining batch axes (if any) remain on each item
+        # iterate over axis 0 only; remaining ensemble axes (if any) remain on each item
         for i in range(self.data.shape[0]):
-            yield type(self)(data=self.data[i], dims=self.dims)
+            yield type(self)(data=self.data[i], num_ensemble_dims=self.num_ensemble_dims - 1)
 
 
 # This class is basically for typing purposes
@@ -240,9 +285,44 @@ class Operator:
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class SuperOperator(Operator):
-    """Base class for a quantum superoperator."""
+    """Base class for a quantum superoperator.
 
-    pass
+    SuperOperators have a 4-group tensor structure:
+    (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
+            d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    """
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation (*ensemble, d_out^2, d_in^2) of the superoperator."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        # 4 groups of dimensions: out_bra, out_ket, in_bra, in_ket
+        n_qudits = len(qudit_shape) // 4
+        d_out_bra = reduce(mul, qudit_shape[:n_qudits], 1)
+        d_out_ket = reduce(mul, qudit_shape[n_qudits : 2 * n_qudits], 1)
+        d_in_bra = reduce(mul, qudit_shape[2 * n_qudits : 3 * n_qudits], 1)
+        d_in_ket = reduce(mul, qudit_shape[3 * n_qudits :], 1)
+        d_out = d_out_bra * d_out_ket
+        d_in = d_in_bra * d_in_ket
+        return self.data.reshape(ensemble_shape + (d_out, d_in))
+
+    @classmethod
+    def from_matrix(
+        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
+    ) -> Self:
+        """Construct from matrix representation.
+
+        :param matrix: Array with shape (*ensemble, d_out^2, d_in^2)
+        :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
+        :param num_ensemble_dims: Number of leading ensemble dimensions
+        :return: SuperOperator with tensor data
+        """
+        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        # Tensor shape is: out_bra_dims + out_ket_dims + in_bra_dims + in_ket_dims
+        tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
+        tensor = matrix.reshape(ensemble_shape + tensor_shape)
+        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
 
 
 # ---------- states ----------
@@ -251,15 +331,38 @@ class SuperOperator(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class StateVector(State):
-    """State vector |psi>, shape (d,) or (..., d)."""
+    """State vector |psi>, shape (*ensemble, d0, d1, ...) in tensor form or (*ensemble, d) in matrix form."""
+
+    @property
+    def dims(self) -> Tuple[int, ...]:
+        """The dimensions of each qudit, inferred from data shape."""
+        return self.data.shape[self.num_ensemble_dims :]
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
-        if len(self.data.shape) > 1:
-            return self.data.shape[:-1]
-        else:
-            return ()
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the vector representation (*ensemble, d) of the state."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        d = reduce(mul, qudit_shape, 1)
+        return self.data.reshape(ensemble_shape + (d,))
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> "StateVector":
+        """Construct from vector representation.
+
+        :param matrix: Array with shape (*ensemble, d) where d = prod(dims)
+        :param dims: Tuple of qudit dimensions (d0, d1, ...)
+        :param num_ensemble_dims: Number of leading ensemble dimensions
+        :return: StateVector with tensor data
+        """
+        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        tensor = matrix.reshape(ensemble_shape + dims)
+        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
 
     @property
     def T(self):
@@ -277,9 +380,11 @@ class StateVector(State):
         """Left multiply the state by another."""
         match other:
             case StateVector():  # <𝜓|𝜙> -> p
-                return jnp.einsum("...a,...a->...", self.data.conj(), other.data)
+                return jnp.einsum("...a,...a->...", self.matrix.conj(), other.matrix)
             case DensityMatrix():  #  <𝜓|𝜌 -> <𝜙|
-                return StateVector(data=jnp.einsum("...b,...ba->...a", self.data.conj(), other.data), dims=self.dims)
+                result = jnp.einsum("...b,...ba->...a", self.matrix.conj(), other.matrix)
+                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
+                return StateVector.from_matrix(result, self.dims, num_ensemble)
             case _:
                 return NotImplemented
 
@@ -328,21 +433,22 @@ class StateVector(State):
         import numpy as np
         import qutip as qt
 
-        dims = [list(self.dims), [1]]
+        dims = [list(self.dims), [1] * len(self.dims)]
+        matrix = self.matrix
 
         if self.ensemble_size == ():
             # Scalar case - return single Qobj
-            return qt.Qobj(self.data, dims=dims)
+            return qt.Qobj(np.asarray(matrix), dims=dims)
 
-        flat_shape = (-1,) + self.data.shape[-1:]
-        flat_unitary = self.data.reshape(flat_shape)
+        flat_shape = (-1,) + matrix.shape[-1:]
+        flat_vectors = np.asarray(matrix).reshape(flat_shape)
         qobjs = np.asarray(
             [
                 qt.Qobj(
-                    np.asarray(unitary),
+                    np.asarray(vec),
                     dims=dims,
                 )
-                for unitary in flat_unitary
+                for vec in flat_vectors
             ],
             dtype=object,
         )
@@ -352,28 +458,62 @@ class StateVector(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class DensityMatrix(State):
-    """Density matrix ρ, shape (d, d)."""
+    """Density matrix ρ, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
+    or (*ensemble, d, d) in matrix form."""
+
+    @property
+    def dims(self) -> Tuple[int, ...]:
+        """The dimensions of each qudit, inferred from data shape.
+
+        For DensityMatrix, dims returns just the qudit dimensions (same for in/out).
+        """
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        return qudit_shape[:n_qudits]
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
-        if len(self.data.shape) > 2:
-            return self.data.shape[:-2]
-        else:
-            return ()
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation (*ensemble, d, d) of the density matrix."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        d_out = reduce(mul, qudit_shape[:n_qudits], 1)
+        d_in = reduce(mul, qudit_shape[n_qudits:], 1)
+        return self.data.reshape(ensemble_shape + (d_out, d_in))
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> "DensityMatrix":
+        """Construct from matrix representation.
+
+        :param matrix: Array with shape (*ensemble, d, d) where d = prod(dims)
+        :param dims: Tuple of qudit dimensions (d0, d1, ...)
+        :param num_ensemble_dims: Number of leading ensemble dimensions
+        :return: DensityMatrix with tensor data
+        """
+        # For density matrices, dims_out = dims_in = dims
+        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        tensor = matrix.reshape(ensemble_shape + dims + dims)
+        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
 
     @property
     def T(self):
         """Transpose of the operator(s)"""
-        return type(self)(data=jnp.swapaxes(self.data, -1, -2), dims=(self.dims[1], self.dims[0]))
+        matrix_t = jnp.swapaxes(self.matrix, -1, -2)
+        return DensityMatrix.from_matrix(matrix_t, self.dims, self.num_ensemble_dims)
 
     @property
     def h(self):
         """Hermitian conjugate of the operator(s)"""
-        return type(self)(data=jnp.conjugate(jnp.swapaxes(self.data, -1, -2)), dims=(self.dims[1], self.dims[0]))
+        matrix_h = jnp.conjugate(jnp.swapaxes(self.matrix, -1, -2))
+        return DensityMatrix.from_matrix(matrix_h, self.dims, self.num_ensemble_dims)
 
     def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the density matrix using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the density matrix using eigendecomposition (ensemble-compatible)."""
         from ._power import density_matrix_power
 
         return density_matrix_power(self, exponent)
@@ -382,9 +522,13 @@ class DensityMatrix(State):
         """Left multiply the density matrix by another object."""
         match other:
             case StateVector():  # 𝜌|𝜓> -> |𝜙>
-                return StateVector(data=jnp.einsum("...ab,...b->...a", self.data, other.data), dims=other.dims)
+                result = jnp.einsum("...ab,...b->...a", self.matrix, other.matrix)
+                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
+                return StateVector.from_matrix(result, other.dims, num_ensemble)
             case DensityMatrix():  # 𝜌𝜎 -> 𝜏
-                return DensityMatrix(data=jnp.einsum("...ab,...bc->...ac", self.data, other.data), dims=self.dims)
+                result = jnp.einsum("...ab,...bc->...ac", self.matrix, other.matrix)
+                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
+                return DensityMatrix.from_matrix(result, self.dims, num_ensemble)
             case _:
                 return NotImplemented
 
@@ -435,14 +579,15 @@ class DensityMatrix(State):
 
         # Density matrices are operators: dims = [input_dims, output_dims] = [dims, dims]
         dims = [list(self.dims), list(self.dims)]  # operator on the same space :contentReference[oaicite:1]{index=1}
+        matrix = self.matrix
 
         if self.ensemble_size == ():
             # Scalar case - return single density-matrix Qobj
-            return qt.Qobj(np.asarray(self.data), dims=dims)
+            return qt.Qobj(np.asarray(matrix), dims=dims)
 
-        # Ensemble case - self.data has shape ensemble_size + (dim, dim)
-        flat_shape = (-1,) + self.data.shape[-2:]
-        flat_rhos = np.asarray(self.data).reshape(flat_shape)
+        # Ensemble case - matrix has shape ensemble_size + (dim, dim)
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_rhos = np.asarray(matrix).reshape(flat_shape)
 
         qobjs = np.asarray(
             [qt.Qobj(rho, dims=dims) for rho in flat_rhos],
@@ -457,7 +602,15 @@ class DensityMatrix(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Unitary(Operator):
-    """Unitary operator U, shape (d, d)."""
+    """Unitary operator U, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
+    or (*ensemble, d, d) in matrix form."""
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
@@ -465,15 +618,16 @@ class Unitary(Operator):
         import qutip as qt
 
         dims = [list(self.dims[0]), list(self.dims[1])]
+        matrix = self.matrix
 
         if self.ensemble_size == ():
             return qt.Qobj(
-                np.array(self.data),
+                np.array(matrix),
                 dims=dims,
             )
 
-        flat_shape = (-1,) + self.data.shape[-2:]
-        flat_unitary = self.data.reshape(flat_shape)
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_unitary = np.asarray(matrix).reshape(flat_shape)
         qobjs = np.asarray(
             [
                 qt.Qobj(
@@ -489,16 +643,16 @@ class Unitary(Operator):
     def __mul__(self, scalar: complex) -> "Unitary | Kraus":
         """Scalar multiplication of the unitary."""
         if jnp.isclose(jnp.abs(scalar), 1.0):
-            return Unitary(self.data * scalar, self.dims)
+            return Unitary(self.data * scalar, self.num_ensemble_dims)
         else:
-            return Kraus(self.data * scalar, self.dims)
+            return Kraus(self.data * scalar, self.num_ensemble_dims)
 
     def __rmul__(self, scalar: complex) -> "Unitary | Kraus":
         """Scalar multiplication of the unitary."""
         return self * scalar
 
     def __pow__(self, exponent: float) -> "Unitary":
-        """Exponentiation of the unitary using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the unitary using eigendecomposition (ensemble-compatible)."""
         from ._power import power_unitary
 
         return power_unitary(self, exponent)
@@ -611,21 +765,31 @@ class Unitary(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Kraus(Operator):
-    """Kraus superoperator, shape (d, d)."""
+    """Kraus superoperator, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
+    or (*ensemble, d_out, d_in) in matrix form."""
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
         import numpy as np
         import qutip as qt
 
+        matrix = self.matrix
+
         if self.ensemble_size == ():
             return qt.Qobj(
-                np.array(self.data),
+                np.array(matrix),
                 dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
             )
 
-        flat_shape = (-1,) + self.data.shape[-2:]
-        flat_kraus = self.data.reshape(flat_shape)
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_kraus = np.asarray(matrix).reshape(flat_shape)
         dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
         qobjs = np.asarray(
             [
@@ -646,22 +810,43 @@ class Kraus(Operator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class SuperOp(SuperOperator):
-    """SuperOp matrix (also known as Superoperator) S, shape (d^2, d^2)."""
+    """SuperOp matrix (also known as Superoperator) S.
+
+    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
+                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    """
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape.
+
+        Returns the qudit dimensions, not the doubled superoperator dimensions.
+        """
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        # dims_out is the first n_qudits dimensions (out_bra = out_ket for valid superops)
+        # dims_in is the third group of n_qudits dimensions (in_bra = in_ket for valid superops)
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
         import numpy as np
         import qutip as qt
 
+        matrix = self.matrix
+
         if self.ensemble_size == ():
             return qt.Qobj(
-                np.array(self.data),
+                np.array(matrix),
                 dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
                 superrep="super",
             )
 
-        flat_shape = (-1,) + self.data.shape[-2:]
-        flat_superop = self.data.reshape(flat_shape)
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_superop = np.asarray(matrix).reshape(flat_shape)
         dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
         qobjs = np.asarray(
             [
@@ -677,7 +862,7 @@ class SuperOp(SuperOperator):
         return qobjs.reshape(self.ensemble_size)
 
     def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the superoperator using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the superoperator using eigendecomposition (ensemble-compatible)."""
         from ._power import power_superop
 
         return power_superop(self, exponent)
@@ -795,7 +980,51 @@ class SuperOp(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class KrausMap(SuperOperator):
-    """Kraus channel, shape (d^2, d, d)."""
+    """Kraus channel.
+
+    Tensor shape: (*ensemble, n_kraus, d0_out, d1_out, ..., d0_in, d1_in, ...)
+    Matrix shape: (*ensemble, n_kraus, d_out, d_in)
+    """
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        # After ensemble dims, first is n_kraus, then qudit dims
+        qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
+        n_qudits = len(qudit_shape) // 2
+        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
+
+    @property
+    def ensemble_size(self) -> Tuple[int, ...]:
+        """Returns the size of the ensemble if the operator represents an ensemble of operators."""
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation (*ensemble, n_kraus, d_out, d_in) of the Kraus map."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        n_kraus = self.data.shape[self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
+        n_qudits = len(qudit_shape) // 2
+        d_out = reduce(mul, qudit_shape[:n_qudits], 1)
+        d_in = reduce(mul, qudit_shape[n_qudits:], 1)
+        return self.data.reshape(ensemble_shape + (n_kraus, d_out, d_in))
+
+    @classmethod
+    def from_matrix(
+        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
+    ) -> "KrausMap":
+        """Construct from matrix representation.
+
+        :param matrix: Array with shape (*ensemble, n_kraus, d_out, d_in)
+        :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
+        :param num_ensemble_dims: Number of leading ensemble dimensions
+        :return: KrausMap with tensor data
+        """
+        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        n_kraus = matrix.shape[num_ensemble_dims]
+        tensor = matrix.reshape(ensemble_shape + (n_kraus,) + dims[0] + dims[1])
+        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
 
     def _to_qobj(self) -> list["qutip.Qobj"]:
         """Convert to a QuTiP Qobj for interoperability testing.
@@ -805,19 +1034,12 @@ class KrausMap(SuperOperator):
         import numpy as np
         import qutip as qt
 
-        # KrausMap is always a batch of Kraus operators, shape (K, d_out, d_in)
-        return [qt.Qobj(np.array(k), dims=[[list(self.dims[0])], [list(self.dims[1])]]) for k in self.data]
-
-    @property
-    def ensemble_size(self) -> Tuple[int, ...]:
-        """Returns the size of the ensemble if the operator represents an ensemble of operators."""
-        if len(self.data.shape) > 3:
-            return self.data.shape[:-3]
-        else:
-            return ()
+        matrix = self.matrix
+        # KrausMap is always an ensemble of Kraus operators, shape (K, d_out, d_in)
+        return [qt.Qobj(np.array(k), dims=[[list(self.dims[0])], [list(self.dims[1])]]) for k in matrix]
 
     def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Kraus channel using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the Kraus channel using eigendecomposition (ensemble-compatible)."""
         from ._power import power_kraus
 
         return power_kraus(self, exponent)
@@ -935,22 +1157,38 @@ class KrausMap(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Choi(SuperOperator):
-    """Choi matrix C, shape (d^2, d^2)."""
+    """Choi matrix C.
+
+    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
+                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    """
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj for interoperability testing."""
         import numpy as np
         import qutip as qt
 
+        matrix = self.matrix
+
         if self.ensemble_size == ():
             return qt.Qobj(
-                np.array(self.data),
+                np.array(matrix),
                 dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
                 superrep="choi",
             )
 
-        flat_shape = (-1,) + self.data.shape[-2:]
-        flat_choi = self.data.reshape(flat_shape)
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_choi = np.asarray(matrix).reshape(flat_shape)
         dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
         qobjs = np.asarray(
             [
@@ -966,7 +1204,7 @@ class Choi(SuperOperator):
         return qobjs.reshape(self.ensemble_size)
 
     def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Choi matrix using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the Choi matrix using eigendecomposition (ensemble-compatible)."""
         from ._power import power_choi
 
         return power_choi(self, exponent)
@@ -1084,17 +1322,33 @@ class Choi(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Chi(SuperOperator):
-    """Chi matrix Χ, shape (d^2, d^2)."""
+    """Chi matrix Χ.
+
+    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
+                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    """
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
 
     def _to_qobj(self) -> "qutip.Qobj | list[qutip.Qobj]":
         """Convert to a QuTiP Qobj for interoperability testing."""
         import numpy as np
         import qutip as qt
 
+        matrix = self.matrix
+
         if self.ensemble_size != ():
             # Batched Chi matrices - return list
             chi_qobjs = []
-            for c in self.data:
+            for c in matrix:
                 base_qobj = qt.Qobj(
                     np.array(c),
                     dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
@@ -1103,7 +1357,7 @@ class Chi(SuperOperator):
             return chi_qobjs
         # Single Chi matrix
         base_qobj = qt.Qobj(
-            np.array(self.data),
+            np.array(matrix),
             dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
         )
         return qt.to_chi(base_qobj)
@@ -1182,7 +1436,21 @@ class Chi(SuperOperator):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class PauliLiouville(SuperOperator):
-    """Pauli-Liouville matrix P, shape (d^2, d^2)."""
+    """Pauli-Liouville matrix P.
+
+    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
+                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    """
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
 
     def _to_qobj(self):
         """Convert to a QuTiP Qobj for interoperability testing.
@@ -1193,7 +1461,7 @@ class PauliLiouville(SuperOperator):
         raise NotImplementedError("Conversion to QuTiP Qobj not implemented for PauliLiouville.")
 
     def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Pauli-Liouville matrix using eigendecomposition (batch-compatible)."""
+        """Exponentiation of the Pauli-Liouville matrix using eigendecomposition (ensemble-compatible)."""
         from ._power import power_pauli_liouville
 
         return power_pauli_liouville(self, exponent)

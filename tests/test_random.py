@@ -41,7 +41,7 @@ def test_ginibre_is_positive_operator(num_qubits, rank, qudit_dim):
     d = qudit_dim ** len(dims)
     eigenvallist = []
     for k in keys:
-        eigenval = la.eig(random_density_matrix(rank, dims=dims, key=k).data)[0]
+        eigenval = la.eig(random_density_matrix(rank, dims=dims, key=k).matrix)[0]
         eigenvallist += [eigenval]
     eigenvalues = jnp.asarray(eigenvallist)
     eigenvalues = eigenvalues.reshape(1, d * N_avg)
@@ -59,7 +59,7 @@ def test_ginibre_is_trace_one(num_qubits, rank, qudit_dim):
     keys = jax.random.split(key, N_avg)
     dims = (qudit_dim,) * num_qubits
 
-    avg_trace = jnp.mean(jax.vmap(lambda k: jnp.trace(random_density_matrix(rank, dims=dims, key=k).data))(keys))
+    avg_trace = jnp.mean(jax.vmap(lambda k: jnp.trace(random_density_matrix(rank, dims=dims, key=k).matrix))(keys))
     assert avg_trace <= 1 + 1e-10
     assert avg_trace >= 1 - 1e-10
 
@@ -84,7 +84,7 @@ def test_ginibre_has_correct_second_moment(num_qubits):
 
     rhos = jax.vmap(lambda k: random_density_matrix(rank, dims=dims, key=k))(keys)
     # rhos = jnp.asarray([ginibre_state_matrix_ref(d, rank) for _ in range(N_avg)])
-    purities = jax.vmap(lambda rho: jnp.trace(jnp.matmul(rho.data, rho.data)))(rhos)
+    purities = jax.vmap(lambda rho: jnp.trace(jnp.matmul(rho.matrix, rho.matrix)))(rhos)
     avg_purity = jnp.mean(purities)
 
     ans = (d + rank) / (d * rank + 1)
@@ -106,9 +106,9 @@ def test_random_unitaries_are_unitary(num_qubits):
 
     unitaries = random_unitary(dims=dims, key=jax.random.key(1234), size=num_unitaries)
 
-    assert unitaries.data.shape == num_unitaries + (d, d)
+    assert unitaries.matrix.shape == num_unitaries + (d, d)
 
-    assert all(jax.vmap(is_unitary)(unitaries.data.reshape(-1, d, d)))
+    assert all(jax.vmap(is_unitary)(unitaries.matrix.reshape(-1, d, d)))
 
 
 @pytest.mark.parametrize("num_qubits", [1])
@@ -121,7 +121,7 @@ def test_random_unitaries_are_1_design(num_qubits):
 
     unitaries = random_unitary(dims=dims, key=jax.random.key(1234), size=num_unitaries)
 
-    assert unitaries.data.shape == num_unitaries + (d, d)
+    assert unitaries.matrix.shape == num_unitaries + (d, d)
 
     assert is_one_design(unitaries, atol=1e-2)
 
@@ -136,7 +136,7 @@ def test_random_unitaries_are_2_design(num_qubits):
 
     unitaries = random_unitary(dims=dims, key=jax.random.key(1234), size=num_unitaries)
 
-    assert unitaries.data.shape == num_unitaries + (d, d)
+    assert unitaries.matrix.shape == num_unitaries + (d, d)
 
     assert is_two_design(unitaries, atol=1e-2)
 
@@ -157,14 +157,14 @@ def test_random_choi_BCSZ(seed, num_qubits):
     # Test size
     choi = random_choi_BCSZ(dims=dims, rank=d, key=key)
     assert choi.dims == dims
-    assert choi.data.shape == (d * d, d * d)
+    assert choi.matrix.shape == (d * d, d * d)
 
     # Test positivity
-    eigenvals = la.eigvalsh(choi.data)
+    eigenvals = la.eigvalsh(choi.matrix)
     assert jnp.min(eigenvals) >= -atol
 
     # Test trace preservation
-    J4 = choi.data.reshape((d, d, d, d))
+    J4 = choi.matrix.reshape((d, d, d, d))
     # partial trace over output: sum_k J[i,k,j,k]
     ptr = jnp.einsum("ikjk->ij", J4)
-    assert jnp.allclose(ptr, jnp.eye(d, dtype=choi.data.dtype), atol=atol)
+    assert jnp.allclose(ptr, jnp.eye(d, dtype=choi.matrix.dtype), atol=atol)

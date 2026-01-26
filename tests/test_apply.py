@@ -71,14 +71,14 @@ def test_compute_observables_random_channel(seed, num_qubits):
 
     # Generate random Pauli observables of weight num_qubits
     subkeys = jax.random.split(key, num=num_observables)
-    observables = Unitary(
-        data=jnp.asarray(
+    observables = Unitary.from_matrix(
+        jnp.asarray(
             [
                 reduce(
                     jnp.kron,
                     jax.random.choice(
                         k,
-                        PAULIS.data,
+                        PAULIS.matrix,
                         shape=(num_qubits,),
                         replace=True,
                     ),
@@ -86,7 +86,8 @@ def test_compute_observables_random_channel(seed, num_qubits):
                 for k in subkeys
             ]
         ),
-        dims=((2,) * num_qubits, (2,) * num_qubits),
+        ((2,) * num_qubits, (2,) * num_qubits),
+        1,
     )
 
     # Compute with JAX implementations
@@ -99,9 +100,9 @@ def test_compute_observables_random_channel(seed, num_qubits):
     dims_super = [[[2] * num_qubits, [2] * num_qubits], [[2] * num_qubits, [2] * num_qubits]]
     dims_state = [[2] * num_qubits, [2] * num_qubits]
     dims_obs = [[2] * num_qubits, [2] * num_qubits]
-    super_qutip = qt.Qobj(superop.data, superrep="super", dims=dims_super)
-    states_qutip = [qt.Qobj(rho, dims=dims_state) for rho in states.data]
-    observables_qutip = [qt.Qobj(obs, isunitary=True, dims=dims_obs) for obs in observables.data]
+    super_qutip = qt.Qobj(superop.matrix, superrep="super", dims=dims_super)
+    states_qutip = [qt.Qobj(rho, dims=dims_state) for rho in states.matrix]
+    observables_qutip = [qt.Qobj(obs, isunitary=True, dims=dims_obs) for obs in observables.matrix]
 
     expected_observables = []  # jnp.zeros((num_states, num_observables), dtype=jnp.float64)
     for i, rho in enumerate(states_qutip):
@@ -141,14 +142,14 @@ def test_partial_trace(seed, num_qubits):
 
     rho_qutip_traced = jnp.array(rho_qobj.ptrace(subsystems).full())
 
-    assert jnp.allclose(rho_traced.data, rho_qutip_traced, atol=1e-6)
+    assert jnp.allclose(rho_traced.matrix, rho_qutip_traced, atol=1e-6)
 
     ## Test for Choi matrices
     choi = random_choi_BCSZ(dims=(dims, dims), rank=rank, key=key)
     choi_qobj = choi._to_qobj()
     choi_traced = partial_trace(choi, subsystems)
     choi_qutip_traced = jnp.array(choi_qobj.ptrace(subsystems).full())
-    assert jnp.allclose(choi_traced.data, choi_qutip_traced, atol=1e-6)
+    assert jnp.allclose(choi_traced.matrix, choi_qutip_traced, atol=1e-6)
 
 
 @pytest.mark.parametrize("seed", [58, 3854])
@@ -196,7 +197,7 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
         dense = dense.reshape(out_shape + dense.shape[1:])  # out_shape + (d,d)
         return jnp.asarray(dense)  # numeric ndarray (complex)
 
-    qobj_applied_ref = DensityMatrix(data=qt_apply(qobj_choi, qobj_state), dims=dims)
+    qobj_applied_ref = DensityMatrix.from_matrix(qt_apply(qobj_choi, qobj_state), dims, len(ensemble_size))
 
     # Apply Chois
     applied_states = apply_choi_to_density_matrix(choi, state)
@@ -204,7 +205,9 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
     assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), (
         "Applied density matrices fidelity too low"
     )
-    assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
 
     # Apply Kraus
     kraus_map = choi_to_kraus(choi)
@@ -213,7 +216,9 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
     assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), (
         "Applied density matrices fidelity too low"
     )
-    assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
 
     # Apply SuperOp
     superop = choi_to_superop(choi)
@@ -222,7 +227,9 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
     assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), (
         "Applied density matrices fidelity too low"
     )
-    assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
 
     # Apply PauliLiouville
     pl = choi_to_pauli_liouville(choi)
@@ -231,7 +238,9 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
     assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), (
         "Applied density matrices fidelity too low"
     )
-    assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
 
 
 @pytest.mark.parametrize("seed", [58, 3854])
@@ -280,7 +289,7 @@ def test_apply_operator_to_state_vector(seed, num_qubits, ensemble_size):
 
         return jnp.asarray(dense)
 
-    qobj_applied_ref = StateVector(data=qt_apply(qobj_unitary, qobj_state), dims=dims)
+    qobj_applied_ref = StateVector.from_matrix(qt_apply(qobj_unitary, qobj_state), dims, len(ensemble_size))
 
     # Apply Unitaries
     applied_states = apply_unitary_to_state_vector(unitary, state)
@@ -288,7 +297,9 @@ def test_apply_operator_to_state_vector(seed, num_qubits, ensemble_size):
     assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), (
         "Applied density matrices fidelity too low"
     )
-    assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
 
     # Apply Kraus
     # applied_states = apply_kraus_to_statevector(kraus, state)
