@@ -35,18 +35,18 @@ workflow:
 .base:
   image: python:3.12
   before_script:
-    - apt update
-    - pip install --upgrade pip
-    - pip install --upgrade setuptools
-    - apt install pipx -y
-    - pipx install poetry
-    - pipx ensurepath
+    - curl -sSL https://install.python-poetry.org | python3 -
     - export PATH="/root/.local/bin:$PATH"
     - poetry config requests.max-retries 2
-    - poetry config http-basic.rigetti gitlab-ci-token $CI_JOB_TOKEN
-    - poetry config http-basic.rigetti-collab gitlab-ci-token $CI_JOB_TOKEN
     - poetry install --no-interaction --no-ansi
     - export JAX_ENABLE_X64=1
+  cache:
+    key:
+      files:
+        - poetry.lock
+    paths:
+      - .cache/pip/
+      - .cache/pypoetry/
 
 # Tests are all simple wrappers around the functionality codified in the Makefile, which developers can reproduce.
 .test:
@@ -60,7 +60,8 @@ check-all:
 
 build_image:
   extends: .docker_gitlab
-  stage: test
+  stage: build
+  needs: [] # This stage does not need tests to pass
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: never
@@ -125,46 +126,45 @@ build-docs:
 #       Repository | Deploy keys), and with the private key made available to this pipeline as DEPLOY_KEY_FILE_PATH
 #       (see Settings | CI/CD | Variables, and use a file-type variable).
 
-.publish-python-package:
+# Publish a dev version
+publish-python-package-branch:
   extends: .base
   stage: publish
-  dependencies:
-    - build-docs
-  variables:
-    JOB_TOKEN_HEADER: 'JOB-TOKEN:'  # colon needs to be escaped in YAML
-  script:
-    # Part 1: Publish the Python package distribution to this project's package repository.
-    - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
-    - if [ ! -z "${DEV_VERSION+X}" ]; then poetry version "$(poetry version -s)-dev${DEV_VERSION}"; fi
-    - poetry config repositories.project-internal "${PACKAGES_URL}/pypi"
-    - poetry config http-basic.project-internal gitlab-ci-token -- "${CI_JOB_TOKEN}"
-    - poetry publish --build -r project-internal
-    # Part 2: Publish the Python package documentation to this project's package repository.
-    - package=$(poetry version | awk '{print $1;}')
-    - version=$(poetry version | awk '{print $2;}')
-    - HEADER="${JOB_TOKEN_HEADER} ${CI_JOB_TOKEN}"
-    - UPLOAD_FILE="${package}-docs-html-${version}.tar.gz"
-    - UPLOAD_FILE_URL="${PACKAGES_URL}/generic/${package}-docs-html/${version}/${UPLOAD_FILE}"
-    - tar czf - -C ./docs/_build . | curl --header "${HEADER}" --upload-file - "${UPLOAD_FILE_URL}"
-    # Part 3: Tag the release in Git (requires a DEPLOY_KEY with write permission in CI).
-    # - git config --global user.email "support@rigetti.com"
-    # - git config --global user.name "Rigetti Support"
-    # - git tag "v${version}"
-    # - git push https://oauth2:${GITLAB_TOKEN}@gitlab.com/${CI_PROJECT_PATH}.git v${version}
-
-publish-python-package-branch:
-  extends: .publish-python-package
-  variables:
-    DEV_VERSION: "${CI_PIPELINE_IID}"
   rules:
     - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
       when: on_success
+  script:
+    - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
+    - poetry version "$(poetry version -s)-dev${CI_PIPELINE_IID}"
+    - poetry config repositories.project-internal "${PACKAGES_URL}/pypi"
+    - poetry config http-basic.project-internal gitlab-ci-token -- "${CI_JOB_TOKEN}"
+    - poetry publish --build -r project-internal
 
+# Publish a released version on main
 publish-python-package:
-  extends: .publish-python-package
+  extends: .base
+  stage: publish
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: on_success
+  script:
+    - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
+    - poetry config repositories.project-internal "${PACKAGES_URL}/pypi"
+    - poetry config http-basic.project-internal gitlab-ci-token -- "${CI_JOB_TOKEN}"
+    - poetry publish --build -r project-internal
+
+# Publish a released version to pypi
+# token is in variable POETRY_PYPI_TOKEN_PYPI
+publish-python-package:
+  extends: .base
+  stage: publish
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: on_success
+  script:
+    - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
+    - poetry config repositories.testpypi https://test.pypi.org/legacy/
+    - poetry publish --build --no-interaction -r testpypi
 
 # Documentation build for a successful default branch is no longer under review and besides being stored in the Package
 # registry, it is also published to GitLab pages for convenient access. Refer to the README for the relevant hyperlink.

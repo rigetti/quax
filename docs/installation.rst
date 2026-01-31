@@ -19,7 +19,7 @@ Install with Poetry
 
 .. code-block:: bash
 
-   poetry add quax
+   poetry add rigetti-quax
 
 Or install from source:
 
