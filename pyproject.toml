@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.2.1"
+version = "0.2.2"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -25,6 +25,9 @@ requires-python = ">=3.12"
 dependencies = [
     "jax (>=0.8.2)"
 ]
+
+[project.urls]
+Documentation = "https://rigetti.gitlab.io/application_benchmarking/quax"
 
 [dependency-groups]
 dev = [

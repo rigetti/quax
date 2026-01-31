@@ -7,19 +7,18 @@ Requirements
 - Python >= 3.12
 - JAX >= 0.8.2
 
-Gitlab Access Token
---------------------
-
-To access the package, you need to have your gitlab access token set up.
-
-Get it here: `GitLab Access Tokens <https://gitlab.com/-/user_settings/personal_access_tokens>`_
-
 Install with Poetry
 -------------------
 
 .. code-block:: bash
 
    poetry add rigetti-quax
+
+Or with pip
+
+.. code-block:: bash
+
+   pip install rigetti-quax
 
 Or install from source:
 
