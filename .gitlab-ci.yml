@@ -155,7 +155,7 @@ publish-python-package:
 
 # Publish a released version to pypi
 # token is in variable POETRY_PYPI_TOKEN_PYPI
-publish-python-package:
+publish-pypi:
   extends: .base
   stage: publish
   rules:
