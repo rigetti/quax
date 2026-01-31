@@ -163,8 +163,7 @@ publish-pypi:
       when: on_success
   script:
     - PACKAGES_URL="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages"
-    - poetry config repositories.testpypi https://test.pypi.org/legacy/
-    - poetry publish --build --no-interaction -r testpypi
+    - poetry publish --build --no-interaction 
 
 # Documentation build for a successful default branch is no longer under review and besides being stored in the Package
 # registry, it is also published to GitLab pages for convenient access. Refer to the README for the relevant hyperlink.
