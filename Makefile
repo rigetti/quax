@@ -74,6 +74,11 @@ format: ## Make automatic updates to code format and style.
 
 .PHONY: test-examples
 test-examples: ## Test all Jupyter notebooks in "examples" run via papermill.
+	cd ${PROJECT_DIR}
+	@for notebook in $(EXAMPLE_NOTEBOOKS); do \
+		echo "Running $$notebook..."; \
+		poetry run papermill "$$notebook" /dev/null --cwd $(EXAMPLES_DIR) || exit 1; \
+	done
 	@echo "✅ All example notebooks ran successfully."
 
 .PHONY: test-package

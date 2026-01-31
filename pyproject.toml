@@ -13,8 +13,8 @@
 # limitations under the License.
 
 [project]
-name = "quax"
-version = "0.2.0"
+name = "rigetti-quax"
+version = "0.2.1"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -39,12 +39,16 @@ dev = [
     "pyright (>=1.1.407,<2.0.0)",
     "pre-commit (>=4.5.1,<5.0.0)",
     "jupyterlab (>=4.5.2,<5.0.0)",
-    "jupyterlab-lsp (>=5.2.0,<6.0.0)"
+    "jupyterlab-lsp (>=5.2.0,<6.0.0)",
+    "papermill (>=2.6.0)"
 ]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+packages = [{include = "quax", from = "src"}]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
