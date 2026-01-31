@@ -41,22 +41,16 @@ Overview
 
 Quax provides JAX-based quantum operator transformations with support for:
 
-* **Tensor-native data representation** - All quantum objects stored in tensor format for efficient operations
-* **Multiple quantum state representations** - State vectors and density matrices
-* **Multiple superoperator representations** - Kraus, Choi, Pauli-Liouville, and SuperOp
-* **Quantum channel operations** - Compose and apply quantum channels
-* **Distance metrics** - Fidelity calculations and process comparisons
-* **Random state generation** - Create random quantum states and operators
-* **Hardware acceleration** - GPU/TPU support via JAX
+- **Quantum Objects**: States, gates and superoperators objects are defined ot allow natural manipulations and operations.
+- **Standard operators** composition/application `@`, tensor products `|`, scalar multiplication `*` and powers `*` are defined on all quantum objects.
+- **Qudits** Operations on d-dimensional qudits are supported.
+- **Batch operations** Operating on batches or ensembles of states is supported for straightforward parallelization.
 
 Key Features
 ------------
 
 High Performance
    Built on JAX for GPU/TPU acceleration and automatic differentiation
-
-Tensor-Native Storage
-   Data stored in tensor format preserving qudit structure; matrix views available via ``.matrix`` property
 
 Multiple Representations
    Seamlessly convert between different quantum operator representations
@@ -65,7 +59,12 @@ Composable Operations
    Chain quantum operations with intuitive Python syntax
 
 Type-Safe
-   Strong typing with dataclasses for quantum objects
+   Standard objects such as Unitaries, Chois and Density matrices are all typed, clarifying the nature of various objects.
+
+Automatic Promotion
+   Pure states and operators are automatically promoted to mixed states and superoperators when appropriate.
+
+
 
 .. toctree::
    :maxdepth: 2
@@ -74,4 +73,5 @@ Type-Safe
 
    installation
    quickstart
+   reference
    api/index

@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.2.2] - 2026-01-31
+
+- Update docs and README
+
 ## [0.2.1] - 2026-01-31
 
 ### Added
