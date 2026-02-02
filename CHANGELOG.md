@@ -14,7 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.2.3] - 2026-02-02
+
+### Changed
+
+- `Operator` is now a quantum object while the base class is `_OperatorBase`.
+
 ## [0.2.2] - 2026-01-31
+
+### Changed
 
 - Update docs and README
 
