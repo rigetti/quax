@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
-- `Operator` is now a quantum object while the base class is `_OperatorBase`.
+- Renamed `Kraus` to `Operator`.
 
 ## [0.2.2] - 2026-01-31
 
