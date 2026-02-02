@@ -648,6 +648,27 @@ class Operator(_OperatorBase):
                 from ._compose import compose_operator
 
                 return compose_operator(self, other)
+            case Operator():
+                # O1 @ O2 -> Operator
+                from ._compose import compose_operator
+
+                return compose_operator(self, other)
+            case _:
+                return NotImplemented
+
+    def __or__(self, other: Any) -> Any:
+        """Tensor product of the operator with another operator."""
+        match other:
+            case Unitary():
+                # O ⊗ U -> Operator
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
+            case Operator():
+                # O1 ⊗ O2 -> Operator
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
             case _:
                 return NotImplemented
 
