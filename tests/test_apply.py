@@ -21,6 +21,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import qutip as qt
+import quax as qx
 
 from quax import (
     DensityMatrix,
@@ -306,3 +307,138 @@ def test_apply_operator_to_state_vector(seed, num_qubits, ensemble_size):
     # assert applied_states.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
     # assert jnp.allclose(fidelity(applied_states, qobj_applied_ref), 1.0, atol=1e-6), "Applied density matrices fidelity too low"
     # assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
+
+
+def test_targeted_apply_superop():
+    """Test that targeted_apply works correctly."""
+    seed = 90573
+    key = jax.random.key(seed)
+    initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
+
+    # X on qubit 0
+    reference_operator = qx.gates.X | qx.gates.I | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(qx.unitary_to_superop(qx.gates.X), initial_state, (0,))
+    assert rho_targeted == rho_reference
+
+    # X on qubit 2
+    reference_operator = qx.gates.I | qx.gates.I | qx.gates.X
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(qx.unitary_to_superop(qx.gates.X), initial_state, (2,))
+    assert rho_targeted == rho_reference
+
+    # CNOT on qubits 1 0
+    reference_operator = (qx.gates.SWAP @ qx.gates.CNOT @ qx.gates.SWAP) | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(qx.unitary_to_superop(qx.gates.CNOT), initial_state, (1, 0))
+    assert rho_targeted == rho_reference
+
+    # CNOT on qubits 0 2
+    reference_operator = (qx.gates.I | qx.gates.SWAP) @ (qx.gates.CNOT | qx.gates.I) @ (qx.gates.I | qx.gates.SWAP)
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(qx.unitary_to_superop(qx.gates.CNOT), initial_state, (0, 2))
+    assert rho_targeted == rho_reference
+
+    # Depolarizing channel on qubit 1
+    s = qx.depolarizing_channel_superoperator(0.05, 1)
+    reference_operator = qx.gates.I | s | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(s, initial_state, (1,))
+    assert rho_targeted == rho_reference
+
+    # Depolarizing channel on qubit 0 1 2
+    s = qx.depolarizing_channel_superoperator(0.05, 3)
+    reference_operator = s
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_superop(s, initial_state, (0, 1, 2))
+    assert rho_targeted == rho_reference
+
+
+def test_targeted_apply_kraus_map():
+    """Test that targeted_apply works correctly."""
+    seed = 90573
+    key = jax.random.key(seed)
+    initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
+
+    # X on qubit 0
+    reference_operator = qx.gates.X | qx.gates.I | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.unitary_to_kraus(qx.gates.X), initial_state, (0,))
+    assert rho_targeted == rho_reference
+
+    # X on qubit 2
+    reference_operator = qx.gates.I | qx.gates.I | qx.gates.X
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.unitary_to_kraus(qx.gates.X), initial_state, (2,))
+    assert rho_targeted == rho_reference
+
+    # CNOT on qubits 1 0
+    reference_operator = (qx.gates.SWAP @ qx.gates.CNOT @ qx.gates.SWAP) | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.unitary_to_kraus(qx.gates.CNOT), initial_state, (1, 0))
+    assert rho_targeted == rho_reference
+
+    # CNOT on qubits 0 2
+    reference_operator = (qx.gates.I | qx.gates.SWAP) @ (qx.gates.CNOT | qx.gates.I) @ (qx.gates.I | qx.gates.SWAP)
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.unitary_to_kraus(qx.gates.CNOT), initial_state, (0, 2))
+    assert rho_targeted == rho_reference
+
+    # Depolarizing channel on qubit 1
+    s = qx.depolarizing_channel_superoperator(0.05, 1)
+    reference_operator = qx.gates.I | s | qx.gates.I
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.superop_to_kraus(s), initial_state, (1,))
+    assert rho_targeted == rho_reference
+
+    # Depolarizing channel on qubit 0 1 2
+    s = qx.depolarizing_channel_superoperator(0.05, 3)
+    reference_operator = s
+    rho_reference = reference_operator @ initial_state
+    rho_targeted = qx.targeted_apply_kraus_map(qx.superop_to_kraus(s), initial_state, (0, 1, 2))
+    assert rho_targeted == rho_reference
+
+
+# def test_targeted_apply_operator():
+#     """Test that the targeted apply works correctly."""
+#     seed = 6947
+#     key = jax.random.key(seed)
+#     initial_state = qx.random_density_matrix(3, (2,2,2), key)
+
+#     # X on qubit 0
+#     reference_operator = qx.gates.X | qx.gates.I | qx.gates.I
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(qx.gates.X, initial_state, (0,))
+#     assert rho_targeted == rho_reference
+
+#     # X on qubit 2
+#     reference_operator = qx.gates.I | qx.gates.I | qx.gates.X
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(qx.gates.X, initial_state, (2,))
+#     assert rho_targeted == rho_reference
+
+#     # CNOT on qubits 1 0
+#     reference_operator = (qx.gates.SWAP @ qx.gates.CNOT @ qx.gates.SWAP) | qx.gates.I
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(qx.gates.CNOT, initial_state, (1, 0))
+#     assert rho_targeted == rho_reference
+
+#     # CNOT on qubits 0 2
+#     reference_operator = (qx.gates.I | qx.gates.SWAP) @ (qx.gates.CNOT | qx.gates.I) @ (qx.gates.I | qx.gates.SWAP)
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(qx.gates.CNOT, initial_state, (0, 2))
+#     assert rho_targeted == rho_reference
+
+#     # Depolarizing channel on qubit 1
+#     k = 0.05*qx.gates.X
+#     reference_operator = qx.gates.I | k | qx.gates.I
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(k, initial_state, (1,))
+#     assert rho_targeted == rho_reference
+
+#     # Depolarizing channel on qubit 0 1 2
+#     k = 0.05 * ( qx.gates.X | qx.gates.Y | qx.gates.Z)
+#     reference_operator = k
+#     rho_reference = reference_operator @ initial_state
+#     rho_targeted = qx.targeted_apply_operator(k, initial_state, (0, 1, 2))
+#     assert rho_targeted == rho_reference

@@ -26,6 +26,8 @@ from ._apply import (
     compute_pauli_liouville_observables_from_states,
     compute_superop_observables_from_states,
     partial_trace,
+    targeted_apply_superop,
+    targeted_apply_kraus_map,
 )
 from ._common_channels import (
     depolarizing_channel_superoperator,
@@ -45,6 +47,7 @@ from ._compose import (
     compose_pauli_liouville,
     compose_superop,
     compose_unitary,
+    compose_operator,
 )
 from ._distance_metrics import (
     average_fidelity_to_depolarizing_constant,
@@ -63,7 +66,6 @@ from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
-    Kraus,
     KrausMap,
     Operator,
     PauliLiouville,
@@ -107,6 +109,7 @@ from ._superoperator_transformations import (
     unitary_to_choi,
     unitary_to_pauli_liouville,
     unitary_to_superop,
+    unitary_to_kraus,
 )
 from ._tensor import (
     tensor_choi,
@@ -116,6 +119,7 @@ from ._tensor import (
     tensor_state_vector,
     tensor_superop,
     tensor_unitary,
+    tensor_operator,
 )
 from ._validation import (
     is_completely_positive,
@@ -145,6 +149,8 @@ __all__ = [
     "apply_superop_to_density_matrix",
     "apply_unitary_to_state_vector",
     "apply_kraus_to_state_vector",
+    "targeted_apply_superop",
+    "targeted_apply_kraus_map",
     # Common channels
     "depolarizing_channel_superoperator",
     "integrated_thermal_superoperator",
@@ -162,12 +168,14 @@ __all__ = [
     "compose_pauli_liouville",
     "compose_superop",
     "compose_unitary",
+    "compose_operator",
     # Tensor quantum objects
     "tensor_kraus",
     "tensor_choi",
     "tensor_pauli_liouville",
     "tensor_superop",
     "tensor_unitary",
+    "tensor_operator",
     "tensor_state_vector",
     "tensor_density_matrix",
     # Superoperator transformations
@@ -190,6 +198,7 @@ __all__ = [
     "unitary_to_choi",
     "unitary_to_pauli_liouville",
     "unitary_to_superop",
+    "unitary_to_kraus",
     # Distance metrics
     "fidelity",
     "process_fidelity",
@@ -204,7 +213,6 @@ __all__ = [
     "unitarity_to_stochastic_infidelity",
     # Types
     "Choi",
-    "Kraus",
     "SuperOp",
     "KrausMap",
     "PauliLiouville",

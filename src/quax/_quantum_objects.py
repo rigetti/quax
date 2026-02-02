@@ -140,7 +140,7 @@ class State:
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Operator:
+class _OperatorBase:
     """Base class for a quantum operator."""
 
     data: Array
@@ -284,7 +284,7 @@ class Operator:
 # Some methods works on any sort of Superoperator
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class SuperOperator(Operator):
+class SuperOperator(_OperatorBase):
     """Base class for a quantum superoperator.
 
     SuperOperators have a 4-group tensor structure:
@@ -601,7 +601,60 @@ class DensityMatrix(State):
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Unitary(Operator):
+class Operator(_OperatorBase):
+    """A non-unitary operator, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
+    or (*ensemble, d_out, d_in) in matrix form."""
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 2
+        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
+
+    def _to_qobj(self) -> "qutip.Qobj | NDArray":
+        """Convert to a QuTiP Qobj for interoperability testing."""
+        import numpy as np
+        import qutip as qt
+
+        matrix = self.matrix
+
+        if self.ensemble_size == ():
+            return qt.Qobj(
+                np.array(matrix),
+                dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
+            )
+
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_kraus = np.asarray(matrix).reshape(flat_shape)
+        dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
+        qobjs = np.asarray(
+            [
+                qt.Qobj(
+                    np.asarray(kraus),
+                    dims=dims,
+                )
+                for kraus in flat_kraus
+            ],
+            dtype=object,
+        )
+        return qobjs.reshape(self.ensemble_size)
+
+    def __matmul__(self, other: Any) -> Any:
+        """Matrix multiplication of a quantum object with the unitary."""
+        match other:
+            case Unitary():
+                # U @ U -> Unitary
+                from ._compose import compose_operator
+
+                return compose_operator(self, other)
+            case _:
+                return NotImplemented
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class Unitary(_OperatorBase):
     """Unitary operator U, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
     or (*ensemble, d, d) in matrix form."""
 
@@ -640,14 +693,14 @@ class Unitary(Operator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __mul__(self, scalar: complex) -> "Unitary | Kraus":
+    def __mul__(self, scalar: complex) -> "Unitary | Operator":
         """Scalar multiplication of the unitary."""
         if jnp.isclose(jnp.abs(scalar), 1.0):
             return Unitary(self.data * scalar, self.num_ensemble_dims)
         else:
-            return Kraus(self.data * scalar, self.num_ensemble_dims)
+            return Operator(self.data * scalar, self.num_ensemble_dims)
 
-    def __rmul__(self, scalar: complex) -> "Unitary | Kraus":
+    def __rmul__(self, scalar: complex) -> "Unitary | Operator":
         """Scalar multiplication of the unitary."""
         return self * scalar
 
@@ -711,6 +764,13 @@ class Unitary(Operator):
                 from ._tensor import tensor_unitary
 
                 return tensor_unitary(self, other)
+            case Operator():
+                # U ⊗ V -> Unitary (tensor product)
+                from ._tensor import tensor_operator
+
+                # we can reuse tensor_unitary for Kraus operators since they have the same structure
+                u = tensor_operator(self, other)
+                return Operator(data=u.data, num_ensemble_dims=u.num_ensemble_dims)
             case SuperOp():
                 # U ⊗ S -> SuperOp (promote unitary)
                 from ._superoperator_transformations import unitary_to_superop
@@ -760,48 +820,6 @@ class Unitary(Operator):
                 return False
             case _:
                 return NotImplemented
-
-
-@jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
-class Kraus(Operator):
-    """Kraus superoperator, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
-    or (*ensemble, d_out, d_in) in matrix form."""
-
-    @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
-        """The (output, input) dimensions of each qudit, inferred from data shape."""
-        qudit_shape = self.data.shape[self.num_ensemble_dims :]
-        n_qudits = len(qudit_shape) // 2
-        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
-
-    def _to_qobj(self) -> "qutip.Qobj | NDArray":
-        """Convert to a QuTiP Qobj for interoperability testing."""
-        import numpy as np
-        import qutip as qt
-
-        matrix = self.matrix
-
-        if self.ensemble_size == ():
-            return qt.Qobj(
-                np.array(matrix),
-                dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
-            )
-
-        flat_shape = (-1,) + matrix.shape[-2:]
-        flat_kraus = np.asarray(matrix).reshape(flat_shape)
-        dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
-        qobjs = np.asarray(
-            [
-                qt.Qobj(
-                    np.asarray(kraus),
-                    dims=dims,
-                )
-                for kraus in flat_kraus
-            ],
-            dtype=object,
-        )
-        return qobjs.reshape(self.ensemble_size)
 
 
 # ---------- superoperators ----------

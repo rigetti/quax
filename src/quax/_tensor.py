@@ -21,7 +21,7 @@ from typing import List
 import jax
 import jax.numpy as jnp
 
-from ._quantum_objects import Choi, DensityMatrix, Kraus, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
+from ._quantum_objects import Choi, DensityMatrix, Operator, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import (
     choi_to_pauli_liouville,
     choi_to_superop,
@@ -73,7 +73,7 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
     return Choi.from_matrix(data, new_dims, num_ensemble_dims)
 
 
-def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
+def tensor_channel_kraus(k1: List[Operator], k2: List[Operator]) -> List[Operator]:
     r"""
     Given the Kraus representation for two channels, :math:`\mathcal E_1` and :math:`\mathcal E_2`,
     acting on different systems this function returns the Kraus operators representing the
@@ -98,7 +98,7 @@ def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
     new_dims = (dims2[0] + dims1[0], dims2[1] + dims1[1])
 
     kraus_data = [jnp.kron(k2l.matrix, k1j.matrix) for k1j in k1 for k2l in k2]
-    return [Kraus.from_matrix(kd, new_dims, 0) for kd in kraus_data]
+    return [Operator.from_matrix(kd, new_dims, 0) for kd in kraus_data]
 
 
 @jax.jit
@@ -151,6 +151,35 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
 
 
 @jax.jit
+def tensor_operator(O1: Operator, O2: Operator) -> Operator:
+    """
+    Compute the tensor product of two operators.
+
+    For two operators O1 and O2 acting on different systems, this returns the operator
+    representing O1 ⊗ O2.
+
+    Supports ensemble broadcasting: empty ensemble broadcasts with any ensemble,
+    and matching ensembles tensor element-wise.
+
+    :param O1: Operator matrix for the first system.
+    :param O2: Operator matrix for the second system.
+    :return: Operator matrix for the tensor product system.
+    """
+    new_dims = (O1.dims[0] + O2.dims[0], O1.dims[1] + O2.dims[1])
+    m, n = O1.d
+    p, q = O2.d
+
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
+    out = jnp.einsum("...ab,...cd->...acbd", O1.matrix, O2.matrix)
+
+    ensemble_size = jnp.broadcast_shapes(O1.ensemble_size, O2.ensemble_size)
+    num_ensemble_dims = len(ensemble_size)
+    data = out.reshape(ensemble_size + (m * p, n * q))
+
+    return Operator.from_matrix(data, new_dims, num_ensemble_dims)
+
+
+@jax.jit
 def tensor_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     """
     Compute the tensor product of two unitary operators.
@@ -165,18 +194,8 @@ def tensor_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     :param U2: Unitary matrix for the second system.
     :return: Unitary matrix for the tensor product system.
     """
-    new_dims = (U1.dims[0] + U2.dims[0], U1.dims[1] + U2.dims[1])
-    m, n = U1.d
-    p, q = U2.d
-
-    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
-    out = jnp.einsum("...ab,...cd->...acbd", U1.matrix, U2.matrix)
-
-    ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-    data = out.reshape(ensemble_size + (m * p, n * q))
-
-    return Unitary.from_matrix(data, new_dims, num_ensemble_dims)
+    output_operator = tensor_operator(U1, U2)
+    return Unitary(data=output_operator.data, num_ensemble_dims=output_operator.num_ensemble_dims)
 
 
 @jax.jit

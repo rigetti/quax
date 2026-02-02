@@ -23,7 +23,7 @@ import jax.numpy as jnp
 from jax import Array, jit
 
 from ._compose import compose_superop
-from ._quantum_objects import Choi, SuperOp, Unitary, Kraus
+from ._quantum_objects import Choi, SuperOp, Unitary, KrausMap
 from ._superoperator_transformations import (
     choi_to_superop,
     unitary_to_superop,
@@ -239,7 +239,7 @@ def integrated_thermal_superoperator(
     return result
 
 
-def bit_flip_operators(p: float) -> tuple[Kraus, Kraus]:
+def bit_flip_operators(p: float) -> KrausMap:
     """Generate Kraus operators for a bit flip channel.
 
     The bit flip channel applies X with probability p and I with probability 1-p.
@@ -247,13 +247,10 @@ def bit_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :param p: Probability of bit flip error (0 <= p <= 1)
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
-    return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * X.matrix, ((2,), (2,)), 0),
-    )
+    return KrausMap.from_matrix(jnp.array([jnp.sqrt(1.0 - p) * I.matrix, jnp.sqrt(p) * X.matrix]), dims=((2,), (2,)))
 
 
-def phase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
+def phase_flip_operators(p: float) -> KrausMap:
     """Generate Kraus operators for a phase flip channel.
 
     The phase flip channel applies Z with probability p and I with probability 1-p.
@@ -261,13 +258,10 @@ def phase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :param p: Probability of phase flip error (0 <= p <= 1)
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
-    return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * Z.matrix, ((2,), (2,)), 0),
-    )
+    return KrausMap.from_matrix(jnp.array([jnp.sqrt(1.0 - p) * I.matrix, jnp.sqrt(p) * Z.matrix]), dims=((2,), (2,)))
 
 
-def bitphase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
+def bitphase_flip_operators(p: float) -> KrausMap:
     """Generate Kraus operators for a bit-phase flip channel.
 
     The bit-phase flip channel applies Y with probability p and I with probability 1-p.
@@ -275,13 +269,10 @@ def bitphase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :param p: Probability of bit-phase flip error (0 <= p <= 1)
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
-    return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * Y.matrix, ((2,), (2,)), 0),
-    )
+    return KrausMap.from_matrix(jnp.array([jnp.sqrt(1.0 - p) * I.matrix, jnp.sqrt(p) * Y.matrix]), dims=((2,), (2,)))
 
 
-def dephasing_operators(p: float) -> tuple[Kraus, Kraus]:
+def dephasing_operators(p: float) -> KrausMap:
     """Generate Kraus operators for a dephasing (phase damping) channel.
 
     The dephasing channel causes loss of quantum information without energy dissipation.
@@ -291,13 +282,11 @@ def dephasing_operators(p: float) -> tuple[Kraus, Kraus]:
     """
     sqrt_p2 = jnp.sqrt(p / 2.0)
     sqrt_1mp2 = jnp.sqrt(1.0 - p / 2.0)
-    return (
-        Kraus.from_matrix(sqrt_1mp2 * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(sqrt_p2 * Z.matrix, ((2,), (2,)), 0),
-    )
+
+    return KrausMap.from_matrix(jnp.array([sqrt_1mp2 * I.matrix, sqrt_p2 * Z.matrix]), dims=((2,), (2,)))
 
 
-def depolarizing_operators(p: float) -> tuple[Kraus, Kraus, Kraus, Kraus]:
+def depolarizing_operators(p: float) -> KrausMap:
     """Generate Kraus operators for a depolarizing channel.
 
     The depolarizing channel applies I, X, Y, or Z each with equal probability p/4,
@@ -306,15 +295,20 @@ def depolarizing_operators(p: float) -> tuple[Kraus, Kraus, Kraus, Kraus]:
     :param p: Depolarizing probability (0 <= p <= 1)
     :return: Tuple of four 2x2 Kraus operators (K0, K1, K2, K3)
     """
-    return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * X.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Y.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Z.matrix, ((2,), (2,)), 0),
+    return KrausMap.from_matrix(
+        jnp.array(
+            [
+                jnp.sqrt(1.0 - p) * I.matrix,
+                jnp.sqrt(p / 3.0) * X.matrix,
+                jnp.sqrt(p / 3.0) * Y.matrix,
+                jnp.sqrt(p / 3.0) * Z.matrix,
+            ]
+        ),
+        dims=((2,), (2,)),
     )
 
 
-def relaxation_operators(p: float) -> tuple[Kraus, Kraus]:
+def relaxation_operators(p: float) -> KrausMap:
     """Generate Kraus operators for an amplitude damping (relaxation) channel.
 
     The amplitude damping channel models energy dissipation (T1 decay).
@@ -322,9 +316,14 @@ def relaxation_operators(p: float) -> tuple[Kraus, Kraus]:
     :param p: Relaxation probability (0 <= p <= 1)
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
-    return (
-        Kraus.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), ((2,), (2,)), 0),
+    return KrausMap.from_matrix(
+        jnp.array(
+            [
+                jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex),
+                jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex),
+            ]
+        ),
+        dims=((2,), (2,)),
     )
 
 

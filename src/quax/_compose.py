@@ -17,7 +17,7 @@
 import jax
 import jax.numpy as jnp
 
-from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
+from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator
 from ._superoperator_transformations import (
     choi_to_superop,
     superop_to_choi,
@@ -65,15 +65,33 @@ def compose_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     :param U2: Unitary matrix for the second system
     :returns: Unitary matrix for the composed system
     """
-    assert U1.dims == U2.dims, "Unitaries must act on the same space to be composed."
+    output_operator = compose_operator(U1, U2)
+    return Unitary(output_operator.data, output_operator.num_ensemble_dims)
+
+
+@jax.jit
+def compose_operator(O1: Operator, O2: Operator) -> Operator:
+    """Compute the composition of two operators.
+
+    For two operators O1 and O2 acting on the same systems, this returns the operator
+    representing O1 ∘ O2 (O2 applied first, then O1).
+
+    Supports ensemble broadcasting: empty ensemble broadcasts with any ensemble,
+    and matching ensembles compose element-wise.
+
+    :param O1: Operator matrix for the first system
+    :param O2: Operator matrix for the second system
+    :returns: Operator matrix for the composed system
+    """
+    assert O1.dims == O2.dims, "Operators must act on the same space to be composed."
 
     # Use einsum with ellipsis to handle arbitrary ensemble dimensions
-    data = jnp.einsum("...ab,...bc->...ac", U1.matrix, U2.matrix)
+    data = jnp.einsum("...ab,...bc->...ac", O1.matrix, O2.matrix)
 
-    ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
+    ensemble_size = jnp.broadcast_shapes(O1.ensemble_size, O2.ensemble_size)
     num_ensemble_dims = len(ensemble_size)
 
-    return Unitary.from_matrix(data, U1.dims, num_ensemble_dims)
+    return Operator.from_matrix(data, O1.dims, num_ensemble_dims)
 
 
 @jax.jit

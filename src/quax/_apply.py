@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import reduce, singledispatch
+from functools import reduce, singledispatch, lru_cache
 from operator import mul
 from typing import Tuple
 
@@ -20,8 +20,10 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, Kraus, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
+from ._quantum_objects import Choi, DensityMatrix, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
+
+CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
 
 
 @jax.jit
@@ -62,6 +64,121 @@ def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> Den
     rho_out = jnp.swapaxes(rho_out, -1, -2)
 
     return DensityMatrix.from_matrix(rho_out, rho.dims, num_ensemble_dims)
+
+
+@lru_cache(maxsize=1000)
+def _generate_superop_contraction(qubits: Tuple[int, ...], n: int) -> str:
+    """
+    Generate the einsum string for operating on a density matrix which performs
+    Sρ where S is a superoperator.
+
+    :param qubits: The qubit indices of the operator.
+    :param n: The number of qubits in the density tensor.
+    :return: The einsum string.
+    """
+    num_qubits = n
+    d = 2 * n
+    operator_support = len(qubits)
+    right_qubits = [q + num_qubits for q in qubits]
+    return (
+        "..."
+        + CHARS[: 2 * operator_support]
+        + "".join(CHARS[2 * operator_support + q] for q in right_qubits)
+        + "".join(CHARS[2 * operator_support + q] for q in qubits)
+        + ","
+        + "..."
+        + CHARS[2 * operator_support : 2 * operator_support + d]
+        + "->"
+        + "..."
+        + "".join(
+            CHARS[qubits.index(i) + operator_support]
+            if i in qubits
+            else CHARS[right_qubits.index(i)]
+            if i in right_qubits
+            else CHARS[2 * operator_support + i]
+            for i in range(d)
+        )
+    )
+
+
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_superop(superoperator: SuperOp, rho: DensityMatrix, subsystem: Tuple[int, ...]) -> DensityMatrix:
+    """
+    Apply a superoperator to a density matrix. Sρ
+
+    :param superoperator: The superoperator.
+    :param rho: The density matrix.
+    :param subsystem: The qubit indices of the operator.
+    :return: A density matrix.
+    """
+    n = len(rho.dims)
+    ensemble_size = jnp.broadcast_shapes(superoperator.ensemble_size, rho.ensemble_size)
+    einsum_str = _generate_superop_contraction(subsystem, n)
+    super_tensor = superoperator.data
+    output_density_tensor = jnp.einsum(
+        einsum_str,
+        super_tensor,
+        rho.data,
+        optimize="optimal",
+    )
+    return DensityMatrix(data=output_density_tensor, num_ensemble_dims=len(ensemble_size))
+
+
+def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem: Tuple[int, ...]) -> DensityMatrix:
+    """
+    Apply a Kraus map to a density matrix. ∑_i K_i ρ K_i†
+
+    :param operator: The unitary or Kraus operator.
+    :param rho: The density matrix.
+    :param subsystem: The qubit indices of the operator.
+    :return: A density matrix.
+    """
+    n = len(rho.dims)
+    ensemble_size = jnp.broadcast_shapes(kraus_map.ensemble_size, rho.ensemble_size)
+    einsum_str = _generate_kraus_map_contraction(subsystem, n)
+    kraus_tensor = kraus_map.data
+    output_density_tensor = jnp.einsum(
+        einsum_str,
+        kraus_tensor,
+        rho.data,
+        jnp.conjugate(kraus_tensor),
+        optimize="optimal",
+    )
+    return DensityMatrix(data=output_density_tensor, num_ensemble_dims=len(ensemble_size))
+
+
+@lru_cache(maxsize=1000)
+def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
+    """
+    Generate the einsum string for operating on a density matrix.
+
+    :param qubits: The qubit indices of the operator.
+    :param d: The number of dimensions in the density tensor.
+    :return: The einsum string.
+    """
+    d = n * 2
+    operator_support = len(qubits)
+    right_qubits = [q + n for q in qubits]
+    return (
+        CHARS[0]
+        + CHARS[1 : operator_support + 1]
+        + "".join(CHARS[1 + operator_support + q] for q in qubits)
+        + ","
+        + CHARS[1 + operator_support : (1 + operator_support + d)]
+        + ","
+        + CHARS[0]
+        + CHARS[1 + d + operator_support : 1 + 2 * operator_support + d]
+        + "".join(CHARS[1 + operator_support + q] for q in right_qubits)
+        + "->"
+        + "".join(
+            CHARS[1 + qubits.index(i)]
+            if i in qubits
+            else CHARS[1 + right_qubits.index(i) + operator_support + d]
+            if i in right_qubits
+            else CHARS[1 + operator_support + i]
+            for i in range(d)
+        )
+    )
 
 
 @jax.jit
@@ -159,7 +276,7 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
 
 
 @jax.jit
-def apply_kraus_to_state_vector(kraus_map: Kraus, state: StateVector) -> DensityMatrix:
+def apply_kraus_to_state_vector(kraus_map: KrausMap, state: StateVector) -> DensityMatrix:
     """Apply a Kraus map to a state vector, resulting in a density matrix."""
     raise NotImplementedError("Applying Kraus operators to state vectors is not yet implemented.")
 

@@ -119,7 +119,7 @@ Specialized gates / internal utility gates:
 
 import jax.numpy as jnp
 
-from ._quantum_objects import Kraus, Unitary
+from ._quantum_objects import Unitary, Operator
 
 I = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)), 0)  # noqa: E741
 
@@ -419,9 +419,9 @@ SQISWAP = SQISW = Unitary.from_matrix(
 )
 
 # Utility gates for internal QVM use
-P0 = Kraus.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)), 0)
+P0 = Operator.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)), 0)
 
-P1 = Kraus.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)), 0)
+P1 = Operator.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)), 0)
 
 
 # Specialized useful gates; not officially in standard gate set
