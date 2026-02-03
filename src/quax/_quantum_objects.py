@@ -279,6 +279,18 @@ class _OperatorBase:
         for i in range(self.data.shape[0]):
             yield type(self)(data=self.data[i], num_ensemble_dims=self.num_ensemble_dims - 1)
 
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the operator satisfies its defining properties.
+
+        For a general operator, this is a no-op that always returns True.
+        Subclasses override this to check specific conditions (e.g., unitarity, CPTP).
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        # Base implementation: no specific constraints for general operators
+        return jnp.array(True)
+
 
 # This class is basically for typing purposes
 # Some methods works on any sort of Superoperator
@@ -454,6 +466,17 @@ class StateVector(State):
         )
         return qobjs.reshape(self.ensemble_size)
 
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the state vector is normalized.
+
+        A valid state vector has unit norm: ⟨ψ|ψ⟩ = 1.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single state, batched for ensembles).
+        """
+        norms = jnp.linalg.norm(self.matrix, axis=-1)
+        return jnp.isclose(norms, 1.0, atol=atol)
+
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
@@ -594,6 +617,32 @@ class DensityMatrix(State):
             dtype=object,
         )
         return qobjs.reshape(self.ensemble_size)
+
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the density matrix is a valid quantum state.
+
+        A valid density matrix must be:
+        1. Hermitian: ρ = ρ†
+        2. Positive semidefinite: all eigenvalues ≥ 0
+        3. Unit trace: Tr(ρ) = 1
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single state, batched for ensembles).
+        """
+        matrix = self.matrix
+        # Check Hermitian
+        matrix_h = jnp.conjugate(jnp.swapaxes(matrix, -1, -2))
+        is_hermitian = jnp.all(jnp.isclose(matrix, matrix_h, atol=atol), axis=(-2, -1))
+
+        # Check positive semidefinite (eigenvalues >= -atol)
+        evals = jnp.linalg.eigvalsh(matrix)
+        is_psd = jnp.all(evals >= -atol, axis=-1)
+
+        # Check unit trace
+        trace = jnp.trace(matrix, axis1=-2, axis2=-1)
+        is_unit_trace = jnp.isclose(trace, 1.0, atol=atol)
+
+        return jnp.logical_and(jnp.logical_and(is_hermitian, is_psd), is_unit_trace)
 
 
 # ---------- operators ----------
@@ -842,6 +891,20 @@ class Unitary(_OperatorBase):
             case _:
                 return NotImplemented
 
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the operator is unitary.
+
+        A valid unitary satisfies U†U = I.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        matrix = self.matrix
+        d = matrix.shape[-1]
+        identity = jnp.eye(d, dtype=matrix.dtype)
+        product = jnp.matmul(jnp.conjugate(jnp.swapaxes(matrix, -1, -2)), matrix)
+        return jnp.all(jnp.isclose(product, identity, atol=atol), axis=(-2, -1))
+
 
 # ---------- superoperators ----------
 
@@ -1014,6 +1077,18 @@ class SuperOp(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the superoperator is a valid quantum channel (CPTP).
+
+        A valid quantum channel must be completely positive and trace-preserving.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        from ._validation import is_cptp
+
+        return is_cptp(self, atol=atol)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1192,6 +1267,18 @@ class KrausMap(SuperOperator):
             case _:
                 return NotImplemented
 
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the Kraus map is a valid quantum channel (CPTP).
+
+        A valid quantum channel must be completely positive and trace-preserving.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        from ._validation import is_cptp
+
+        return is_cptp(self, atol=atol)
+
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
@@ -1356,6 +1443,18 @@ class Choi(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the Choi matrix represents a valid quantum channel (CPTP).
+
+        A valid quantum channel must be completely positive and trace-preserving.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        from ._validation import is_cptp
+
+        return is_cptp(self, atol=atol)
 
 
 @jax.tree_util.register_pytree_node_class
@@ -1613,3 +1712,15 @@ class PauliLiouville(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+    def validate(self, atol: float = 1e-8) -> Array:
+        """Validate that the Pauli-Liouville matrix represents a valid quantum channel (CPTP).
+
+        A valid quantum channel must be completely positive and trace-preserving.
+
+        :param atol: Absolute tolerance for numerical comparison.
+        :return: Boolean array (scalar for single operator, batched for ensembles).
+        """
+        from ._validation import is_cptp
+
+        return is_cptp(self, atol=atol)
