@@ -124,8 +124,11 @@ from ._tensor import (
 from ._validation import (
     is_completely_positive,
     is_cptp,
+    is_hermicity_preserving,
+    is_hermitian,
     is_identity_matrix,
     is_one_design,
+    is_positive_semidefinite_matrix,
     is_trace_preserving,
     is_two_design,
     is_unitary,
@@ -236,11 +239,14 @@ __all__ = [
     "random_state_vector",
     # Validation functions
     "is_unitary",
+    "is_hermitian",
     "is_one_design",
     "is_two_design",
     "is_identity_matrix",
+    "is_positive_semidefinite_matrix",
     "is_cptp",
     "is_completely_positive",
+    "is_hermicity_preserving",
     "is_trace_preserving",
     # Promotion functions
     "promote_state_vector_to_density_matrix",
