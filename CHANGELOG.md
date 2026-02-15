@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.3.0] - 2026-02-15
+
+### Changed
+
+- `num_ensemble_dimensions` is removed and `num_qubits` added to all quantum objects. This enables simpler vmapping over objects.
+
 ## [0.2.3] - 2026-02-13
 
 - Python bound lowered to >=3.11

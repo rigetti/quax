@@ -58,7 +58,6 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
             dtype=jnp.complex64,
         ),
         ((2,), (2,)),
-        0,
     )
 
 
@@ -102,7 +101,7 @@ def depolarizing_channel_superoperator(depolarizing_prob: float, num_qubits: int
 
     depolarizing_super_data = (1 - depolarizing_prob) * identity_super + depolarizing_prob * max_mixed_super
     dims = (tuple([2] * num_qubits), tuple([2] * num_qubits))
-    return SuperOp.from_matrix(depolarizing_super_data, dims, 0)
+    return SuperOp.from_matrix(depolarizing_super_data, dims)
 
 
 @jax.custom_vjp
@@ -126,7 +125,7 @@ def fractional_unitary_power(unitary: Unitary, exponent: float) -> Unitary:
     eigvals, eigvecs = jnp.linalg.eig(unitary.matrix)
     fractional_eigvals = jnp.power(eigvals, exponent)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ jnp.linalg.inv(eigvecs)
-    return Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
+    return Unitary.from_matrix(result_data, unitary.dims)
 
 
 def _fractional_unitary_power_fwd(unitary: Unitary, exponent: float):
@@ -135,9 +134,9 @@ def _fractional_unitary_power_fwd(unitary: Unitary, exponent: float):
     fractional_eigvals = jnp.power(eigvals, exponent)
     V_inv = jnp.linalg.inv(eigvecs)
     result_data = eigvecs @ jnp.diag(fractional_eigvals) @ V_inv
-    result = Unitary.from_matrix(result_data, unitary.dims, unitary.num_ensemble_dims)
+    result = Unitary.from_matrix(result_data, unitary.dims)
     # Save for backward pass
-    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims, unitary.num_ensemble_dims)
+    return result, (eigvals, eigvecs, V_inv, exponent, unitary.dims)
 
 
 def _fractional_unitary_power_bwd(residuals, g: Unitary):
@@ -148,7 +147,7 @@ def _fractional_unitary_power_bwd(residuals, g: Unitary):
 
     We compute this using a more efficient formulation with eigenvalues.
     """
-    eigvals, eigvecs, V_inv, exponent, dims, num_ensemble_dims = residuals
+    eigvals, eigvecs, V_inv, exponent, dims = residuals
 
     # g is the gradient w.r.t. output U^α, as a Unitary object
     # We need to compute gradient w.r.t. input U
@@ -178,7 +177,7 @@ def _fractional_unitary_power_bwd(residuals, g: Unitary):
 
     # Transform back to original space
     grad_unitary_data = eigvecs @ G_eigen @ V_inv
-    grad_unitary = Unitary.from_matrix(grad_unitary_data, dims, num_ensemble_dims)
+    grad_unitary = Unitary.from_matrix(grad_unitary_data, dims)
 
     return (grad_unitary, None)  # None for exponent (not differentiable)
 
@@ -248,8 +247,8 @@ def bit_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * X.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p) * X.matrix, ((2,), (2,))),
     )
 
 
@@ -262,8 +261,8 @@ def phase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * Z.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p) * Z.matrix, ((2,), (2,))),
     )
 
 
@@ -276,8 +275,8 @@ def bitphase_flip_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p) * Y.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p) * Y.matrix, ((2,), (2,))),
     )
 
 
@@ -292,8 +291,8 @@ def dephasing_operators(p: float) -> tuple[Kraus, Kraus]:
     sqrt_p2 = jnp.sqrt(p / 2.0)
     sqrt_1mp2 = jnp.sqrt(1.0 - p / 2.0)
     return (
-        Kraus.from_matrix(sqrt_1mp2 * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(sqrt_p2 * Z.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(sqrt_1mp2 * I.matrix, ((2,), (2,))),
+        Kraus.from_matrix(sqrt_p2 * Z.matrix, ((2,), (2,))),
     )
 
 
@@ -307,10 +306,10 @@ def depolarizing_operators(p: float) -> tuple[Kraus, Kraus, Kraus, Kraus]:
     :return: Tuple of four 2x2 Kraus operators (K0, K1, K2, K3)
     """
     return (
-        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * X.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Y.matrix, ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Z.matrix, ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * X.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Y.matrix, ((2,), (2,))),
+        Kraus.from_matrix(jnp.sqrt(p / 3.0) * Z.matrix, ((2,), (2,))),
     )
 
 
@@ -323,8 +322,8 @@ def relaxation_operators(p: float) -> tuple[Kraus, Kraus]:
     :return: Tuple of two 2x2 Kraus operators (K0, K1)
     """
     return (
-        Kraus.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), ((2,), (2,)), 0),
-        Kraus.from_matrix(jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), ((2,), (2,)), 0),
+        Kraus.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), ((2,), (2,))),
+        Kraus.from_matrix(jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), ((2,), (2,))),
     )
 
 

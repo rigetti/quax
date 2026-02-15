@@ -67,10 +67,9 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
     J = jnp.einsum("...aibj,...ckdl->...acikbdjl", J0, J1)
 
     ensemble_size = jnp.broadcast_shapes(choi_0.ensemble_size, choi_1.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
     data = J.reshape(ensemble_size + (d_out * d_in, d_out * d_in))
 
-    return Choi.from_matrix(data, new_dims, num_ensemble_dims)
+    return Choi.from_matrix(data, new_dims)
 
 
 def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
@@ -98,7 +97,7 @@ def tensor_channel_kraus(k1: List[Kraus], k2: List[Kraus]) -> List[Kraus]:
     new_dims = (dims2[0] + dims1[0], dims2[1] + dims1[1])
 
     kraus_data = [jnp.kron(k2l.matrix, k1j.matrix) for k1j in k1 for k2l in k2]
-    return [Kraus.from_matrix(kd, new_dims, 0) for kd in kraus_data]
+    return [Kraus.from_matrix(kd, new_dims) for kd in kraus_data]
 
 
 @jax.jit
@@ -124,7 +123,6 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
 
     # Broadcast ensemble dims to a common leading shape
     ensemble_size_12 = jnp.broadcast_shapes(ensemble_size_1, ensemble_size_2)
-    num_ensemble_dims = len(ensemble_size_12)
     K1b = jnp.broadcast_to(K1, ensemble_size_12 + (n1, d1_out, d1_in))
     K2b = jnp.broadcast_to(K2, ensemble_size_12 + (n2, d2_out, d2_in))
 
@@ -147,7 +145,7 @@ def tensor_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
     # Collapse (N1, N2) -> (N1*N2)
     tensor_data = tensor4.reshape(ensemble_size_12 + (n1 * n2, d_out, d_in))
 
-    return KrausMap.from_matrix(tensor_data, new_dims, num_ensemble_dims)
+    return KrausMap.from_matrix(tensor_data, new_dims)
 
 
 @jax.jit
@@ -173,10 +171,9 @@ def tensor_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     out = jnp.einsum("...ab,...cd->...acbd", U1.matrix, U2.matrix)
 
     ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
     data = out.reshape(ensemble_size + (m * p, n * q))
 
-    return Unitary.from_matrix(data, new_dims, num_ensemble_dims)
+    return Unitary.from_matrix(data, new_dims)
 
 
 @jax.jit
@@ -243,10 +240,9 @@ def tensor_state_vector(psi1: StateVector, psi2: StateVector) -> StateVector:
     out = jnp.einsum("...a,...b->...ab", psi1.matrix, psi2.matrix)
 
     ensemble_size = jnp.broadcast_shapes(psi1.ensemble_size, psi2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
     data = out.reshape(ensemble_size + (d1 * d2,))
 
-    return StateVector.from_matrix(data, new_dims, num_ensemble_dims)
+    return StateVector.from_matrix(data, new_dims)
 
 
 @jax.jit
@@ -274,7 +270,6 @@ def tensor_density_matrix(rho1: DensityMatrix, rho2: DensityMatrix) -> DensityMa
     out = jnp.einsum("...ab,...cd->...acbd", rho1.matrix, rho2.matrix)
 
     ensemble_size = jnp.broadcast_shapes(rho1.ensemble_size, rho2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
     data = out.reshape(ensemble_size + (d1 * d2, d1 * d2))
 
-    return DensityMatrix.from_matrix(data, new_dims, num_ensemble_dims)
+    return DensityMatrix.from_matrix(data, new_dims)

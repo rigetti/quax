@@ -77,8 +77,7 @@ def test_compose_superoperators(seed, num_qubits, size_a, size_b):
 
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
     composed_data = qt_compose(qobj_a, qobj_b)
-    num_ensemble_dims = len(ensemble_size)
-    qobj_composed_ref = Choi.from_matrix(composed_data, dims, num_ensemble_dims)
+    qobj_composed_ref = Choi.from_matrix(composed_data, dims)
 
     # Compose chois
     choi_composed = compose_choi(choi_a, choi_b)
@@ -145,9 +144,7 @@ def test_compose_unitaries(seed, num_qubits, size_a, size_b):
         return jnp.asarray(dense)  # numeric ndarray (complex)
 
     composed_data = qt_compose(qobj_a, qobj_b)
-    ensemble_size = jnp.broadcast_shapes(size_a, size_b)
-    num_ensemble_dims = len(ensemble_size)
-    qobj_composed_ref = Unitary.from_matrix(composed_data, dims, num_ensemble_dims)
+    qobj_composed_ref = Unitary.from_matrix(composed_data, dims)
 
     # Compose unitaries
 

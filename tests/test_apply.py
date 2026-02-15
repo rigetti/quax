@@ -87,7 +87,6 @@ def test_compute_observables_random_channel(seed, num_qubits):
             ]
         ),
         ((2,) * num_qubits, (2,) * num_qubits),
-        1,
     )
 
     # Compute with JAX implementations
@@ -197,7 +196,7 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
         dense = dense.reshape(out_shape + dense.shape[1:])  # out_shape + (d,d)
         return jnp.asarray(dense)  # numeric ndarray (complex)
 
-    qobj_applied_ref = DensityMatrix.from_matrix(qt_apply(qobj_choi, qobj_state), dims, len(ensemble_size))
+    qobj_applied_ref = DensityMatrix.from_matrix(qt_apply(qobj_choi, qobj_state), dims)
 
     # Apply Chois
     applied_states = apply_choi_to_density_matrix(choi, state)
@@ -289,7 +288,7 @@ def test_apply_operator_to_state_vector(seed, num_qubits, ensemble_size):
 
         return jnp.asarray(dense)
 
-    qobj_applied_ref = StateVector.from_matrix(qt_apply(qobj_unitary, qobj_state), dims, len(ensemble_size))
+    qobj_applied_ref = StateVector.from_matrix(qt_apply(qobj_unitary, qobj_state), dims)
 
     # Apply Unitaries
     applied_states = apply_unitary_to_state_vector(unitary, state)

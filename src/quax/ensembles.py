@@ -36,7 +36,6 @@ SIC_PREP = Unitary.from_matrix(
         ]
     ),
     ((2,), (2,)),
-    1,
 )
 """The unitary operators that prepare the SIC states from |0> in the order SIC0, SIC1, SIC2, SIC3."""
 
@@ -60,7 +59,6 @@ PAULI_PREP = Unitary.from_matrix(
         ]
     ),
     ((2,), (2,)),
-    1,
 )
 """The unitary operators that prepare the Pauli states from |0> in the order X+, X-, Y+, Y-, Z+, Z-."""
 
@@ -77,7 +75,7 @@ PAULI_STATE_PREP_OPERATORS = {
 
 # Ensembles and Groups
 PAULI_ENSEMBLE = PAULIS = Unitary.from_matrix(
-    jnp.asarray([I.matrix, X.matrix, Y.matrix, Z.matrix], dtype=complex), ((2,), (2,)), 1
+    jnp.asarray([I.matrix, X.matrix, Y.matrix, Z.matrix], dtype=complex), ((2,), (2,))
 )
 """The ensemble of Pauli operators."""
 
@@ -100,7 +98,6 @@ TETRAHEDRAL_ENSEMBLE = Unitary.from_matrix(
         dtype=complex,
     ),
     ((2,), (2,)),
-    1,
 )
 """The tetrahedral ensemble of operators."""
 
@@ -141,7 +138,6 @@ CLIFFORD_ENSEMBLE = OCTAHEDRAL_ENSEMBLE = Unitary.from_matrix(
         dtype=complex,
     ),
     ((2,), (2,)),
-    1,
 )
 """The ensemble of single-qubit Clifford operators."""
 
@@ -222,7 +218,7 @@ def _generate_binary_icosahedral_group() -> Unitary:
     )
 
     icosahedral_unitaries = jnp.array([quaternion_to_unitary(*q) for q in icosahedral_quaternions])
-    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)), 1)
+    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)))
 
 
 @cache
@@ -269,7 +265,7 @@ def _generate_icosahedral_rotation_group() -> Unitary:
     )
 
     icosahedral_unitaries = jnp.array([quaternion_to_unitary(*q) for q in icosahedral_quaternions])
-    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)), 1)
+    return Unitary.from_matrix(icosahedral_unitaries, ((2,), (2,)))
 
 
 ICOSAHEDRAL_ENSEMBLE = ICOSAHEDRAL_GROUP = _generate_icosahedral_rotation_group()
@@ -305,4 +301,4 @@ def n_qubit_pauli_operators(n: int = 1) -> Unitary:
         result = reduce(jnp.kron, pauli_tuple)
         n_qubit_paulis.append(result)
 
-    return Unitary.from_matrix(jnp.array(n_qubit_paulis, dtype=complex), ((2,) * n, (2,) * n), 1)
+    return Unitary.from_matrix(jnp.array(n_qubit_paulis, dtype=complex), ((2,) * n, (2,) * n))

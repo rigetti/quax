@@ -125,7 +125,7 @@ def partial_trace(rho: DensityMatrix, indices: Tuple[int, ...]):
 
     result = jnp.einsum(f"{input_str}->{output_str}", tensor_perm)
 
-    return type(rho)(data=result, num_ensemble_dims=num_ensemble)
+    return type(rho)(data=result, num_qubits=n_keep)
 
 
 def compute_kraus_observables_from_states(

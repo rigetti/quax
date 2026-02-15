@@ -121,23 +121,23 @@ import jax.numpy as jnp
 
 from ._quantum_objects import Kraus, Unitary
 
-I = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)), 0)  # noqa: E741
+I = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
 
-X = Unitary.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)), 0)
+X = Unitary.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
 
-Y = Unitary.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)), 0)
+Y = Unitary.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)))
 
-Z = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)), 0)
+Z = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)))
 
-H = Unitary.from_matrix((1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,)), 0)
+H = Unitary.from_matrix((1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,)))
 
-S = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2,), (2,)), 0)
+S = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2,), (2,)))
 
-T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0)]], dtype=complex), ((2,), (2,)), 0)
+T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0)]], dtype=complex), ((2,), (2,)))
 
 
 def PHASE(phi: float) -> Unitary:
-    return Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * phi)]], dtype=complex), ((2,), (2,)), 0)
+    return Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * phi)]], dtype=complex), ((2,), (2,)))
 
 
 def RX(phi) -> Unitary:
@@ -147,7 +147,6 @@ def RX(phi) -> Unitary:
             dtype=complex,
         ),
         ((2,), (2,)),
-        0,
     )
 
 
@@ -155,7 +154,6 @@ def RY(phi: float) -> Unitary:
     return Unitary.from_matrix(
         jnp.array([[jnp.cos(phi / 2.0), -jnp.sin(phi / 2.0)], [jnp.sin(phi / 2.0), jnp.cos(phi / 2.0)]], dtype=complex),
         ((2,), (2,)),
-        0,
     )
 
 
@@ -169,7 +167,6 @@ def RZ(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2,), (2,)),
-        0,
     )
 
 
@@ -188,7 +185,6 @@ def PHASEDRX(theta: float, phi: float) -> Unitary:
             ]
         ),
         ((2,), (2,)),
-        0,
     )
 
 
@@ -202,16 +198,15 @@ def U(theta: float, phi: float, lam: float) -> Unitary:
             dtype=complex,
         ),
         ((2,), (2,)),
-        0,
     )
 
 
 CZ = Unitary.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]], dtype=complex), ((2, 2), (2, 2)), 0
+    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]], dtype=complex), ((2, 2), (2, 2))
 )
 
 CNOT = Unitary.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex), ((2, 2), (2, 2)), 0
+    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex), ((2, 2), (2, 2))
 )
 
 CCNOT = Unitary.from_matrix(
@@ -228,26 +223,19 @@ CCNOT = Unitary.from_matrix(
         ]
     ),
     ((2, 2, 2), (2, 2, 2)),
-    0,
 )
 
 
 def CPHASE00(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.diag(jnp.array([jnp.exp(1j * phi), 1.0, 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)), 0
-    )
+    return Unitary.from_matrix(jnp.diag(jnp.array([jnp.exp(1j * phi), 1.0, 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)))
 
 
 def CPHASE01(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.diag(jnp.array([1.0, jnp.exp(1j * phi), 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)), 0
-    )
+    return Unitary.from_matrix(jnp.diag(jnp.array([1.0, jnp.exp(1j * phi), 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)))
 
 
 def CPHASE10(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.diag(jnp.array([1.0, 1.0, jnp.exp(1j * phi), 1.0], dtype=complex)), ((2, 2), (2, 2)), 0
-    )
+    return Unitary.from_matrix(jnp.diag(jnp.array([1.0, 1.0, jnp.exp(1j * phi), 1.0], dtype=complex)), ((2, 2), (2, 2)))
 
 
 def CPHASE(phi: float) -> Unitary:
@@ -257,12 +245,11 @@ def CPHASE(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
 SWAP = Unitary.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2)), 0
+    jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
 )
 
 CSWAP = Unitary.from_matrix(
@@ -280,11 +267,10 @@ CSWAP = Unitary.from_matrix(
         dtype=complex,
     ),
     ((2, 2, 2), (2, 2, 2)),
-    0,
 )
 
 ISWAP = Unitary.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2)), 0
+    jnp.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
 )
 
 
@@ -294,7 +280,6 @@ def PSWAP(phi: float) -> Unitary:
             [[1, 0, 0, 0], [0, 0, jnp.exp(1j * phi), 0], [0, jnp.exp(1j * phi), 0, 0], [0, 0, 0, 1]], dtype=complex
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -310,7 +295,6 @@ def XY(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -326,7 +310,6 @@ def FSIM(theta: float, phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -352,7 +335,6 @@ def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) 
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -368,7 +350,6 @@ def RZZ(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -384,7 +365,6 @@ def RXX(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -400,7 +380,6 @@ def RYY(phi: float) -> Unitary:
             dtype=complex,
         ),
         ((2, 2), (2, 2)),
-        0,
     )
 
 
@@ -415,13 +394,12 @@ SQISWAP = SQISW = Unitary.from_matrix(
         dtype=complex,
     ),
     ((2, 2), (2, 2)),
-    0,
 )
 
 # Utility gates for internal QVM use
-P0 = Kraus.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)), 0)
+P0 = Kraus.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)))
 
-P1 = Kraus.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)), 0)
+P1 = Kraus.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)))
 
 
 # Specialized useful gates; not officially in standard gate set
@@ -433,9 +411,7 @@ def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
         ],
         dtype=complex,
     )
-    return Unitary.from_matrix(
-        jnp.kron(P0.matrix, jnp.eye(2)) + jnp.kron(P1.matrix, lower_unitary), ((2, 2), (2, 2)), 0
-    )
+    return Unitary.from_matrix(jnp.kron(P0.matrix, jnp.eye(2)) + jnp.kron(P1.matrix, lower_unitary), ((2, 2), (2, 2)))
 
 
 QUANTUM_GATES = {

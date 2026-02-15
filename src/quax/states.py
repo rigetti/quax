@@ -17,34 +17,34 @@ from jax.numpy import exp, pi, sqrt
 
 from ._quantum_objects import StateVector
 
-KET0 = ZPLUS = StateVector.from_matrix(jnp.array([1, 0], dtype=complex), (2,), 0)
+KET0 = ZPLUS = StateVector.from_matrix(jnp.array([1, 0], dtype=complex), (2,))
 """|0> state vector."""
 
-KET1 = ZMINUS = StateVector.from_matrix(jnp.array([0, 1], dtype=complex), (2,), 0)
+KET1 = ZMINUS = StateVector.from_matrix(jnp.array([0, 1], dtype=complex), (2,))
 """|1> state vector."""
 
-KETPLUS = XPLUS = StateVector.from_matrix(jnp.array([1, 1], dtype=complex) / sqrt(2), (2,), 0)
+KETPLUS = XPLUS = StateVector.from_matrix(jnp.array([1, 1], dtype=complex) / sqrt(2), (2,))
 """|+> = (|0> + |1>) / sqrt(2) state vector."""
 
-KETMINUS = XMINUS = StateVector.from_matrix(jnp.array([1, -1], dtype=complex) / sqrt(2), (2,), 0)
+KETMINUS = XMINUS = StateVector.from_matrix(jnp.array([1, -1], dtype=complex) / sqrt(2), (2,))
 """|-> = (|0> - |1>) / sqrt(2) state vector."""
 
-KETPLUSI = YPLUS = StateVector.from_matrix(jnp.array([1, 1j], dtype=complex) / sqrt(2), (2,), 0)
+KETPLUSI = YPLUS = StateVector.from_matrix(jnp.array([1, 1j], dtype=complex) / sqrt(2), (2,))
 """|+i> = (|0> + i|1>) / sqrt(2) state vector."""
 
-KETMINUSI = YMINUS = StateVector.from_matrix(jnp.array([1, -1j], dtype=complex) / sqrt(2), (2,), 0)
+KETMINUSI = YMINUS = StateVector.from_matrix(jnp.array([1, -1j], dtype=complex) / sqrt(2), (2,))
 """|-i> = (|0> - i|1>) / sqrt(2) state vector."""
 
 
 SIC0 = KET0
 SIC1 = StateVector.from_matrix(
-    exp(1j * pi / 2) * (1 / sqrt(3) * KET0.matrix) + exp(1j * pi / 2) * sqrt(2 / 3) * KET1.matrix, (2,), 0
+    exp(1j * pi / 2) * (1 / sqrt(3) * KET0.matrix) + exp(1j * pi / 2) * sqrt(2 / 3) * KET1.matrix, (2,)
 )
 SIC2 = StateVector.from_matrix(
-    exp(1j * 5 * pi / 6) * (1 / sqrt(3) * KET0.matrix) + exp(1j * 1 * pi / 6) * sqrt(2 / 3) * KET1.matrix, (2,), 0
+    exp(1j * 5 * pi / 6) * (1 / sqrt(3) * KET0.matrix) + exp(1j * 1 * pi / 6) * sqrt(2 / 3) * KET1.matrix, (2,)
 )
 SIC3 = StateVector.from_matrix(
-    exp(1j * pi / 6) * (1 / sqrt(3) * KET0.matrix) + exp(1j * 5 * pi / 6) * sqrt(2 / 3) * KET1.matrix, (2,), 0
+    exp(1j * pi / 6) * (1 / sqrt(3) * KET0.matrix) + exp(1j * 5 * pi / 6) * sqrt(2 / 3) * KET1.matrix, (2,)
 )
 
 SIC_STATES = {
@@ -72,16 +72,16 @@ PAULI_STATES = {
 
 STATES = {
     "X": [
-        StateVector.from_matrix(jnp.array([1, 1], dtype=complex) / jnp.sqrt(2), (2,), 0),
-        StateVector.from_matrix(jnp.array([1, -1], dtype=complex) / jnp.sqrt(2), (2,), 0),
+        StateVector.from_matrix(jnp.array([1, 1], dtype=complex) / jnp.sqrt(2), (2,)),
+        StateVector.from_matrix(jnp.array([1, -1], dtype=complex) / jnp.sqrt(2), (2,)),
     ],
     "Y": [
-        StateVector.from_matrix(jnp.array([1, 1j], dtype=complex) / jnp.sqrt(2), (2,), 0),
-        StateVector.from_matrix(jnp.array([1, -1j], dtype=complex) / jnp.sqrt(2), (2,), 0),
+        StateVector.from_matrix(jnp.array([1, 1j], dtype=complex) / jnp.sqrt(2), (2,)),
+        StateVector.from_matrix(jnp.array([1, -1j], dtype=complex) / jnp.sqrt(2), (2,)),
     ],
     "Z": [
-        StateVector.from_matrix(jnp.array([1, 0], dtype=complex), (2,), 0),
-        StateVector.from_matrix(jnp.array([0, 1], dtype=complex), (2,), 0),
+        StateVector.from_matrix(jnp.array([1, 0], dtype=complex), (2,)),
+        StateVector.from_matrix(jnp.array([0, 1], dtype=complex), (2,)),
     ],
     "SIC": [SIC0, SIC1, SIC2, SIC3],
 }

@@ -98,8 +98,7 @@ def _random_lindbladian(
         chois.append(choi)
 
     data = jnp.asarray(chois).reshape(size + (d2, d2))
-    num_ensemble_dims = len(size)
-    return Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits), num_ensemble_dims)
+    return Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits))
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
@@ -116,9 +115,8 @@ def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
     random_pauli_liouville = choi_to_pauli_liouville(random_choi)
 
     # here we use scipy.linalg.fractional_matrix_power as a reference implementation
-    num_ensemble_dims = len(ensemble_size)
     powered_reference_superop = SuperOp.from_matrix(
-        jnp.asarray(fractional_matrix_power(np.array(random_superop.matrix), power)), dims, num_ensemble_dims
+        jnp.asarray(fractional_matrix_power(np.array(random_superop.matrix), power)), dims
     )
     powered_reference_choi = superop_to_choi(powered_reference_superop)
 
@@ -166,9 +164,8 @@ def test_power_unitarys(num_qubits, power, seed, ensemble_size):
     powered_U = power_unitary(random_U, power)
 
     # Use scipy as reference
-    num_ensemble_dims = len(ensemble_size)
     powered_reference = Unitary.from_matrix(
-        jnp.asarray(fractional_matrix_power(np.array(random_U.matrix), power)), dims, num_ensemble_dims
+        jnp.asarray(fractional_matrix_power(np.array(random_U.matrix), power)), dims
     )
 
     # Check they match
@@ -207,9 +204,8 @@ def test_density_matrix_powers(num_qubits, power, seed, ensemble_size):
     powered_rho = density_matrix_power(random_rho, power)
 
     # Use scipy as reference
-    num_ensemble_dims = len(ensemble_size)
     powered_reference = DensityMatrix.from_matrix(
-        jnp.asarray(fractional_matrix_power(np.array(random_rho.matrix), power)), dims, num_ensemble_dims
+        jnp.asarray(fractional_matrix_power(np.array(random_rho.matrix), power)), dims
     )
 
     # Check they match

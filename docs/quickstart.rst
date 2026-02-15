@@ -72,7 +72,7 @@ traditional matrix representation via the ``.matrix`` property.
    
    # Or create directly in tensor form (shape matches dims)
    # For a single qubit: data shape is (d_out, d_in) = (2, 2)
-   U_z = qx.Unitary(data=Z_matrix, num_ensemble_dims=0)  # Already tensor-shaped
+   U_z = qx.Unitary(data=Z_matrix, num_qubits=1)  # Already tensor-shaped
    
    # Access the matrix representation
    print(U_x.matrix)  # Shape: (2, 2)

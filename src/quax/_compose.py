@@ -41,14 +41,13 @@ def compose_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
     n2 = k2.matrix.shape[-3]
 
     ensemble_size = jnp.broadcast_shapes(k1.ensemble_size, k2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
     k1_mat = jnp.broadcast_to(k1.matrix, ensemble_size + (n1, d_out, d_in))
     k2_mat = jnp.broadcast_to(k2.matrix, ensemble_size + (n2, d_out, d_in))
 
     kraus_data = jnp.einsum("...iab,...jbc->...ijac", k1_mat, k2_mat)
     kraus_data = kraus_data.reshape(ensemble_size + (n1 * n2, d_out, d_in))
 
-    return KrausMap.from_matrix(kraus_data, dims, num_ensemble_dims)
+    return KrausMap.from_matrix(kraus_data, dims)
 
 
 @jax.jit
@@ -70,10 +69,7 @@ def compose_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     # Use einsum with ellipsis to handle arbitrary ensemble dimensions
     data = jnp.einsum("...ab,...bc->...ac", U1.matrix, U2.matrix)
 
-    ensemble_size = jnp.broadcast_shapes(U1.ensemble_size, U2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-
-    return Unitary.from_matrix(data, U1.dims, num_ensemble_dims)
+    return Unitary.from_matrix(data, U1.dims)
 
 
 @jax.jit
@@ -95,10 +91,7 @@ def compose_superop(S1: SuperOp, S2: SuperOp) -> SuperOp:
     # Use matmul which automatically broadcasts ensemble dimensions
     data = S1.matrix @ S2.matrix
 
-    ensemble_size = jnp.broadcast_shapes(S1.ensemble_size, S2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-
-    return SuperOp.from_matrix(data, S1.dims, num_ensemble_dims)
+    return SuperOp.from_matrix(data, S1.dims)
 
 
 @jax.jit
@@ -159,7 +152,4 @@ def compose_pauli_liouville(P1: PauliLiouville, P2: PauliLiouville) -> PauliLiou
     # Use matmul which automatically broadcasts ensemble dimensions
     data = P1.matrix @ P2.matrix
 
-    ensemble_size = jnp.broadcast_shapes(P1.ensemble_size, P2.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-
-    return PauliLiouville.from_matrix(data, P1.dims, num_ensemble_dims)
+    return PauliLiouville.from_matrix(data, P1.dims)
