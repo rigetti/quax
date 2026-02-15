@@ -55,13 +55,12 @@ def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> Den
     # Reshape back to matrix form (un-vectorize)
     # Column-stacking means we need to transpose back
     ensemble_size = jnp.broadcast_shapes(superop.ensemble_size, rho.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
 
     # Unvec_col: reshape to (..., d, d) then transpose back
     rho_out = jnp.reshape(rho_out_vec, ensemble_size + (d, d))
     rho_out = jnp.swapaxes(rho_out, -1, -2)
 
-    return DensityMatrix.from_matrix(rho_out, rho.dims, num_ensemble_dims)
+    return DensityMatrix.from_matrix(rho_out, rho.dims)
 
 
 @jax.jit
@@ -107,10 +106,7 @@ def apply_kraus_to_density_matrix(kraus_map: KrausMap, rho: DensityMatrix) -> De
 
     rho_out = jnp.einsum("...iab,...bc,...idc->...ad", kraus_mat, rho_mat, kraus_mat.conj())
 
-    ensemble_size = jnp.broadcast_shapes(kraus_map.ensemble_size, rho.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-
-    return DensityMatrix.from_matrix(rho_out, rho.dims, num_ensemble_dims)
+    return DensityMatrix.from_matrix(rho_out, rho.dims)
 
 
 @jax.jit
@@ -152,10 +148,7 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
     # Use einsum with ellipsis for broadcasting
     state_out = jnp.einsum("...ab,...b->...a", unitary_mat, state_mat)
 
-    ensemble_size = jnp.broadcast_shapes(unitary.ensemble_size, state.ensemble_size)
-    num_ensemble_dims = len(ensemble_size)
-
-    return StateVector.from_matrix(state_out, state.dims, num_ensemble_dims)
+    return StateVector.from_matrix(state_out, state.dims)
 
 
 @jax.jit
@@ -176,7 +169,7 @@ def _(rho: DensityMatrix, indices: Tuple[int, ...]) -> DensityMatrix:
 
     out_data = _partial_trace_data(rho.matrix, dims=dims, keep=keep)
     out_dims = tuple(dims[i] for i in sorted(keep))
-    return DensityMatrix.from_matrix(out_data, out_dims, rho.num_ensemble_dims)
+    return DensityMatrix.from_matrix(out_data, out_dims)
 
 
 @partial_trace.register
@@ -190,7 +183,7 @@ def _(rho: Choi, indices: Tuple[int, ...]) -> DensityMatrix:
 
     # After tracing arbitrary subsystems, "input vs output" split may not be meaningful,
     # so store dims as a flat tuple by default.
-    return DensityMatrix.from_matrix(out_data, out_dims, rho.num_ensemble_dims)
+    return DensityMatrix.from_matrix(out_data, out_dims)
 
 
 @jax.jit(static_argnames=("dims", "keep"))

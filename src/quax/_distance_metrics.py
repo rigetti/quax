@@ -143,7 +143,7 @@ def process_fidelity(
     if superoperator_1 is None:
         omega = jnp.eye(choi_0.d[0], dtype=choi_0.matrix.dtype).reshape(-1)
         id_choi_data = jnp.outer(omega, jnp.conj(omega))  # Tr = d
-        choi_1 = Choi.from_matrix(id_choi_data, choi_0.dims, 0)
+        choi_1 = Choi.from_matrix(id_choi_data, choi_0.dims)
     else:
         choi_1 = to_choi(superoperator_1)
         if choi_1.dims != choi_0.dims:
@@ -155,8 +155,8 @@ def process_fidelity(
     # We treat J/d as a density matrix. The Choi matrix is (d_out^2 x d_in^2) and we
     # treat it as a single-system density matrix with dimension d^2.
     choi_dm_dims = (choi_0.d2[0],)  # e.g., (16,) for 2-qubit
-    rho = DensityMatrix.from_matrix(choi_0.matrix, choi_dm_dims, choi_0.num_ensemble_dims)
-    sigma = DensityMatrix.from_matrix(choi_1.matrix, choi_dm_dims, choi_1.num_ensemble_dims)
+    rho = DensityMatrix.from_matrix(choi_0.matrix, choi_dm_dims)
+    sigma = DensityMatrix.from_matrix(choi_1.matrix, choi_dm_dims)
 
     # Compute state fidelity between normalized Choi matrices
     state_fid = fidelity(rho, sigma)

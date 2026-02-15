@@ -25,7 +25,7 @@ class TestFractionalUnitaryPower:
 
     def test_fractional_power_identity(self):
         """Test that identity^(1/n) = identity."""
-        identity = qx.Unitary.from_matrix(jnp.eye(2, dtype=jnp.complex128), ((2,), (2,)), 0)
+        identity = qx.Unitary.from_matrix(jnp.eye(2, dtype=jnp.complex128), ((2,), (2,)))
 
         for n in [2, 3, 5, 10]:
             result = fractional_unitary_power(identity, 1.0 / n)
@@ -107,13 +107,13 @@ class TestFractionalUnitaryPower:
         U, _ = jnp.linalg.qr(A)
 
         # Compute fractional power
-        U_frac = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2, 2), (2, 2)), 0), 0.3)
+        U_frac = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2, 2), (2, 2))), 0.3)
 
         # Check unitarity: U^† U = I
         result = U_frac.h @ U_frac
 
         fid = qx.unitary_entanglement_fidelity(
-            result, qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
+            result, qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
         )
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(1/3)"
 
@@ -125,7 +125,6 @@ class TestFractionalUnitaryPower:
         U = qx.Unitary.from_matrix(
             jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
             ((2,), (2,)),
-            0,
         )
 
         n = 5
@@ -155,7 +154,6 @@ class TestFractionalUnitaryPower:
         U = qx.Unitary.from_matrix(
             jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
             ((2,), (2,)),
-            0,
         )
         U_inv = fractional_unitary_power(U, -1.0)
         result = U @ U_inv
@@ -217,7 +215,7 @@ class TestFractionalUnitaryPower:
         def loss_fn(theta):
             # Create RZ(theta) gate
             U = jnp.array([[jnp.exp(-1j * theta / 2), 0.0], [0.0, jnp.exp(1j * theta / 2)]], dtype=jnp.complex128)
-            U_half = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2,), (2,)), 0), 0.5)
+            U_half = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2,), (2,))), 0.5)
             # Loss: measure deviation from expected half-angle rotation
             expected = jnp.array(
                 [[jnp.exp(-1j * theta / 4), 0.0], [0.0, jnp.exp(1j * theta / 4)]], dtype=jnp.complex128
@@ -341,7 +339,7 @@ class TestIntegratedThermalSuperoperator:
     def test_integrated_thermal_shape(self):
         """Test that integrated thermal superoperator has correct shape."""
         # Two-qubit unitary
-        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
@@ -353,7 +351,7 @@ class TestIntegratedThermalSuperoperator:
 
     def test_integrated_thermal_identity_unitary(self):
         """Test integrated thermal with identity unitary equals pure thermal."""
-        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
@@ -383,7 +381,6 @@ class TestIntegratedThermalSuperoperator:
                 dtype=jnp.complex128,
             ),
             ((2, 2), (2, 2)),
-            0,
         )
 
         t1s = jnp.array([50e-6, 45e-6])
@@ -405,7 +402,7 @@ class TestIntegratedThermalSuperoperator:
         def compute_integrated(unitary, t1s, tphis, duration):
             return qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
 
-        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
+        unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
@@ -433,7 +430,6 @@ class TestIntegratedThermalSuperoperator:
                 dtype=jnp.complex128,
             ),
             ((2, 2), (2, 2)),
-            0,
         )
 
         t1s = jnp.array([50e-6, 45e-6])
@@ -461,7 +457,6 @@ class TestIntegratedThermalSuperoperator:
                 dtype=jnp.complex128,
             ),
             ((2,), (2,)),
-            0,
         )
 
         t1s = jnp.array([50e-6])
@@ -489,7 +484,6 @@ class TestIntegratedThermalSuperoperator:
                 dtype=jnp.complex128,
             ),
             ((2, 2), (2, 2)),
-            0,
         )
 
         # Very large coherence times (relative to gate duration)
@@ -528,7 +522,7 @@ class TestDepolarizingChannelSuperoperator:
         superop = qx.depolarizing_channel_superoperator(0.0, num_qubits=2)
 
         # Should be identity superoperator
-        expected = qx.SuperOp.from_matrix(jnp.eye(16, dtype=jnp.complex128), ((2, 2), (2, 2)), 0)
+        expected = qx.SuperOp.from_matrix(jnp.eye(16, dtype=jnp.complex128), ((2, 2), (2, 2)))
 
         fid = qx.process_fidelity(qx.superop_to_choi(superop), qx.superop_to_choi(expected))
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for zero depolarizing probability"

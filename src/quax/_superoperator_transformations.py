@@ -41,13 +41,12 @@ def choi_to_superop(choi: Choi) -> SuperOp:
     d2 = choi.d2[0]
 
     ensemble_size = choi.ensemble_size
-    num_ensemble_dims = choi.num_ensemble_dims
 
     J4 = choi.matrix.reshape(*ensemble_size, d, d, d, d)  # (..., d, d, d, d)
     S4 = jnp.swapaxes(J4, -4, -1)  # swap first/last of the last-4 axes
     S = S4.reshape(*ensemble_size, d2, d2)  # (..., d^2, d^2)
 
-    return SuperOp.from_matrix(S, choi.dims, num_ensemble_dims)
+    return SuperOp.from_matrix(S, choi.dims)
 
 
 @jax.jit
@@ -66,12 +65,11 @@ def superop_to_choi(superop: SuperOp) -> Choi:
     d2 = superop.d2[0]
 
     ensemble_size = superop.ensemble_size
-    num_ensemble_dims = superop.num_ensemble_dims
 
     S4 = superop.matrix.reshape(*ensemble_size, d, d, d, d)  # (..., d, d, d, d)
     J4 = jnp.swapaxes(S4, -4, -1)  # same swap
     J = J4.reshape(*ensemble_size, d2, d2)  # (..., d^2, d^2)
-    return Choi.from_matrix(J, superop.dims, num_ensemble_dims)
+    return Choi.from_matrix(J, superop.dims)
 
 
 # ============================================================================
@@ -152,7 +150,7 @@ def superop_to_pauli_liouville(superop: SuperOp) -> PauliLiouville:
 
     c2p = _computational2pauli_basis_matrix_jax(superop.dims)
     data = c2p @ superop.matrix @ jnp.conj(c2p).T * d
-    return PauliLiouville.from_matrix(jnp.real(data), superop.dims, superop.num_ensemble_dims)
+    return PauliLiouville.from_matrix(jnp.real(data), superop.dims)
 
 
 @jax.jit
@@ -168,7 +166,7 @@ def pauli_liouville_to_superop(pauli_liouville: PauliLiouville) -> SuperOp:
 
     p2c = _pauli2computational_basis_matrix_jax(pauli_liouville.dims)
     data = p2c @ pauli_liouville.matrix @ jnp.conj(p2c).T / d
-    return SuperOp.from_matrix(data, pauli_liouville.dims, pauli_liouville.num_ensemble_dims)
+    return SuperOp.from_matrix(data, pauli_liouville.dims)
 
 
 @jax.jit
@@ -213,7 +211,6 @@ def kraus_to_choi(kraus_map: KrausMap) -> Choi:
     d2 = kraus_map.d2[0]
 
     ensemble_size = kraus_map.ensemble_size
-    num_ensemble_dims = kraus_map.num_ensemble_dims
     N = K.shape[-3]
 
     # Vectorize all Kraus operators: V[i] = vec(K[i]) has shape (d_out*d_in,)
@@ -223,7 +220,7 @@ def kraus_to_choi(kraus_map: KrausMap) -> Choi:
     # einsum: (N, a) (N, b)* -> (a, b)
     J = jnp.einsum("...na,...nb->...ab", V, jnp.conj(V))
 
-    return Choi.from_matrix(J, kraus_map.dims, num_ensemble_dims)
+    return Choi.from_matrix(J, kraus_map.dims)
 
 
 @jax.jit
@@ -240,7 +237,6 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
     d_out, d_in = kraus_map.d
 
     ensemble_size = kraus_map.ensemble_size
-    num_ensemble_dims = kraus_map.num_ensemble_dims
     N = K.shape[-3]
 
     # Build each kron term as a matrix of shape (d_out*d_out, d_in*d_in) or (d_out*d_in, d_out*d_in)
@@ -253,7 +249,7 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
     terms = terms.reshape(*ensemble_size, N, d_out * d_out, d_in * d_in)
 
     S = jnp.sum(terms, axis=-3)  # (d_out^2, d_in^2)
-    return SuperOp.from_matrix(S, kraus_map.dims, num_ensemble_dims)
+    return SuperOp.from_matrix(S, kraus_map.dims)
 
 
 @jax.jit
@@ -283,7 +279,6 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     """
     d_out, d_in = choi.d
     ensemble_size = choi.ensemble_size
-    num_ensemble_dims = choi.num_ensemble_dims
     n = d_in * d_out  # dimension of vec space; also max Kraus count
 
     # Hermitian symmetrization helps numerical stability
@@ -314,7 +309,7 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     K = WT.reshape(*ensemble_size, n, d_out, d_in)  # (..., n, d_out, d_in)
     K = jnp.swapaxes(K, -1, -2)  # (..., n, d_in, d_out) -> swap to get (d_out, d_in)
 
-    return KrausMap.from_matrix(K, choi.dims, num_ensemble_dims)
+    return KrausMap.from_matrix(K, choi.dims)
 
 
 @jax.jit
@@ -363,7 +358,6 @@ def unitary_to_choi(unitary: Unitary) -> Choi:
 
     unitary_data = unitary.matrix
     ensemble_size = unitary.ensemble_size
-    num_ensemble_dims = unitary.num_ensemble_dims
     d = unitary.d[0]
     assert d == unitary.d[1], "Unitary to Choi conversion only supports square operators"
 
@@ -373,7 +367,7 @@ def unitary_to_choi(unitary: Unitary) -> Choi:
     # |U⟩⟩⟨⟨U|: (..., d^2, d^2)
     choi_data = vec_u @ jnp.conj(jnp.swapaxes(vec_u, -1, -2))
 
-    return Choi.from_matrix(choi_data, unitary.dims, num_ensemble_dims)
+    return Choi.from_matrix(choi_data, unitary.dims)
 
 
 @jax.jit
@@ -391,7 +385,6 @@ def unitary_to_superop(unitary: Unitary) -> SuperOp:
     """
     unitary_data = unitary.matrix
     ensemble_size = unitary.ensemble_size
-    num_ensemble_dims = unitary.num_ensemble_dims
     d = unitary.d[0]
     assert d == unitary.d[1], "Unitary to SuperOp conversion only supports square operators"
 
@@ -399,7 +392,7 @@ def unitary_to_superop(unitary: Unitary) -> SuperOp:
     S4 = jnp.einsum("...ab,...cd->...acbd", jnp.conj(unitary_data), unitary_data)  # (..., d, d, d, d)
     superop_data = S4.reshape(*ensemble_size, d * d, d * d)
 
-    return SuperOp.from_matrix(superop_data, unitary.dims, num_ensemble_dims)
+    return SuperOp.from_matrix(superop_data, unitary.dims)
 
 
 @jax.jit

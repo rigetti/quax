@@ -27,7 +27,7 @@ def zero_state_vector(n_qubits: int) -> StateVector:
     """
     state_matrix = jnp.zeros((2**n_qubits), complex)
     state_matrix = state_matrix.at[0].set(complex(1.0, 0))
-    return StateVector.from_matrix(state_matrix, (2,) * n_qubits, 0)
+    return StateVector.from_matrix(state_matrix, (2,) * n_qubits)
 
 
 @jax.jit(static_argnames=("n_qubits",))
@@ -40,7 +40,7 @@ def zero_state_matrix(n_qubits: int) -> DensityMatrix:
     """
     state_matrix = jnp.zeros((2**n_qubits, 2**n_qubits), complex)
     state_matrix = state_matrix.at[0, 0].set(complex(1.0, 0))
-    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits, 0)
+    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
 
 
 @jax.jit(static_argnames=("n_qubits",))
@@ -53,7 +53,7 @@ def mixed_state_matrix(n_qubits: int) -> DensityMatrix:
     """
     d = 2**n_qubits
     state_matrix = jnp.eye(d, dtype=complex) / d
-    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits, 0)
+    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
 
 
 @jax.jit
@@ -67,7 +67,7 @@ def tensor_state_vectors(state_a: StateVector, state_b: StateVector) -> StateVec
     """
     new_data = jnp.kron(state_a.matrix, state_b.matrix)
     new_dims = state_a.dims + state_b.dims
-    return StateVector.from_matrix(new_data, new_dims, 0)
+    return StateVector.from_matrix(new_data, new_dims)
 
 
 @jax.jit
@@ -81,4 +81,4 @@ def tensor_density_matrices(state_a: DensityMatrix, state_b: DensityMatrix) -> D
     """
     new_data = jnp.kron(state_a.matrix, state_b.matrix)
     new_dims = state_a.dims + state_b.dims
-    return DensityMatrix.from_matrix(new_data, new_dims, 0)
+    return DensityMatrix.from_matrix(new_data, new_dims)

@@ -65,8 +65,7 @@ def random_density_matrix(rank: int, dims: Tuple[int, ...], key: Array, size: Tu
     tr = jnp.trace(rho, axis1=-2, axis2=-1)
     rho = rho / tr[..., None, None]
 
-    num_ensemble_dims = len(size)
-    return DensityMatrix.from_matrix(rho, dims, num_ensemble_dims)
+    return DensityMatrix.from_matrix(rho, dims)
 
 
 @jax.jit(static_argnames=("dims", "size"))
@@ -96,8 +95,7 @@ def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, si
     if size == ():
         unitaries = jnp.squeeze(unitaries)
 
-    num_ensemble_dims = len(size)
-    return Unitary.from_matrix(unitaries, dims, num_ensemble_dims)
+    return Unitary.from_matrix(unitaries, dims)
 
 
 @jax.jit(static_argnames=("dims", "size"))
@@ -122,8 +120,7 @@ def random_state_vector(dims: Tuple[int, ...], key: Array, size: Tuple[int, ...]
 
     # If you really want scalar output to be (dim,) not (1, dim), this already does it
     # because size=() => vec.shape == (dim,)
-    num_ensemble_dims = len(size)
-    return StateVector.from_matrix(data, dims, num_ensemble_dims)
+    return StateVector.from_matrix(data, dims)
 
 
 @jax.jit(static_argnames=("dims", "rank", "size"))
@@ -181,5 +178,4 @@ def random_choi_BCSZ(
     D4 = jnp.transpose(D4, (*range(len(lead)), len(lead) + 1, len(lead) + 0, len(lead) + 3, len(lead) + 2))
     D_col = D4.reshape(*lead, d2, d2)
 
-    num_ensemble_dims = len(size)
-    return Choi.from_matrix(D_col, dims, num_ensemble_dims)
+    return Choi.from_matrix(D_col, dims)

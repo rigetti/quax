@@ -38,16 +38,16 @@ class State:
     """The state tensor with shape (*ensemble, d0, d1, ...) for state vectors or
     (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) for density matrices."""
 
-    num_ensemble_dims: int = 0
-    """The number of leading ensemble dimensions in the data array."""
+    num_qubits: int
+    """The number of qubits (qudits) in the quantum state."""
 
     def __neg__(self) -> Self:
         """Multiply the unitary by -1."""
-        return type(self)(-self.data, self.num_ensemble_dims)
+        return type(self)(-self.data, self.num_qubits)
 
     def __mul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
-        return type(self)(self.data * scalar, self.num_ensemble_dims)
+        return type(self)(self.data * scalar, self.num_qubits)
 
     def __rmul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
@@ -88,16 +88,16 @@ class State:
         raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
 
     def tree_flatten(self):
-        return (self.data,), self.num_ensemble_dims
+        return (self.data,), self.num_qubits
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         (data,) = children
-        return cls(data=data, num_ensemble_dims=aux_data)
+        return cls(data=data, num_qubits=aux_data)
 
     def conj(self):
         """Complex conjugate of the states(s)"""
-        return type(self)(data=jnp.conjugate(self.data), num_ensemble_dims=self.num_ensemble_dims)
+        return type(self)(data=jnp.conjugate(self.data), num_qubits=self.num_qubits)
 
     @property
     def T(self):
@@ -123,6 +123,11 @@ class State:
         return self.d**2
 
     @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        raise NotImplementedError("Subclasses must implement num_ensemble_dims property.")
+
+    @property
     def ensemble_size(self) -> Tuple[int, ...]:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
         raise NotImplementedError("Subclasses must implement ensemble_size property.")
@@ -133,7 +138,7 @@ class State:
         raise NotImplementedError("Subclasses must implement matrix property.")
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> Self:
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> Self:
         """Construct from matrix representation."""
         raise NotImplementedError("Subclasses must implement from_matrix class method.")
 
@@ -146,16 +151,16 @@ class Operator:
     data: Array
     """The operator tensor with shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)."""
 
-    num_ensemble_dims: int = 0
-    """The number of leading ensemble dimensions in the data array."""
+    num_qubits: int
+    """The number of qubits (qudits) in the quantum operator."""
 
     def __neg__(self) -> Self:
         """Multiply the unitary by -1."""
-        return type(self)(-self.data, self.num_ensemble_dims)
+        return type(self)(-self.data, self.num_qubits)
 
     def __mul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
-        return type(self)(self.data * scalar, self.num_ensemble_dims)
+        return type(self)(self.data * scalar, self.num_qubits)
 
     def __rmul__(self, scalar: complex) -> Self:
         """Scalar multiplication of the superoperator."""
@@ -167,7 +172,7 @@ class Operator:
         # matrix_power is not _correct_ for all operators
         if jnp.isclose(int(jnp.abs(exponent)), exponent):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
-            return type(self).from_matrix(new_data, self.dims, self.num_ensemble_dims)
+            return type(self).from_matrix(new_data, self.dims)
         else:
             raise TypeError(f"Exponent must be an integer, but got {type(exponent)}.")
 
@@ -202,16 +207,16 @@ class Operator:
         raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
 
     def tree_flatten(self):
-        return (self.data,), self.num_ensemble_dims
+        return (self.data,), self.num_qubits
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         (data,) = children
-        return cls(data=data, num_ensemble_dims=aux_data)
+        return cls(data=data, num_qubits=aux_data)
 
     def conj(self):
         """Complex conjugate of the operator(s)"""
-        return type(self)(data=jnp.conjugate(self.data), num_ensemble_dims=self.num_ensemble_dims)
+        return type(self)(data=jnp.conjugate(self.data), num_qubits=self.num_qubits)
 
     @property
     def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
@@ -223,13 +228,13 @@ class Operator:
         """Transpose of the operator(s)"""
         # use the swapaxes function to swap the last two axes
         matrix_t = jnp.swapaxes(self.matrix, -1, -2)
-        return type(self).from_matrix(matrix_t, (self.dims[1], self.dims[0]), self.num_ensemble_dims)
+        return type(self).from_matrix(matrix_t, (self.dims[1], self.dims[0]))
 
     @property
     def h(self):
         """Hermitian conjugate of the operator(s)"""
         matrix_h = jnp.conjugate(jnp.swapaxes(self.matrix, -1, -2))
-        return type(self).from_matrix(matrix_h, (self.dims[1], self.dims[0]), self.num_ensemble_dims)
+        return type(self).from_matrix(matrix_h, (self.dims[1], self.dims[0]))
 
     @property
     def d(self) -> Tuple[int, int]:
@@ -238,6 +243,11 @@ class Operator:
     @property
     def d2(self) -> Tuple[int, int]:
         return self.d[0] ** 2, self.d[1] ** 2
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 2 * self.num_qubits
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
@@ -255,29 +265,27 @@ class Operator:
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(
-        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
-    ) -> Self:
+    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape (*ensemble, d_out, d_in)
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
-        :param num_ensemble_dims: Number of leading ensemble dimensions
         :return: Operator with tensor data
         """
-        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        num_qubits = len(dims[0])
+        ensemble_shape = matrix.shape[:-2]
         tensor = matrix.reshape(ensemble_shape + dims[0] + dims[1])
-        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
+        return cls(data=tensor, num_qubits=num_qubits)
 
     def __iter__(self) -> Iterator[Self]:
-        if self.num_ensemble_dims == 0:
+        if self.ensemble_size == ():
             raise TypeError(
-                "This Operator is not ensembled (num_ensemble_dims == 0), so it cannot be iterated. "
+                "This Operator is not ensembled (no ensemble dimensions), so it cannot be iterated. "
                 "If you intended an ensemble, make data shape (N, d0_out, d1_out, ..., d0_in, d1_in, ...) (or higher-rank)."
             )
         # iterate over axis 0 only; remaining ensemble axes (if any) remain on each item
         for i in range(self.data.shape[0]):
-            yield type(self)(data=self.data[i], num_ensemble_dims=self.num_ensemble_dims - 1)
+            yield type(self)(data=self.data[i], num_qubits=self.num_qubits)
 
 
 # This class is basically for typing purposes
@@ -291,6 +299,11 @@ class SuperOperator(Operator):
     (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
             d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
     """
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 4 * self.num_qubits
 
     @property
     def matrix(self) -> Array:
@@ -308,21 +321,19 @@ class SuperOperator(Operator):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(
-        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
-    ) -> Self:
+    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape (*ensemble, d_out^2, d_in^2)
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
-        :param num_ensemble_dims: Number of leading ensemble dimensions
         :return: SuperOperator with tensor data
         """
-        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        num_qubits = len(dims[0])
+        ensemble_shape = matrix.shape[:-2]
         # Tensor shape is: out_bra_dims + out_ket_dims + in_bra_dims + in_ket_dims
         tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
         tensor = matrix.reshape(ensemble_shape + tensor_shape)
-        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
+        return cls(data=tensor, num_qubits=num_qubits)
 
 
 # ---------- states ----------
@@ -334,9 +345,14 @@ class StateVector(State):
     """State vector |psi>, shape (*ensemble, d0, d1, ...) in tensor form or (*ensemble, d) in matrix form."""
 
     @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - self.num_qubits
+
+    @property
     def dims(self) -> Tuple[int, ...]:
         """The dimensions of each qudit, inferred from data shape."""
-        return self.data.shape[self.num_ensemble_dims :]
+        return self.data.shape[-self.num_qubits :] if self.num_qubits > 0 else ()
 
     @property
     def ensemble_size(self) -> Tuple[int, ...]:
@@ -352,17 +368,17 @@ class StateVector(State):
         return self.data.reshape(ensemble_shape + (d,))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> "StateVector":
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "StateVector":
         """Construct from vector representation.
 
         :param matrix: Array with shape (*ensemble, d) where d = prod(dims)
         :param dims: Tuple of qudit dimensions (d0, d1, ...)
-        :param num_ensemble_dims: Number of leading ensemble dimensions
         :return: StateVector with tensor data
         """
-        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        num_qubits = len(dims)
+        ensemble_shape = matrix.shape[:-1] if num_qubits > 0 else matrix.shape
         tensor = matrix.reshape(ensemble_shape + dims)
-        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
+        return cls(data=tensor, num_qubits=num_qubits)
 
     @property
     def T(self):
@@ -383,8 +399,7 @@ class StateVector(State):
                 return jnp.einsum("...a,...a->...", self.matrix.conj(), other.matrix)
             case DensityMatrix():  #  <𝜓|𝜌 -> <𝜙|
                 result = jnp.einsum("...b,...ba->...a", self.matrix.conj(), other.matrix)
-                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
-                return StateVector.from_matrix(result, self.dims, num_ensemble)
+                return StateVector.from_matrix(result, self.dims)
             case _:
                 return NotImplemented
 
@@ -462,6 +477,11 @@ class DensityMatrix(State):
     or (*ensemble, d, d) in matrix form."""
 
     @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 2 * self.num_qubits
+
+    @property
     def dims(self) -> Tuple[int, ...]:
         """The dimensions of each qudit, inferred from data shape.
 
@@ -487,30 +507,30 @@ class DensityMatrix(State):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...], num_ensemble_dims: int = 0) -> "DensityMatrix":
+    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "DensityMatrix":
         """Construct from matrix representation.
 
         :param matrix: Array with shape (*ensemble, d, d) where d = prod(dims)
         :param dims: Tuple of qudit dimensions (d0, d1, ...)
-        :param num_ensemble_dims: Number of leading ensemble dimensions
         :return: DensityMatrix with tensor data
         """
         # For density matrices, dims_out = dims_in = dims
-        ensemble_shape = matrix.shape[:num_ensemble_dims]
+        num_qubits = len(dims)
+        ensemble_shape = matrix.shape[:-2]
         tensor = matrix.reshape(ensemble_shape + dims + dims)
-        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
+        return cls(data=tensor, num_qubits=num_qubits)
 
     @property
     def T(self):
         """Transpose of the operator(s)"""
         matrix_t = jnp.swapaxes(self.matrix, -1, -2)
-        return DensityMatrix.from_matrix(matrix_t, self.dims, self.num_ensemble_dims)
+        return DensityMatrix.from_matrix(matrix_t, self.dims)
 
     @property
     def h(self):
         """Hermitian conjugate of the operator(s)"""
         matrix_h = jnp.conjugate(jnp.swapaxes(self.matrix, -1, -2))
-        return DensityMatrix.from_matrix(matrix_h, self.dims, self.num_ensemble_dims)
+        return DensityMatrix.from_matrix(matrix_h, self.dims)
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the density matrix using eigendecomposition (ensemble-compatible)."""
@@ -523,12 +543,10 @@ class DensityMatrix(State):
         match other:
             case StateVector():  # 𝜌|𝜓> -> |𝜙>
                 result = jnp.einsum("...ab,...b->...a", self.matrix, other.matrix)
-                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
-                return StateVector.from_matrix(result, other.dims, num_ensemble)
+                return StateVector.from_matrix(result, other.dims)
             case DensityMatrix():  # 𝜌𝜎 -> 𝜏
                 result = jnp.einsum("...ab,...bc->...ac", self.matrix, other.matrix)
-                num_ensemble = max(self.num_ensemble_dims, other.num_ensemble_dims)
-                return DensityMatrix.from_matrix(result, self.dims, num_ensemble)
+                return DensityMatrix.from_matrix(result, self.dims)
             case _:
                 return NotImplemented
 
@@ -643,9 +661,9 @@ class Unitary(Operator):
     def __mul__(self, scalar: complex) -> "Unitary | Kraus":
         """Scalar multiplication of the unitary."""
         if jnp.isclose(jnp.abs(scalar), 1.0):
-            return Unitary(self.data * scalar, self.num_ensemble_dims)
+            return Unitary(self.data * scalar, self.num_qubits)
         else:
-            return Kraus(self.data * scalar, self.num_ensemble_dims)
+            return Kraus(self.data * scalar, self.num_qubits)
 
     def __rmul__(self, scalar: complex) -> "Unitary | Kraus":
         """Scalar multiplication of the unitary."""
@@ -987,6 +1005,11 @@ class KrausMap(SuperOperator):
     """
 
     @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 2 * self.num_qubits - 1
+
+    @property
     def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         # After ensemble dims, first is n_kraus, then qudit dims
@@ -1011,20 +1034,18 @@ class KrausMap(SuperOperator):
         return self.data.reshape(ensemble_shape + (n_kraus, d_out, d_in))
 
     @classmethod
-    def from_matrix(
-        cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]], num_ensemble_dims: int = 0
-    ) -> "KrausMap":
+    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> "KrausMap":
         """Construct from matrix representation.
 
         :param matrix: Array with shape (*ensemble, n_kraus, d_out, d_in)
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
-        :param num_ensemble_dims: Number of leading ensemble dimensions
         :return: KrausMap with tensor data
         """
-        ensemble_shape = matrix.shape[:num_ensemble_dims]
-        n_kraus = matrix.shape[num_ensemble_dims]
+        num_qubits = len(dims[0])
+        ensemble_shape = matrix.shape[:-3]
+        n_kraus = matrix.shape[-3]
         tensor = matrix.reshape(ensemble_shape + (n_kraus,) + dims[0] + dims[1])
-        return cls(data=tensor, num_ensemble_dims=num_ensemble_dims)
+        return cls(data=tensor, num_qubits=num_qubits)
 
     def _to_qobj(self) -> list["qutip.Qobj"]:
         """Convert to a QuTiP Qobj for interoperability testing.
