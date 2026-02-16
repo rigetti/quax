@@ -140,14 +140,29 @@ def PHASE(phi: float) -> Unitary:
     return Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * phi)]], dtype=complex), ((2,), (2,)))
 
 
+# def RX(phi) -> Unitary:
+#     return Unitary.from_matrix(
+#         jnp.array(
+#             [[jnp.cos(phi / 2.0), -1j * jnp.sin(phi / 2.0)], [-1j * jnp.sin(phi / 2.0), jnp.cos(phi / 2.0)]],
+#             dtype=complex,
+#         ),
+#         ((2,), (2,)),
+#     )
+
+
 def RX(phi) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [[jnp.cos(phi / 2.0), -1j * jnp.sin(phi / 2.0)], [-1j * jnp.sin(phi / 2.0), jnp.cos(phi / 2.0)]],
-            dtype=complex,
-        ),
-        ((2,), (2,)),
-    )
+    phi = jnp.asarray(phi)
+    c = jnp.cos(phi / 2.0)
+    s = jnp.sin(phi / 2.0)
+
+    c = c[..., None, None]  # (..., 1, 1)
+    off = (-1j * s)[..., None, None]  # (..., 1, 1)
+
+    row0 = jnp.concatenate([c, off], axis=-1)  # (..., 1, 2)
+    row1 = jnp.concatenate([off, c], axis=-1)  # (..., 1, 2)
+    tensor = jnp.concatenate([row0, row1], axis=-2)  # (..., 2, 2)
+
+    return Unitary(tensor, num_qubits=1)
 
 
 def RY(phi: float) -> Unitary:
@@ -157,17 +172,34 @@ def RY(phi: float) -> Unitary:
     )
 
 
-def RZ(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.cos(phi / 2.0) - 1j * jnp.sin(phi / 2.0), 0],
-                [0, jnp.cos(phi / 2.0) + 1j * jnp.sin(phi / 2.0)],
-            ],
-            dtype=complex,
-        ),
-        ((2,), (2,)),
-    )
+# def RZ(phi: float) -> Unitary:
+#     return Unitary.from_matrix(
+#         jnp.array(
+#             [
+#                 [jnp.cos(phi / 2.0) - 1j * jnp.sin(phi / 2.0), 0],
+#                 [0, jnp.cos(phi / 2.0) + 1j * jnp.sin(phi / 2.0)],
+#             ],
+#             dtype=complex,
+#         ),
+#         ((2,), (2,)),
+#     )
+
+
+def RZ(phi) -> Unitary:
+    phi = jnp.asarray(phi)
+    c = jnp.cos(phi / 2.0)
+    s = jnp.sin(phi / 2.0)
+
+    a = (c - 1j * s)[..., None, None]  # (...,1,1)
+    b = (c + 1j * s)[..., None, None]
+
+    z = jnp.zeros_like(a)
+
+    row0 = jnp.concatenate([a, z], axis=-1)  # (...,1,2)
+    row1 = jnp.concatenate([z, b], axis=-1)  # (...,1,2)
+    tensor = jnp.concatenate([row0, row1], axis=-2)  # (...,2,2)
+
+    return Unitary(tensor, num_qubits=1)
 
 
 def PHASEDRX(theta: float, phi: float) -> Unitary:
