@@ -46,6 +46,7 @@ from ._compose import (
     compose_superop,
     compose_unitary,
 )
+from ._decomposition import to_euler, to_pmw3_angles, to_zxzxz_angles
 from ._distance_metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -73,6 +74,7 @@ from ._quantum_objects import (
     SuperOperator,
     Unitary,
 )
+from ._observables import bitstring_probability
 from ._random import (
     ginibre_matrix_complex,
     random_choi_BCSZ,
@@ -162,6 +164,10 @@ __all__ = [
     "compose_pauli_liouville",
     "compose_superop",
     "compose_unitary",
+    # Decomposition functions
+    "to_euler",
+    "to_pmw3_angles",
+    "to_zxzxz_angles",
     # Tensor quantum objects
     "tensor_kraus",
     "tensor_choi",
@@ -220,6 +226,8 @@ __all__ = [
     "mixed_state_matrix",
     "tensor_density_matrices",
     "tensor_state_vectors",
+    # Observables
+    "bitstring_probability",
     # Random functions
     "ginibre_matrix_complex",
     "random_density_matrix",
