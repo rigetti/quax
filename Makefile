@@ -48,9 +48,22 @@ help:
           END { print "" }' $(MAKEFILE_LIST)
 
 .PHONY: build-docs
-build-docs: ## Build the project documentation.
+build-docs: execute-docs-notebooks ## Build the project documentation.
 	cd ${PROJECT_DIR}
 	LC_ALL=C.UTF-8 poetry run sphinx-build -b html -D project=${PACKAGE} -D version=${VERSION} ./docs ./docs/_build
+
+DOCS_EXAMPLES_DIR := $(PROJECT_DIR)/docs/examples
+
+.PHONY: execute-docs-notebooks
+execute-docs-notebooks: ## Execute example notebooks with papermill into docs/examples/.
+	cd ${PROJECT_DIR}
+	mkdir -p $(DOCS_EXAMPLES_DIR)
+	@for notebook in $(EXAMPLE_NOTEBOOKS); do \
+		name=$$(basename "$$notebook"); \
+		echo "Executing $$name with papermill..."; \
+		poetry run papermill "$$notebook" "$(DOCS_EXAMPLES_DIR)/$$name" --cwd $(EXAMPLES_DIR) || exit 1; \
+	done
+	@echo "✅ All example notebooks executed into docs/examples/."
 
 .PHONY: check-all
 check-all: check-format check-types  ## Check conformance to code format and typing rules.

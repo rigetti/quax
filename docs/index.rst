@@ -75,3 +75,10 @@ Automatic Promotion
    quickstart
    reference
    api/index
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: Examples
+
+   examples/index

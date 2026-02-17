@@ -21,7 +21,11 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_design",
+    "nbsphinx",
 ]
+
+# nbsphinx settings — notebooks are pre-executed by papermill
+nbsphinx_execute = "never"
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

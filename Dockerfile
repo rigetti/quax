@@ -40,6 +40,7 @@ RUN apt-get update -qq \
     python3.12-venv \
     python3-pip \
     chromium-browser \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf $(which python3.12) $(which python || echo '/usr/local/bin/python') \

@@ -55,7 +55,7 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
                 [0, 0, 1 - e1, 0],
                 [e2, 0, 0, e1],
             ],
-            dtype=jnp.complex64,
+            dtype=complex,
         ),
         ((2,), (2,)),
     )
