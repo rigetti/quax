@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.3.1] - 2026-02-23
+
+### Added
+
+- `Operator` and `State` ensembles are now indexable.
+
 ## [0.3.0] - 2026-02-15
 
 ### Changed
