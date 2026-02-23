@@ -77,6 +77,18 @@ class State:
         else:
             return False
 
+    def __getitem__(self, key: Any) -> Self:
+        if self.num_ensemble_dims == 0:
+            raise IndexError("This quantum object is not ensembled (no ensemble dimensions), so it cannot be indexed.")
+
+        quantum_object = type(self)(data=self.data[key], num_qubits=self.num_qubits)
+        # Ensure that we didn't slice the qubits
+        qubit_dims = self.data.shape[self.num_ensemble_dims :]
+        quantum_object_dims = quantum_object.data.shape[quantum_object.num_ensemble_dims :]
+        if qubit_dims != quantum_object_dims:
+            raise IndexError("Indexing reduced the dimension of the state, only ensemble dimensions can be sliced.")
+        return quantum_object
+
     def __matmul__(self, other: Any) -> Any:
         """Matrix multiplication of the operator with another operator."""
         # composition is very different between different operator types and should be delegated
@@ -195,6 +207,20 @@ class Operator:
             return True
         else:
             return False
+
+    def __getitem__(self, key: Any) -> Self:
+        if self.num_ensemble_dims == 0:
+            raise IndexError("This quantum object is not ensembled (no ensemble dimensions), so it cannot be indexed.")
+        quantum_object = type(self)(data=self.data[key], num_qubits=self.num_qubits)
+
+        # Ensure that we didn't slice the qubits
+        qubit_dims = self.data.shape[self.num_ensemble_dims :]
+        quantum_object_dims = quantum_object.data.shape[quantum_object.num_ensemble_dims :]
+        if qubit_dims != quantum_object_dims:
+            raise IndexError(
+                f"Indexing resulted in an object with ensemble dimensions {quantum_object_dims} that do not match the original ensemble dimensions {qubit_dims}. Check that your indexing is correct and does not remove any ensemble dimensions."
+            )
+        return quantum_object
 
     def __rmatmul__(self, other: Any) -> Any:
         """Matrix multiplication of the operator with another operator."""
