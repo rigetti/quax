@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
-from typing import TYPE_CHECKING, Any, Iterator, Self, Tuple
+from typing import TYPE_CHECKING, Any, Iterator, Self, Tuple, overload
 
 import jax
 import jax.numpy as jnp
@@ -26,36 +26,42 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 
-# ---------- base mixin ----------
+# ---------- base ----------
 
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class State:
-    """Base class for a quantum state."""
+class QuantumObject:
+    """Base class for all quantum objects: states, operators, and superoperators.
+
+    Provides the shared data representation (a JAX tensor plus qubit count) and
+    common operations (negation, scalar multiplication, pytree support, etc.).
+    Subclasses must implement the abstract properties ``dims``, ``num_ensemble_dims``,
+    ``matrix``, and the class method ``from_matrix``.
+    """
 
     data: Array
-    """The state tensor with shape (*ensemble, d0, d1, ...) for state vectors or
-    (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) for density matrices."""
+    """The underlying JAX tensor whose trailing axes encode the quantum degrees of
+    freedom.  The number and interpretation of those axes varies by subclass."""
 
     num_qubits: int
-    """The number of qubits (qudits) in the quantum state."""
+    """The number of qubits (qudits) described by this object."""
+
+    # ----- arithmetic -----
 
     def __neg__(self) -> Self:
-        """Multiply the unitary by -1."""
+        """Negate the quantum object."""
         return type(self)(-self.data, self.num_qubits)
 
     def __mul__(self, scalar: complex) -> Self:
-        """Scalar multiplication of the superoperator."""
+        """Scalar multiplication."""
         return type(self)(self.data * scalar, self.num_qubits)
 
     def __rmul__(self, scalar: complex) -> Self:
-        """Scalar multiplication of the superoperator."""
+        """Scalar multiplication (scalar on the left)."""
         return self * scalar
 
-    def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the state"""
-        raise NotImplementedError(f"Exponentiation not implemented for {type(self)}.")
+    # ----- display / comparison -----
 
     def __str__(self) -> str:
         if self.ensemble_size != ():
@@ -65,9 +71,7 @@ class State:
         return f"{type(self).__name__}(dims={self.dims}, shape={self.data.shape})"
 
     def __eq__(self, other: Any) -> bool:
-        """Check equality of two Operators."""
-        # This eq method will never be _wrong_ but some operators are equivalent
-        # up to a global phase or other transformations
+        """Element-wise equality check (overridden by subclasses that use fidelity)."""
         if not isinstance(other, type(self)):
             return False
         if self.dims != other.dims:
@@ -77,27 +81,25 @@ class State:
         else:
             return False
 
+    # ----- ensemble indexing -----
+
     def __getitem__(self, key: Any) -> Self:
         if self.num_ensemble_dims == 0:
             raise IndexError("This quantum object is not ensembled (no ensemble dimensions), so it cannot be indexed.")
 
         quantum_object = type(self)(data=self.data[key], num_qubits=self.num_qubits)
-        # Ensure that we didn't slice the qubits
+        # Ensure that we didn't slice the quantum dimensions
         qubit_dims = self.data.shape[self.num_ensemble_dims :]
         quantum_object_dims = quantum_object.data.shape[quantum_object.num_ensemble_dims :]
         if qubit_dims != quantum_object_dims:
-            raise IndexError("Indexing reduced the dimension of the state, only ensemble dimensions can be sliced.")
+            raise IndexError(
+                f"Indexing resulted in an object with dimensions {quantum_object_dims} that do not match "
+                f"the original dimensions {qubit_dims}. Check that your indexing is correct and does not "
+                "remove any quantum dimensions."
+            )
         return quantum_object
 
-    def __matmul__(self, other: Any) -> Any:
-        """Matrix multiplication of the operator with another operator."""
-        # composition is very different between different operator types and should be delegated
-        raise NotImplementedError(f"Matrix multiplication not implemented between {type(self)} and {type(other)}.")
-
-    def __or__(self, other: Any) -> Any:
-        """Tensor product of the operator with another operator."""
-        # tensor product is very differentse between different operator types and should be delegated
-        raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
+    # ----- JAX pytree -----
 
     def tree_flatten(self):
         return (self.data,), self.num_qubits
@@ -107,24 +109,69 @@ class State:
         (data,) = children
         return cls(data=data, num_qubits=aux_data)
 
+    # ----- conjugation -----
+
     def conj(self):
-        """Complex conjugate of the states(s)"""
+        """Complex conjugate."""
         return type(self)(data=jnp.conjugate(self.data), num_qubits=self.num_qubits)
+
+    # ----- abstract properties -----
+
+    @property
+    def dims(self):
+        """The dimensions of the quantum object.  Structure varies by subclass."""
+        raise NotImplementedError("Subclasses must implement dims property.")
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble (batch) dimensions."""
+        raise NotImplementedError("Subclasses must implement num_ensemble_dims property.")
+
+    @property
+    def ensemble_size(self) -> Tuple[int, ...]:
+        """Shape of the ensemble (batch) dimensions, or ``()`` for a single object."""
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def matrix(self) -> Array:
+        """The matrix representation of the quantum object."""
+        raise NotImplementedError("Subclasses must implement matrix property.")
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims) -> Self:
+        """Construct from a matrix representation."""
+        raise NotImplementedError("Subclasses must implement from_matrix class method.")
+
+
+# ---------- states base ----------
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class State(QuantumObject):
+    """Base class for a quantum state."""
+
+    def __pow__(self, exponent: float) -> Self:
+        """Exponentiation of the state."""
+        raise NotImplementedError(f"Exponentiation not implemented for {type(self)}.")
+
+    def __matmul__(self, other: Any) -> Any:
+        """Matrix multiplication of the state with another object."""
+        raise NotImplementedError(f"Matrix multiplication not implemented between {type(self)} and {type(other)}.")
+
+    def __or__(self, other: Any) -> Any:
+        """Tensor product of the state with another object."""
+        raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
 
     @property
     def T(self):
-        """Transpose of the operator(s)"""
+        """Transpose of the state(s)."""
         raise NotImplementedError(f"Transpose not implemented for {type(self)}.")
 
     @property
     def h(self):
-        """Hermitian conjugate of the operator(s)"""
+        """Hermitian conjugate of the state(s)."""
         raise NotImplementedError(f"Hermitian conjugate not implemented for {type(self)}.")
-
-    @property
-    def dims(self) -> Tuple[int, ...]:
-        """The dimensions of each qudit, inferred from data shape."""
-        raise NotImplementedError("Subclasses must implement dims property.")
 
     @property
     def d(self) -> int:
@@ -134,49 +181,53 @@ class State:
     def d2(self) -> int:
         return self.d**2
 
-    @property
-    def num_ensemble_dims(self) -> int:
-        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
-        raise NotImplementedError("Subclasses must implement num_ensemble_dims property.")
-
-    @property
-    def ensemble_size(self) -> Tuple[int, ...]:
-        """Returns the size of the ensemble if the state represents an ensemble of states."""
-        raise NotImplementedError("Subclasses must implement ensemble_size property.")
-
-    @property
-    def matrix(self) -> Array:
-        """Returns the matrix representation of the state."""
-        raise NotImplementedError("Subclasses must implement matrix property.")
-
-    @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> Self:
-        """Construct from matrix representation."""
-        raise NotImplementedError("Subclasses must implement from_matrix class method.")
-
 
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Operator:
+class Operator(QuantumObject):
     """Base class for a quantum operator."""
 
-    data: Array
-    """The operator tensor with shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)."""
+    def __add__(self, other: Any) -> "Operator":
+        """Addition of two operators.
 
-    num_qubits: int
-    """The number of qubits (qudits) in the quantum operator."""
+        Returns an Operator (subclasses override to return a more specific type where valid).
+        """
+        match other:
+            case Operator():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot add operators with different dims: {self.dims} vs {other.dims}")
+                return Operator.from_matrix(self.matrix + other.matrix, self.dims)
+            case _:
+                return NotImplemented
 
-    def __neg__(self) -> Self:
-        """Multiply the unitary by -1."""
-        return type(self)(-self.data, self.num_qubits)
+    def __radd__(self, other: Any) -> "Operator":
+        """Right-hand addition of two operators."""
+        match other:
+            case Operator():
+                return other.__add__(self)
+            case _:
+                return NotImplemented
 
-    def __mul__(self, scalar: complex) -> Self:
-        """Scalar multiplication of the superoperator."""
-        return type(self)(self.data * scalar, self.num_qubits)
+    def __sub__(self, other: Any) -> "Operator":
+        """Subtraction of two operators.
 
-    def __rmul__(self, scalar: complex) -> Self:
-        """Scalar multiplication of the superoperator."""
-        return self * scalar
+        Returns an Operator (subclasses override to return a more specific type where valid).
+        """
+        match other:
+            case Operator():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot subtract operators with different dims: {self.dims} vs {other.dims}")
+                return Operator.from_matrix(self.matrix - other.matrix, self.dims)
+            case _:
+                return NotImplemented
+
+    def __rsub__(self, other: Any) -> "Operator":
+        """Right-hand subtraction of two operators."""
+        match other:
+            case Operator():
+                return other.__sub__(self)
+            case _:
+                return NotImplemented
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the operator"""
@@ -188,66 +239,73 @@ class Operator:
         else:
             raise TypeError(f"Exponent must be an integer, but got {type(exponent)}.")
 
-    def __str__(self) -> str:
-        if self.ensemble_size != ():
-            return (
-                f"{type(self).__name__}(dims={self.dims}, ensemble_size={self.ensemble_size}, shape={self.data.shape})"
+    def _to_qobj(self) -> "qutip.Qobj | NDArray":
+        """Convert to a QuTiP Qobj for interoperability testing."""
+        import numpy as np
+        import qutip as qt
+
+        matrix = self.matrix
+
+        if self.ensemble_size == ():
+            return qt.Qobj(
+                np.array(matrix),
+                dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
             )
-        return f"{type(self).__name__}(dims={self.dims}, shape={self.data.shape})"
 
-    def __eq__(self, other: Any) -> bool:
-        """Check equality of two Operators."""
-        # This eq method will never be _wrong_ but some operators are equivalent
-        # up to a global phase or other transformations
-        if not isinstance(other, type(self)):
-            return False
-        if self.dims != other.dims:
-            return False
-        elif jnp.allclose(self.data, other.data):
-            return True
-        else:
-            return False
+        flat_shape = (-1,) + matrix.shape[-2:]
+        flat_kraus = np.asarray(matrix).reshape(flat_shape)
+        dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
+        qobjs = np.asarray(
+            [
+                qt.Qobj(
+                    np.asarray(kraus),
+                    dims=dims,
+                )
+                for kraus in flat_kraus
+            ],
+            dtype=object,
+        )
+        return qobjs.reshape(self.ensemble_size)
 
-    def __getitem__(self, key: Any) -> Self:
-        if self.num_ensemble_dims == 0:
-            raise IndexError("This quantum object is not ensembled (no ensemble dimensions), so it cannot be indexed.")
-        quantum_object = type(self)(data=self.data[key], num_qubits=self.num_qubits)
+    def __matmul__(self, other: Any) -> Any:
+        """Matrix multiplication of a quantum object with the unitary."""
+        match other:
+            case Unitary() | Operator():
+                # U @ U -> Unitary
+                # O1 @ O2 -> Operator
+                from ._compose import compose_operator
 
-        # Ensure that we didn't slice the qubits
-        qubit_dims = self.data.shape[self.num_ensemble_dims :]
-        quantum_object_dims = quantum_object.data.shape[quantum_object.num_ensemble_dims :]
-        if qubit_dims != quantum_object_dims:
-            raise IndexError(
-                f"Indexing resulted in an object with ensemble dimensions {quantum_object_dims} that do not match the original ensemble dimensions {qubit_dims}. Check that your indexing is correct and does not remove any ensemble dimensions."
-            )
-        return quantum_object
-
-    def __rmatmul__(self, other: Any) -> Any:
-        """Matrix multiplication of the operator with another operator."""
-        # composition is very different between different operator types and should be delegated
-        raise NotImplementedError(f"Matrix multiplication not implemented between {type(self)} and {type(other)}.")
+                return compose_operator(self, other)
+            case _:
+                return NotImplemented
 
     def __or__(self, other: Any) -> Any:
         """Tensor product of the operator with another operator."""
-        # tensor product is very different between different operator types and should be delegated
-        raise NotImplementedError(f"Tensor product not implemented between {type(self)} and {type(other)}.")
+        match other:
+            case Unitary() | Operator():
+                # O ⊗ U -> Operator
+                # O1 ⊗ O2 -> Operator
+                from ._tensor import tensor_operator
 
-    def tree_flatten(self):
-        return (self.data,), self.num_qubits
+                return tensor_operator(self, other)
+            case _:
+                return NotImplemented
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        (data,) = children
-        return cls(data=data, num_qubits=aux_data)
+    def __ror__(self, other: Any) -> Any:
+        """Tensor product with the operator on the right (reflected)."""
+        match other:
+            case Unitary() | Operator():
+                from ._tensor import tensor_operator
 
-    def conj(self):
-        """Complex conjugate of the operator(s)"""
-        return type(self)(data=jnp.conjugate(self.data), num_qubits=self.num_qubits)
+                return tensor_operator(other, self)
+            case _:
+                return NotImplemented
 
     @property
     def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
-        raise NotImplementedError("Subclasses must implement dims property.")
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        return (qudit_shape[: self.num_qubits], qudit_shape[self.num_qubits :])
 
     @property
     def T(self):
@@ -274,11 +332,6 @@ class Operator:
     def num_ensemble_dims(self) -> int:
         """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
         return self.data.ndim - 2 * self.num_qubits
-
-    @property
-    def ensemble_size(self) -> Tuple[int, ...]:
-        """Returns the size of the ensemble if the operator represents an ensemble of operators."""
-        return self.data.shape[: self.num_ensemble_dims]
 
     @property
     def matrix(self) -> Array:
@@ -315,15 +368,18 @@ class Operator:
 
 
 # This class is basically for typing purposes
-# Some methods works on any sort of Superoperator
+# Some methods work on any sort of Superoperator
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class SuperOperator(Operator):
+class SuperOperator(QuantumObject):
     """Base class for a quantum superoperator.
 
     SuperOperators have a 4-group tensor structure:
     (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
             d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+
+    SuperOperators represent CPTP maps; ``+`` and ``-`` are intentionally not
+    defined because the sum/difference of CPTP maps is not generally CPTP.
     """
 
     @property
@@ -360,6 +416,50 @@ class SuperOperator(Operator):
         tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
         tensor = matrix.reshape(ensemble_shape + tensor_shape)
         return cls(data=tensor, num_qubits=num_qubits)
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) qudit dimensions, inferred from data shape.
+
+        Returns the qudit dimensions, not the doubled superoperator dimensions.
+        """
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
+
+    @property
+    def d(self) -> Tuple[int, int]:
+        return tuple(reduce(mul, dim) for dim in self.dims)
+
+    @property
+    def d2(self) -> Tuple[int, int]:
+        return self.d[0] ** 2, self.d[1] ** 2
+
+    @property
+    def T(self):
+        """Transpose of the superoperator."""
+        raise NotImplementedError(f"Transpose not implemented for {type(self)}.")
+
+    @property
+    def h(self):
+        """Hermitian conjugate of the superoperator."""
+        raise NotImplementedError(f"Hermitian conjugate not implemented for {type(self)}.")
+
+    def _to_qobj(self) -> "qutip.Qobj | NDArray":
+        """Convert to a QuTiP Qobj for interoperability testing."""
+        raise NotImplementedError("_to_qobj not implemented for the base SuperOperator class.")
+
+    def __iter__(self) -> Iterator[Self]:
+        if self.ensemble_size == ():
+            raise TypeError(
+                "This SuperOperator is not ensembled (no ensemble dimensions), so it cannot be iterated. "
+                "If you intended an ensemble, ensure the data has leading batch dimensions."
+            )
+        # iterate over axis 0 only; remaining ensemble axes (if any) remain on each item
+        for i in range(self.data.shape[0]):
+            yield type(self)(data=self.data[i], num_qubits=self.num_qubits)
 
 
 # ---------- states ----------
@@ -684,14 +784,18 @@ class Unitary(Operator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __mul__(self, scalar: complex) -> "Unitary | Kraus":
-        """Scalar multiplication of the unitary."""
+    def __mul__(self, scalar: complex) -> "Unitary | Operator":
+        """Scalar multiplication of the unitary.
+
+        - |scalar| = 1: result is unitary → returns ``Unitary``.
+        - Otherwise: returns ``Operator``.
+        """
         if jnp.isclose(jnp.abs(scalar), 1.0):
             return Unitary(self.data * scalar, self.num_qubits)
         else:
-            return Kraus(self.data * scalar, self.num_qubits)
+            return Operator(self.data * scalar, self.num_qubits)
 
-    def __rmul__(self, scalar: complex) -> "Unitary | Kraus":
+    def __rmul__(self, scalar: complex) -> "Unitary | Operator":
         """Scalar multiplication of the unitary."""
         return self * scalar
 
@@ -729,10 +833,10 @@ class Unitary(Operator):
                 return compose_superop(other, unitary_to_superop(self))
             case KrausMap():
                 # K @ U -> KrausMap (promotion)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
                 from ._superoperator_transformations import unitary_to_kraus
 
-                return compose_kraus(other, unitary_to_kraus(self))
+                return compose_kraus_map(other, unitary_to_kraus(self))
             case StateVector():
                 # <psi|U = <phi| -> StateVector (apply unitary to state vector)
                 from ._apply import apply_unitary_to_state_vector
@@ -744,6 +848,11 @@ class Unitary(Operator):
                 from ._superoperator_transformations import unitary_to_superop
 
                 return apply_superop_to_density_matrix(unitary_to_superop(self), other)
+            case Operator():
+                # U @ O -> Operator (catches Observable, Involution, plain Operator)
+                from ._compose import compose_operator
+
+                return compose_operator(self, other)
             case _:
                 return NotImplemented
 
@@ -806,46 +915,274 @@ class Unitary(Operator):
                 return NotImplemented
 
 
+# ---------- observables ----------
+
+
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
-class Kraus(Operator):
-    """Kraus superoperator, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
-    or (*ensemble, d_out, d_in) in matrix form."""
+class Observable(Operator):
+    """
+    Hermitian operator A = A†, used to represent a quantum observable.
+
+    As a Hermitian operator it has real eigenvalues and an orthonormal eigenbasis.
+    Observables are closed under addition, subtraction, and *real* scalar multiplication.
+    Complex scalar multiplication and composition with non-Hermitian operators can break
+    Hermiticity, so those operations return the more general ``Operator`` type.
+
+    Tensor shape: (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)
+    Matrix shape: (*ensemble, d, d)
+    """
 
     @property
     def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
-        """The (output, input) dimensions of each qudit, inferred from data shape."""
+        """The (output, input) dimensions of each qudit, inferred from data shape.
+
+        For an Observable the output and input spaces are identical (it is a square matrix
+        on one Hilbert space).
+        """
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 2
-        return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
+        space_dims = qudit_shape[:n_qudits]
+        return (space_dims, space_dims)
 
-    def _to_qobj(self) -> "qutip.Qobj | NDArray":
-        """Convert to a QuTiP Qobj for interoperability testing."""
-        import numpy as np
-        import qutip as qt
+    @property
+    def h(self) -> "Observable":
+        """Hermitian conjugate of the observable — returns ``self`` because A† = A."""
+        return self
 
-        matrix = self.matrix
+    def __neg__(self) -> "Observable":
+        """Negate the observable; -A is still Hermitian (and still Involution if self is an Involution)."""
+        return type(self)(-self.data, self.num_qubits)
 
-        if self.ensemble_size == ():
-            return qt.Qobj(
-                np.array(matrix),
-                dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
-            )
+    @overload
+    def __mul__(self, scalar: float) -> "Observable": ...
 
-        flat_shape = (-1,) + matrix.shape[-2:]
-        flat_kraus = np.asarray(matrix).reshape(flat_shape)
-        dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
-        qobjs = np.asarray(
-            [
-                qt.Qobj(
-                    np.asarray(kraus),
-                    dims=dims,
-                )
-                for kraus in flat_kraus
-            ],
-            dtype=object,
-        )
-        return qobjs.reshape(self.ensemble_size)
+    @overload
+    def __mul__(self, scalar: complex) -> "Operator": ...
+
+    @overload
+    def __mul__(self, scalar: Array) -> "Observable | Operator": ...
+
+    def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+        """Scalar multiplication.
+
+        - Real scalar: result is Hermitian → returns ``Observable``.
+        - Complex scalar: result is not generally Hermitian → returns ``Operator``.
+        """
+        if jnp.isreal(scalar):
+            return Observable(self.data * scalar, self.num_qubits)
+        return Operator(self.data * scalar, self.num_qubits)
+
+    @overload
+    def __rmul__(self, scalar: float) -> "Observable": ...
+
+    @overload
+    def __rmul__(self, scalar: complex) -> "Operator": ...
+
+    @overload
+    def __rmul__(self, scalar: Array) -> "Observable | Operator": ...
+
+    def __rmul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+        """Scalar multiplication (scalar on the left)."""
+        return self * scalar
+
+    def __pow__(self, exponent: float) -> "Observable":
+        """Power of a Hermitian matrix is Hermitian → returns ``Observable``.
+
+        Supports both integer and fractional exponents via eigendecomposition.
+        """
+        from ._power import power_observable
+
+        return power_observable(self, exponent)
+
+    def __add__(self, other: Any) -> "Observable | Operator":
+        """Addition of observables.
+
+        - ``Observable + Observable`` → ``Observable`` (sum of Hermitian matrices is Hermitian).
+        - ``Observable + Operator`` → ``Operator`` (not guaranteed Hermitian).
+        """
+        match other:
+            case Observable():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot add observables with different dims: {self.dims} vs {other.dims}")
+                return Observable.from_matrix(self.matrix + other.matrix, self.dims)
+            case Operator():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot add operators with different dims: {self.dims} vs {other.dims}")
+                return Operator.from_matrix(self.matrix + other.matrix, self.dims)
+            case _:
+                return NotImplemented
+
+    def __radd__(self, other: Any) -> "Observable | Operator":
+        """Right-hand addition."""
+        match other:
+            case Observable() | Operator():
+                return other.__add__(self)
+            case _:
+                return NotImplemented
+
+    def __sub__(self, other: Any) -> "Observable | Operator":
+        """Subtraction of observables.
+
+        - ``Observable - Observable`` → ``Observable`` (difference of Hermitian matrices is Hermitian).
+        - ``Observable - Operator`` → ``Operator`` (not guaranteed Hermitian).
+        """
+        match other:
+            case Observable():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot subtract observables with different dims: {self.dims} vs {other.dims}")
+                return Observable.from_matrix(self.matrix - other.matrix, self.dims)
+            case Operator():
+                if self.dims != other.dims:
+                    raise ValueError(f"Cannot subtract operators with different dims: {self.dims} vs {other.dims}")
+                return Operator.from_matrix(self.matrix - other.matrix, self.dims)
+            case _:
+                return NotImplemented
+
+    def __rsub__(self, other: Any) -> "Observable | Operator":
+        """Right-hand subtraction."""
+        match other:
+            case Observable():
+                return other.__sub__(self)
+            case Operator():
+                return other.__sub__(self)
+            case _:
+                return NotImplemented
+
+    def __or__(self, other: Any) -> Any:
+        """Tensor product of the observable with another operator.
+
+        - ``Observable ⊗ Observable`` → ``Observable``
+        - ``Observable ⊗ Operator / Unitary`` → ``Operator``
+        """
+        match other:
+            case Observable():
+                # O1 ⊗ O2 -> Observable (tensor product of Hermitian matrices is Hermitian)
+                from ._tensor import tensor_observable
+
+                return tensor_observable(self, other)
+            case Unitary():
+                # Obs ⊗ U -> Operator
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
+            case Operator():
+                # Obs ⊗ Op -> Operator
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
+            case _:
+                return NotImplemented
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class Involution(Observable, Unitary):
+    """An operator that is simultaneously Hermitian (A = A†) and Unitary (A A† = I).
+
+    Equivalently characterised by A² = I with eigenvalues in {±1}.  Canonical examples
+    are the Pauli matrices X, Y, Z and the Hadamard gate H.
+
+    ``Involution`` inherits from ``Observable`` rather than ``Unitary`` because the
+    Hermitian property is the structurally important one; the unitary property is an
+    additional constraint.
+
+    Algebra rules
+    -------------
+    - Real scalar × Involution: ±1 → ``Involution``; |s|=1 non-real → ``Unitary``;
+      real |s| ≠ 1 → ``Observable``; otherwise → ``Operator``.
+    - Involution + Involution → ``Observable`` (sum not generally unitary).
+    - Involution ⊗ Involution → ``Involution``.
+    - Involution ⊗ Observable → ``Observable``.
+    - Involution ⊗ Operator → ``Operator``.
+    """
+
+    @overload
+    def __mul__(self, scalar: float) -> "Observable": ...
+
+    @overload
+    def __mul__(self, scalar: complex) -> "Operator": ...
+
+    @overload
+    def __mul__(self, scalar: Array) -> "Involution | Unitary | Observable | Operator": ...
+
+    def __mul__(self, scalar: float | complex | Array) -> "Involution | Unitary | Observable | Operator":
+        """Scalar multiplication, preserving the most specific correct type.
+
+        - ±1: stays ``Involution``.
+        - |scalar| = 1, complex: unitary but not Hermitian → ``Unitary``.
+        - Real, |scalar| ≠ 1: Hermitian but not unitary → ``Observable``.
+        - Otherwise: general ``Operator``.
+        """
+        scalar_c = complex(scalar)
+        is_real = abs(scalar_c.imag) < 1e-10
+        is_unit = abs(abs(scalar_c) - 1.0) < 1e-10
+        is_plus_minus_one = is_real and is_unit
+        if is_plus_minus_one:
+            return Involution(self.data * scalar, self.num_qubits)
+        if is_unit:
+            return Unitary(self.data * scalar, self.num_qubits)
+        if is_real:
+            return Observable(self.data * scalar, self.num_qubits)
+        return Operator(self.data * scalar, self.num_qubits)
+
+    @overload
+    def __rmul__(self, scalar: float) -> "Observable": ...
+
+    @overload
+    def __rmul__(self, scalar: complex) -> "Operator": ...
+
+    @overload
+    def __rmul__(self, scalar: Array) -> "Involution | Unitary | Observable | Operator": ...
+
+    def __rmul__(self, scalar: float | complex | Array) -> "Involution | Unitary | Observable | Operator":
+        """Scalar multiplication (scalar on the left)."""
+        return self * scalar
+
+    def __pow__(self, exponent: float) -> "Involution | Unitary":
+        """Power of an Involution.
+
+        - Integer exponents: eigenvalues stay in {±1} → returns ``Involution``.
+        - Fractional exponents: eigenvalues move onto the unit circle → returns ``Unitary``.
+        """
+        if jnp.isclose(int(jnp.abs(exponent)), exponent):
+            new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
+            return Involution.from_matrix(new_data, self.dims)
+
+        from ._power import power_unitary
+
+        return power_unitary(self, exponent)
+
+    def __or__(self, other: Any) -> Any:
+        """Tensor product, preserving the most specific correct type.
+
+        - ``Involution ⊗ Involution`` → ``Involution``
+        - ``Involution ⊗ Observable`` → ``Observable``
+        - ``Involution ⊗ Unitary / Operator`` → ``Operator``
+        """
+        match other:
+            case Involution():
+                # I1 ⊗ I2 -> Involution (tensor product of Involutions is an Involution)
+                from ._tensor import tensor_involution
+
+                return tensor_involution(self, other)
+            case Observable():
+                # I ⊗ Obs -> Observable
+                from ._tensor import tensor_observable
+
+                return tensor_observable(self, other)
+            case Unitary():
+                # I ⊗ U -> Operator (unitary, but not generally Hermitian)
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
+            case Operator():
+                # I ⊗ Op -> Operator
+                from ._tensor import tensor_operator
+
+                return tensor_operator(self, other)
+            case _:
+                return NotImplemented
 
 
 # ---------- superoperators ----------
@@ -933,10 +1270,10 @@ class SuperOp(SuperOperator):
                 return compose_pauli_liouville(superop_to_pauli_liouville(self), other)
             case KrausMap():
                 # S @ K -> KrausMap (convert to KrausMap and compose)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
                 from ._superoperator_transformations import superop_to_kraus
 
-                return compose_kraus(superop_to_kraus(self), other)
+                return compose_kraus_map(superop_to_kraus(self), other)
             case Unitary():
                 # S @ U -> SuperOp (promotion)
                 from ._compose import compose_superop
@@ -1096,9 +1433,9 @@ class KrausMap(SuperOperator):
         match other:
             case KrausMap():
                 # K1 @ K2 -> KrausMap (composition)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
 
-                return compose_kraus(self, other)
+                return compose_kraus_map(self, other)
             case SuperOp():
                 # K @ S -> SuperOp (convert to SuperOp and compose)
                 from ._compose import compose_superop
@@ -1119,10 +1456,10 @@ class KrausMap(SuperOperator):
                 return compose_pauli_liouville(kraus_to_pauli_liouville(self), other)
             case Unitary():
                 # K @ U -> KrausMap (promotion)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
                 from ._superoperator_transformations import unitary_to_kraus
 
-                return compose_kraus(self, unitary_to_kraus(other))
+                return compose_kraus_map(self, unitary_to_kraus(other))
             case StateVector():
                 # K @ |ψ⟩ -> DensityMatrix (promotion)
                 from ._apply import apply_kraus_to_density_matrix
@@ -1278,10 +1615,10 @@ class Choi(SuperOperator):
                 return compose_pauli_liouville(choi_to_pauli_liouville(self), other)
             case KrausMap():
                 # J @ K -> KrausMap (convert to KrausMap and compose)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
                 from ._superoperator_transformations import choi_to_kraus
 
-                return compose_kraus(choi_to_kraus(self), other)
+                return compose_kraus_map(choi_to_kraus(self), other)
             case Unitary():
                 # J @ U -> Choi (promotion)
                 from ._compose import compose_choi
@@ -1535,10 +1872,10 @@ class PauliLiouville(SuperOperator):
                 return compose_choi(pauli_liouville_to_choi(self), other)
             case KrausMap():
                 # P @ K -> KrausMap (convert to KrausMap and compose)
-                from ._compose import compose_kraus
+                from ._compose import compose_kraus_map
                 from ._superoperator_transformations import pauli_liouville_to_kraus
 
-                return compose_kraus(pauli_liouville_to_kraus(self), other)
+                return compose_kraus_map(pauli_liouville_to_kraus(self), other)
             case Unitary():
                 # P @ U -> PauliLiouville (promotion)
                 from ._compose import compose_pauli_liouville

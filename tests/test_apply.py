@@ -40,7 +40,7 @@ from quax import (
     compute_superop_observables_from_states,
     fidelity,
     partial_trace,
-    random_choi_BCSZ,
+    random_choi,
     random_density_matrix,
     random_state_vector,
     random_unitary,
@@ -61,7 +61,7 @@ def test_compute_observables_random_channel(seed, num_qubits):
     num_states = 10
     num_observables = 8
 
-    choi = random_choi_BCSZ(dims=(dims, dims), rank=kraus_rank, key=key)
+    choi = random_choi(dims=(dims, dims), rank=kraus_rank, key=key)
     kraus_map = choi_to_kraus(choi)
     superop = choi_to_superop(choi)
     pl = choi_to_pauli_liouville(choi)
@@ -144,7 +144,7 @@ def test_partial_trace(seed, num_qubits):
     assert jnp.allclose(rho_traced.matrix, rho_qutip_traced, atol=1e-6)
 
     ## Test for Choi matrices
-    choi = random_choi_BCSZ(dims=(dims, dims), rank=rank, key=key)
+    choi = random_choi(dims=(dims, dims), rank=rank, key=key)
     choi_qobj = choi._to_qobj()
     choi_traced = partial_trace(choi, subsystems)
     choi_qutip_traced = jnp.array(choi_qobj.ptrace(subsystems).full())
@@ -171,7 +171,7 @@ def test_apply_superoperator_to_density_matrix(seed, num_qubits, ensemble_size):
     kraus_rank = d
     ensemble_size_0, ensemble_size_1 = ensemble_size
 
-    choi = random_choi_BCSZ(dims=(dims, dims), rank=kraus_rank, key=key, size=ensemble_size_0)
+    choi = random_choi(dims=(dims, dims), rank=kraus_rank, key=key, size=ensemble_size_0)
 
     # Generate random input states
     state = random_density_matrix(rank=kraus_rank, dims=dims, key=subkey, size=ensemble_size_1)

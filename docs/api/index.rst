@@ -16,7 +16,6 @@ Quantum Objects
    Operator
    SuperOperator
    Unitary
-   Kraus
    KrausMap
    Choi
    PauliLiouville
@@ -59,7 +58,7 @@ Composition
    :nosignatures:
 
    compose_unitary
-   compose_kraus
+   compose_kraus_map
    compose_choi
    compose_pauli_liouville
    compose_superop

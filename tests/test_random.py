@@ -21,7 +21,7 @@ from quax import (
     is_one_design,
     is_two_design,
     is_unitary,
-    random_choi_BCSZ,
+    random_choi,
     random_density_matrix,
     random_unitary,
 )
@@ -155,7 +155,7 @@ def test_random_choi_BCSZ(seed, num_qubits):
     d = 2**num_qubits
     atol = 1e-8
     # Test size
-    choi = random_choi_BCSZ(dims=dims, rank=d, key=key)
+    choi = random_choi(dims=dims, rank=d, key=key)
     assert choi.dims == dims
     assert choi.matrix.shape == (d * d, d * d)
 

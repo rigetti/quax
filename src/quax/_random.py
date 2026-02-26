@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, StateVector, Unitary
+from ._quantum_objects import Choi, DensityMatrix, StateVector, Unitary, Operator, Observable
 
 
 @partial(jax.jit, static_argnames=("dim", "k", "size"))
@@ -69,6 +69,29 @@ def random_density_matrix(rank: int, dims: Tuple[int, ...], key: Array, size: Tu
 
 
 @jax.jit(static_argnames=("dims", "size"))
+def random_operator(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()) -> Operator:
+    """Given input and output Hilbert space dimensions, returns a random operator drawn from the Ginibre ensemble."""
+    d_out = reduce(mul, dims[0], 1)
+    d_in = reduce(mul, dims[1], 1)
+
+    mat = ginibre_matrix_complex(dim=d_out, k=d_in, key=key, size=size)  # size + (d_out, d_in)
+
+    return Operator.from_matrix(mat, dims)
+
+
+@jax.jit(static_argnames=("dims", "size"))
+def random_observable(
+    dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()
+) -> Observable:
+    """Given input and output Hilbert space dimensions, returns a random Hermitian operator drawn from the Ginibre ensemble."""
+    d_out = reduce(mul, dims[0], 1)
+    d_in = reduce(mul, dims[1], 1)
+    mat = ginibre_matrix_complex(dim=d_out, k=d_in, key=key, size=size)  # size + (d_out, d_in)
+    hermitian_mat = (mat + jnp.swapaxes(jnp.conjugate(mat), -1, -2)) / 2  # size + (d_out, d_in)
+    return Observable.from_matrix(hermitian_mat, dims)
+
+
+@jax.jit(static_argnames=("dims", "size"))
 def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()) -> Unitary:
     """
     Given a Hilbert space dimension dim this function returns a unitary operator
@@ -80,8 +103,9 @@ def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, si
           http://www.ams.org/notices/200705/fea-mezzadri-web.pdf
           https://arxiv.org/abs/math-ph/0609050
 
-    :param dim: Hilbert space dimension (scalar).
-    :param rs: Optional random state
+    :param dims: The Qudit dimensions.
+    :param key: The random number generator key.
+    :param size: The ensemble size.
     :return: Returns a dim by dim unitary operator U drawn from the Haar measure.
     """
     assert dims[0] == dims[1]
@@ -124,7 +148,7 @@ def random_state_vector(dims: Tuple[int, ...], key: Array, size: Tuple[int, ...]
 
 
 @jax.jit(static_argnames=("dims", "rank", "size"))
-def random_choi_BCSZ(
+def random_choi(
     dims: Tuple[Tuple[int, ...], Tuple[int, ...]], rank: int, key: Array, size: Tuple[int, ...] = ()
 ) -> Choi:
     """

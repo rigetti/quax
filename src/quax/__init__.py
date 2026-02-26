@@ -25,6 +25,7 @@ from ._apply import (
     compute_kraus_observables_from_states,
     compute_pauli_liouville_observables_from_states,
     compute_superop_observables_from_states,
+    estimate,
     partial_trace,
 )
 from ._common_channels import (
@@ -41,10 +42,11 @@ from ._common_channels import (
 )
 from ._compose import (
     compose_choi,
-    compose_kraus,
+    compose_kraus_map,
     compose_pauli_liouville,
     compose_superop,
     compose_unitary,
+    compose_operator,
 )
 from ._distance_metrics import (
     average_fidelity_to_depolarizing_constant,
@@ -63,10 +65,12 @@ from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
-    Kraus,
+    Involution,
     KrausMap,
+    Observable,
     Operator,
     PauliLiouville,
+    QuantumObject,
     State,
     StateVector,
     SuperOp,
@@ -75,10 +79,12 @@ from ._quantum_objects import (
 )
 from ._random import (
     ginibre_matrix_complex,
-    random_choi_BCSZ,
+    random_choi,
     random_density_matrix,
     random_state_vector,
     random_unitary,
+    random_operator,
+    random_observable,
 )
 from ._state import (
     mixed_state_matrix,
@@ -111,11 +117,14 @@ from ._superoperator_transformations import (
 from ._tensor import (
     tensor_choi,
     tensor_density_matrix,
+    tensor_involution,
     tensor_kraus,
+    tensor_observable,
     tensor_pauli_liouville,
     tensor_state_vector,
     tensor_superop,
     tensor_unitary,
+    tensor_operator,
 )
 from ._validation import (
     is_completely_positive,
@@ -138,6 +147,7 @@ __all__ = [
     "compute_kraus_observables_from_states",
     "compute_pauli_liouville_observables_from_states",
     "compute_superop_observables_from_states",
+    "estimate",
     "partial_trace",
     "apply_choi_to_density_matrix",
     "apply_kraus_to_density_matrix",
@@ -157,17 +167,21 @@ __all__ = [
     "relaxation_operators",
     "KRAUS_OPS",
     # Compose quantum objects
-    "compose_kraus",
+    "compose_kraus_map",
     "compose_choi",
     "compose_pauli_liouville",
     "compose_superop",
     "compose_unitary",
+    "compose_operator",
     # Tensor quantum objects
     "tensor_kraus",
     "tensor_choi",
     "tensor_pauli_liouville",
     "tensor_superop",
     "tensor_unitary",
+    "tensor_observable",
+    "tensor_involution",
+    "tensor_operator",
     "tensor_state_vector",
     "tensor_density_matrix",
     # Superoperator transformations
@@ -203,13 +217,15 @@ __all__ = [
     "process_fidelity_to_average_fidelity",
     "unitarity_to_stochastic_infidelity",
     # Types
+    "QuantumObject",
     "Choi",
-    "Kraus",
     "SuperOp",
     "KrausMap",
     "PauliLiouville",
     "SuperOperator",
     "Unitary",
+    "Observable",
+    "Involution",
     "DensityMatrix",
     "StateVector",
     "State",
@@ -224,8 +240,10 @@ __all__ = [
     "ginibre_matrix_complex",
     "random_density_matrix",
     "random_unitary",
-    "random_choi_BCSZ",
+    "random_choi",
     "random_state_vector",
+    "random_operator",
+    "random_observable",
     # Validation functions
     "is_unitary",
     "is_one_design",

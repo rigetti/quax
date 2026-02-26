@@ -28,13 +28,13 @@ src/quax/                              # Main package
 ├── __init__.py                        # Public API exports
 ├── gates.py                           # Common quantum gates (public submodule)
 ├── states.py                          # Predefined states (public submodule)
+├── ensembles.py                       # Predefined ensembles (public submodule)
 ├── _apply.py                          # Applying operators to states
 ├── _apply_superoperator.py            # Superoperator application logic
 ├── _common_channels.py                # Standard quantum channels
 ├── _compose.py                        # Operator composition
 ├── _distance_metrics.py               # Fidelity and distance functions
-├── _ensembles.py                      # Quantum ensembles
-├── _power.py                          # Operator power operations
+├── _power.py                          # Operator exponent operations
 ├── _promotion.py                      # State promotion utilities
 ├── _quantum_objects.py                # Core quantum types (State, Operator, etc.)
 ├── _random.py                         # Random quantum objects
@@ -73,6 +73,14 @@ poetry install
 The makefile contains recipes for common development tasks. For example
 
 #### Run tests
+
+Note that tests should always be run with jax at 64bit precision. This can be done by settings the environment variable
+
+```bash
+JAX_ENABLE_X64=1
+```
+
+Run the tests with 
 
 ```bash
 make test-package

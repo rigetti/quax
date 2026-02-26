@@ -17,7 +17,7 @@
 import jax
 import jax.numpy as jnp
 
-from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
+from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator
 from ._superoperator_transformations import (
     choi_to_superop,
     superop_to_choi,
@@ -25,14 +25,14 @@ from ._superoperator_transformations import (
 
 
 @jax.jit
-def compose_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
+def compose_kraus_map(k1: KrausMap, k2: KrausMap) -> KrausMap:
     """
     Given two channels, E1 and E2, acting on the same system in the Kraus representation this
-    function return the Kraus operators representing the composition of the channels E1 o E2.
+    function returns the KrausMap representing the composition of the channels E1 o E2.
 
-    :param k1: The list of Kraus operators for channel E1 (applied second).
-    :param k2: The list of Kraus operators for channel E2 (applied first).
-    :return: A combinatorially generated list of composed Kraus operators.
+    :param k1: KrausMap for channel E1 (applied second).
+    :param k2: KrausMap for channel E2 (applied first).
+    :return: A KrausMap containing the composed Kraus decomposition.
     """
     assert k1.dims == k2.dims, "Kraus operators must act on the same space to be composed."
     dims = k1.dims
@@ -51,6 +51,28 @@ def compose_kraus(k1: KrausMap, k2: KrausMap) -> KrausMap:
 
 
 @jax.jit
+def compose_operator(O1: Operator, O2: Operator) -> Operator:
+    """Compute the composition of two operators.
+
+    For two operators O1 and O2 acting on the same systems, this returns the operator
+    representing O1 ∘ O2 (O2 applied first, then O1).
+
+    Supports ensemble broadcasting: empty ensemble broadcasts with any ensemble,
+    and matching ensembles compose element-wise.
+
+    :param O1: Operator matrix for the first system
+    :param O2: Operator matrix for the second system
+    :returns: Operator matrix for the composed system
+    """
+    assert O1.dims == O2.dims, "Operators must act on the same space to be composed."
+
+    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
+    data = jnp.einsum("...ab,...bc->...ac", O1.matrix, O2.matrix)
+
+    return Operator.from_matrix(data, O1.dims)
+
+
+@jax.jit
 def compose_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     """Compute the composition of two unitary operators.
 
@@ -64,12 +86,8 @@ def compose_unitary(U1: Unitary, U2: Unitary) -> Unitary:
     :param U2: Unitary matrix for the second system
     :returns: Unitary matrix for the composed system
     """
-    assert U1.dims == U2.dims, "Unitaries must act on the same space to be composed."
-
-    # Use einsum with ellipsis to handle arbitrary ensemble dimensions
-    data = jnp.einsum("...ab,...bc->...ac", U1.matrix, U2.matrix)
-
-    return Unitary.from_matrix(data, U1.dims)
+    op = compose_operator(U1, U2)
+    return Unitary(data=op.data, num_qubits=op.num_qubits)
 
 
 @jax.jit
