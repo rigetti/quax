@@ -124,7 +124,8 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
     if isinstance(q_object, Observable) and not jnp.isreal(scalar):
         # Observable * complex scalar loses Hermitian structure → Operator
         assert type(scaled_q_object) is Operator
-    elif isinstance(q_object, Unitary) and not jnp.allclose(jnp.abs(scalar), 1.0):
+    elif isinstance(q_object, Unitary):
+        # Unitary * any scalar → Operator (unitarity not generally preserved)
         assert type(scaled_q_object) is Operator
     else:
         assert type(scaled_q_object) is type(q_object)
@@ -138,7 +139,8 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
     if isinstance(q_object, Observable) and not jnp.isreal(scalar):
         # Observable * complex scalar loses Hermitian structure → Operator
         assert type(scaled_q_object) is Operator
-    elif isinstance(q_object, Unitary) and not jnp.allclose(jnp.abs(scalar), 1.0):
+    elif isinstance(q_object, Unitary):
+        # Unitary * any scalar → Operator (unitarity not generally preserved)
         assert type(scaled_q_object) is Operator
     else:
         assert type(scaled_q_object) is type(q_object)
@@ -509,7 +511,7 @@ def test_operator_algebra():
     | Subtraction (−)      | O             | H                             | O                          | H                                         |
     | Composition (·)      | O             | H if commute                  | U                          | U (H if commute)                          |
     | Tensor product (⊗)   | O             | H                             | U                          | I                                         |
-    | Scalar mult. (c·A)   | O             | H if c ∈ ℝ                    | U if |c| = 1               | I if c = ±1                               |
+    | Scalar mult. (c·A)   | O             | H if c ∈ ℝ                    | O (always)                 | H if c ∈ ℝ                                |
     """
     dims = ((2, 2), (2, 2))
     key = jax.random.key(1234)
@@ -602,10 +604,10 @@ def test_operator_algebra():
 
     assert type(1j * operator) is type(operator)
     assert type(1j * observable) is Operator  # complex scalar → Operator (Hermitian structure lost)
-    assert type(1j * unitary) is Unitary  # |1j| = 1, so result is still Unitary
-    assert type(1j * involution) is Unitary  # |1j| = 1, unit complex → Unitary
+    assert type(1j * unitary) is Operator  # scalar mul never preserves Unitary
+    assert type(1j * involution) is Operator  # complex scalar → Operator
 
     assert type(jnp.exp(1j * jnp.pi / 4) * operator) is type(operator)
     assert type(jnp.exp(1j * jnp.pi / 4) * observable) is Operator  # complex → Operator (Hermitian structure lost)
-    assert type(jnp.exp(1j * jnp.pi / 4) * unitary) is Unitary  # |exp(iπ/4)| = 1 → Unitary
-    assert type(jnp.exp(1j * jnp.pi / 4) * involution) is Unitary  # unit complex but ≠ ±1 → Unitary
+    assert type(jnp.exp(1j * jnp.pi / 4) * unitary) is Operator  # scalar mul never preserves Unitary
+    assert type(jnp.exp(1j * jnp.pi / 4) * involution) is Operator  # complex scalar → Operator
