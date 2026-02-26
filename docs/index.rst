@@ -73,5 +73,6 @@ Automatic Promotion
 
    installation
    quickstart
+   quantum_objects
    reference
    api/index
