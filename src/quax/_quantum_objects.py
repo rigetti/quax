@@ -1038,6 +1038,12 @@ class Observable(Operator):
 
         return power_observable(self, exponent)
 
+    @overload
+    def __add__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __add__(self, other: "Operator") -> "Operator": ...
+
     def __add__(self, other: Any) -> "Observable | Operator":
         """Addition of observables.
 
@@ -1056,6 +1062,12 @@ class Observable(Operator):
             case _:
                 return NotImplemented
 
+    @overload
+    def __radd__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __radd__(self, other: "Operator") -> "Operator": ...
+
     def __radd__(self, other: Any) -> "Observable | Operator":
         """Right-hand addition."""
         match other:
@@ -1063,6 +1075,12 @@ class Observable(Operator):
                 return other.__add__(self)
             case _:
                 return NotImplemented
+
+    @overload
+    def __sub__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __sub__(self, other: "Operator") -> "Operator": ...
 
     def __sub__(self, other: Any) -> "Observable | Operator":
         """Subtraction of observables.
@@ -1081,6 +1099,12 @@ class Observable(Operator):
                 return Operator.from_matrix(self.matrix - other.matrix, self.dims)
             case _:
                 return NotImplemented
+
+    @overload
+    def __rsub__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __rsub__(self, other: "Operator") -> "Operator": ...
 
     def __rsub__(self, other: Any) -> "Observable | Operator":
         """Right-hand subtraction."""

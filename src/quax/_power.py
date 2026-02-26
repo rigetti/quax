@@ -44,6 +44,7 @@ The eigenvalue approach is provided for compatibility with scipy and numerical t
 """
 
 from functools import partial
+from typing import overload
 
 import jax
 import jax.numpy as jnp
@@ -63,18 +64,56 @@ from ._quantum_objects import (
 from ._superoperator_transformations import choi_to_superop, kraus_to_superop, superop_to_choi, superop_to_kraus
 
 
+@overload
+def exp(operator: Observable) -> Observable: ...
+
+
+@overload
+def exp(operator: Operator) -> Operator: ...
+
+
 def exp(operator: Operator) -> Operator:
-    """Compute the matrix exponential of an operator, returning an Operator."""
+    """Compute the matrix exponential of a quantum object.
+
+    Dispatches on the type of the input:
+
+    - ``Observable`` → ``Observable`` (exp of Hermitian is Hermitian positive-definite)
+    - ``Operator``   → ``Operator``   (general matrix exponential with global-phase removal)
+    """
+    if isinstance(operator, Observable):
+        return _exp_observable(operator)
+    return _exp_operator(operator)
+
+
+def _exp_operator(operator: Operator) -> Operator:
+    """Matrix exponential of a general operator, with global-phase removal."""
     dims = operator.dims
     eiH = jax.scipy.linalg.expm(operator.matrix)
     phase = jnp.exp(-1j * jnp.angle(eiH[..., 0, 0]))
     return Operator.from_matrix(phase[..., None, None] * eiH, dims)
 
 
+def _exp_observable(operator: Observable) -> Observable:
+    """Matrix exponential of an observable (Hermitian): result is Hermitian positive-definite."""
+    dims = operator.dims
+    result = jax.scipy.linalg.expm(operator.matrix)
+    return Observable.from_matrix(result, dims)
+
+
 def cis(operator: Operator) -> Unitary:
-    """Compute the complex exponential of an operator, returning a Unitary."""
-    op = exp(1j * operator)
-    return Unitary(op.data, op.num_qubits)
+    """Compute the complex exponential ``exp(i·operator)`` of a quantum object, returning a Unitary.
+
+    For any operator H, computes exp(iH) with a global-phase correction to ensure
+    the result is a proper unitary matrix. This is the standard construction for
+    quantum gates from Hermitian generators.
+
+    :param operator: The operator (typically Hermitian/Observable) acting as the generator.
+    :return: The unitary exp(iH) with determinant-phase correction.
+    """
+    dims = operator.dims
+    result = jax.scipy.linalg.expm(1j * operator.matrix)
+    phase = jnp.exp(-1j * jnp.angle(result[..., 0, 0]))
+    return Unitary.from_matrix(phase[..., None, None] * result, dims)
 
 
 def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
