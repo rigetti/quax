@@ -193,7 +193,7 @@ class State(QuantumObject):
 @dataclass(frozen=True)
 class Operator(QuantumObject):
     """Base class for a quantum operator."""
-            
+
     def __mul__(self, scalar: complex | Array) -> Self:
         """Scalar multiplication of the superoperator."""
         scalar_array = jnp.asarray(scalar)
@@ -209,33 +209,35 @@ class Operator(QuantumObject):
         """Scalar multiplication of the superoperator."""
         return self * scalar
 
-    def __add__(self, other: Any) -> Self:
-        """Add an operator with another object. Results in an operator."""
-        # the other object must be an Operator or a subclass of Operator and num_qubits must match
-        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
-            return type(self)(self.data + other.data, self.num_qubits)
-        else:
-            raise TypeError(f"Addition not supported between {type(self)} and {type(other)}.")
+    def __add__(self, other: Any) -> "Operator":
+        """Add an operator with another operator. Returns an Operator.
 
-    def __radd__(self, other: Any) -> Self:
-        """Add an operator with another object. Results in an operator."""
-        return self.__add__(other)
-
-    def __sub__(self, other: Any) -> Self:
-        """Subtract an operator with another object. Results in an operator."""
-        # the other object must be an Operator or a subclass of Operator and num_qubits must match
+        Subclasses override to return a more specific type where valid.
+        """
         if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
-            return type(self)(self.data - other.data, self.num_qubits)
-        else:
-            raise TypeError(f"Subtraction not supported between {type(self)} and {type(other)}.")
+            return Operator(self.data + other.data, self.num_qubits)
+        return NotImplemented
 
-    def __rsub__(self, other: Any) -> Self:
-        """Subtract an operator with another object. Results in an operator."""
-        # the other object must be an Operator or a subclass of Operator and num_qubits must match
+    def __radd__(self, other: Any) -> "Operator":
+        """Right-hand addition of two operators."""
         if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
-            return type(self)(other.data - self.data, self.num_qubits)
-        else:
-            raise TypeError(f"Subtraction not supported between {type(self)} and {type(other)}.")
+            return Operator(other.data + self.data, self.num_qubits)
+        return NotImplemented
+
+    def __sub__(self, other: Any) -> "Operator":
+        """Subtract an operator from another. Returns an Operator.
+
+        Subclasses override to return a more specific type where valid.
+        """
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(self.data - other.data, self.num_qubits)
+        return NotImplemented
+
+    def __rsub__(self, other: Any) -> "Operator":
+        """Right-hand subtraction of two operators."""
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(other.data - self.data, self.num_qubits)
+        return NotImplemented
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the operator"""
@@ -792,18 +794,30 @@ class Unitary(Operator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __mul__(self, scalar: complex) -> "Unitary | Operator":
+    def __mul__(self, scalar: complex | Array) -> "Unitary | Operator":
         """Scalar multiplication of the unitary.
 
         - |scalar| = 1: result is unitary → returns ``Unitary``.
         - Otherwise: returns ``Operator``.
         """
-        if jnp.isclose(jnp.abs(scalar), 1.0):
-            return Unitary(self.data * scalar, self.num_qubits)
-        else:
-            return Operator(self.data * scalar, self.num_qubits)
+        scalar_array = jnp.asarray(scalar)
+        broadcast_dims = jnp.broadcast_shapes(scalar_array.shape, self.ensemble_size)
+        broadcast_scalar = jnp.broadcast_to(scalar, broadcast_dims)
+        tail_ndims = self.data.ndim - self.num_ensemble_dims
+        broadcast_scalar = broadcast_scalar.reshape(broadcast_scalar.shape + (1,) * tail_ndims)
+        padded_data = self.data.reshape((1,) * (len(broadcast_dims) - self.num_ensemble_dims) + self.data.shape)
+        new_data = padded_data * broadcast_scalar
 
-    def __rmul__(self, scalar: complex) -> "Unitary | Operator":
+        # For Python scalars or 0-dim JAX arrays, check unit modulus precisely
+        if isinstance(scalar, (int, float, complex)):
+            if abs(abs(scalar) - 1.0) < 1e-10:
+                return Unitary(new_data, self.num_qubits)
+        elif scalar_array.ndim == 0:
+            if abs(abs(complex(scalar_array)) - 1.0) < 1e-10:
+                return Unitary(new_data, self.num_qubits)
+        return Operator(new_data, self.num_qubits)
+
+    def __rmul__(self, scalar: complex | Array) -> "Unitary | Operator":
         """Scalar multiplication of the unitary."""
         return self * scalar
 
@@ -972,14 +986,35 @@ class Observable(Operator):
     def __mul__(self, scalar: Array) -> "Observable | Operator": ...
 
     def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
-        """Scalar multiplication.
+        """Scalar multiplication with ensemble broadcasting.
 
         - Real scalar: result is Hermitian → returns ``Observable``.
         - Complex scalar: result is not generally Hermitian → returns ``Operator``.
         """
-        if jnp.isreal(scalar):
-            return Observable(self.data * scalar, self.num_qubits)
-        return Operator(self.data * scalar, self.num_qubits)
+        scalar_array = jnp.asarray(scalar)
+        broadcast_dims = jnp.broadcast_shapes(scalar_array.shape, self.ensemble_size)
+        broadcast_scalar = jnp.broadcast_to(scalar, broadcast_dims)
+        tail_ndims = self.data.ndim - self.num_ensemble_dims
+        broadcast_scalar = broadcast_scalar.reshape(broadcast_scalar.shape + (1,) * tail_ndims)
+        padded_data = self.data.reshape((1,) * (len(broadcast_dims) - self.num_ensemble_dims) + self.data.shape)
+        new_data = padded_data * broadcast_scalar
+
+        if isinstance(scalar, (int, float)):
+            return Observable(new_data, self.num_qubits)
+        elif isinstance(scalar, complex):
+            if abs(scalar.imag) < 1e-10:
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
+        elif scalar_array.ndim == 0:
+            # 0-dim JAX array — extract Python value for precise narrowing
+            if abs(complex(scalar_array).imag) < 1e-10:
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
+        else:
+            # JAX array with shape — use dtype for JIT-safe type narrowing
+            if jnp.issubdtype(scalar_array.dtype, jnp.floating):
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
 
     @overload
     def __rmul__(self, scalar: float) -> "Observable": ...
@@ -1115,24 +1150,54 @@ class Involution(Observable, Unitary):
     def __mul__(self, scalar: Array) -> "Involution | Unitary | Observable | Operator": ...
 
     def __mul__(self, scalar: float | complex | Array) -> "Involution | Unitary | Observable | Operator":
-        """Scalar multiplication, preserving the most specific correct type.
+        """Scalar multiplication with ensemble broadcasting.
 
         - ±1: stays ``Involution``.
         - |scalar| = 1, complex: unitary but not Hermitian → ``Unitary``.
         - Real, |scalar| ≠ 1: Hermitian but not unitary → ``Observable``.
         - Otherwise: general ``Operator``.
         """
-        scalar_c = complex(scalar)
-        is_real = abs(scalar_c.imag) < 1e-10
-        is_unit = abs(abs(scalar_c) - 1.0) < 1e-10
-        is_plus_minus_one = is_real and is_unit
-        if is_plus_minus_one:
-            return Involution(self.data * scalar, self.num_qubits)
-        if is_unit:
-            return Unitary(self.data * scalar, self.num_qubits)
-        if is_real:
-            return Observable(self.data * scalar, self.num_qubits)
-        return Operator(self.data * scalar, self.num_qubits)
+        scalar_array = jnp.asarray(scalar)
+        broadcast_dims = jnp.broadcast_shapes(scalar_array.shape, self.ensemble_size)
+        broadcast_scalar = jnp.broadcast_to(scalar, broadcast_dims)
+        tail_ndims = self.data.ndim - self.num_ensemble_dims
+        broadcast_scalar = broadcast_scalar.reshape(broadcast_scalar.shape + (1,) * tail_ndims)
+        padded_data = self.data.reshape((1,) * (len(broadcast_dims) - self.num_ensemble_dims) + self.data.shape)
+        new_data = padded_data * broadcast_scalar
+
+        if isinstance(scalar, (int, float)):
+            # Python real scalar — precise narrowing
+            if abs(abs(scalar) - 1.0) < 1e-10:
+                return Involution(new_data, self.num_qubits)
+            return Observable(new_data, self.num_qubits)
+        elif isinstance(scalar, complex):
+            # Python complex — precise narrowing
+            is_real = abs(scalar.imag) < 1e-10
+            is_unit = abs(abs(scalar) - 1.0) < 1e-10
+            if is_real and is_unit:
+                return Involution(new_data, self.num_qubits)
+            if is_unit:
+                return Unitary(new_data, self.num_qubits)
+            if is_real:
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
+        elif scalar_array.ndim == 0:
+            # 0-dim JAX array — extract Python value for precise narrowing
+            scalar_c = complex(scalar_array)
+            is_real = abs(scalar_c.imag) < 1e-10
+            is_unit = abs(abs(scalar_c) - 1.0) < 1e-10
+            if is_real and is_unit:
+                return Involution(new_data, self.num_qubits)
+            if is_unit:
+                return Unitary(new_data, self.num_qubits)
+            if is_real:
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
+        else:
+            # JAX array with shape — use dtype for JIT-safe type narrowing
+            if jnp.issubdtype(scalar_array.dtype, jnp.floating):
+                return Observable(new_data, self.num_qubits)
+            return Operator(new_data, self.num_qubits)
 
     @overload
     def __rmul__(self, scalar: float) -> "Observable": ...
@@ -1153,7 +1218,7 @@ class Involution(Observable, Unitary):
         - Integer exponents: eigenvalues stay in {±1} → returns ``Involution``.
         - Fractional exponents: eigenvalues move onto the unit circle → returns ``Unitary``.
         """
-        if jnp.isclose(int(jnp.abs(exponent)), exponent):
+        if jnp.allclose(int(jnp.abs(exponent)), exponent):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return Involution.from_matrix(new_data, self.dims)
 

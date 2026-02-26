@@ -49,7 +49,17 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, KrausMap, Observable, PauliLiouville, StateVector, SuperOp, Unitary
+from ._quantum_objects import (
+    Choi,
+    DensityMatrix,
+    KrausMap,
+    Observable,
+    PauliLiouville,
+    StateVector,
+    SuperOp,
+    Unitary,
+    Operator,
+)
 from ._superoperator_transformations import choi_to_superop, kraus_to_superop, superop_to_choi, superop_to_kraus
 
 
