@@ -53,6 +53,20 @@ from ._quantum_objects import Choi, DensityMatrix, KrausMap, Observable, PauliLi
 from ._superoperator_transformations import choi_to_superop, kraus_to_superop, superop_to_choi, superop_to_kraus
 
 
+def exp(operator: Operator) -> Operator:
+    """Compute the matrix exponential of an operator, returning an Operator."""
+    dims = operator.dims
+    eiH = jax.scipy.linalg.expm(operator.matrix)
+    phase = jnp.exp(-1j * jnp.angle(eiH[..., 0, 0]))
+    return Operator.from_matrix(phase[..., None, None] * eiH, dims)
+
+
+def cis(operator: Operator) -> Unitary:
+    """Compute the complex exponential of an operator, returning a Unitary."""
+    op = exp(1j * operator)
+    return Unitary(op.data, op.num_qubits)
+
+
 def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     """
     Compute matrix power using eigendecomposition.

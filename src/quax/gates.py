@@ -118,8 +118,10 @@ Specialized gates / internal utility gates:
 """  # noqa: E501
 
 import jax.numpy as jnp
+from typing import cast
 
 from ._quantum_objects import Involution, Operator, Unitary
+from ._power import cis
 
 I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
 
@@ -137,68 +139,28 @@ T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0
 
 
 def PHASE(phi: float) -> Unitary:
-    return Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1j * phi)]], dtype=complex), ((2,), (2,)))
+    return cis((I - Z) * (0.5 * phi))
 
 
 def RX(phi) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [[jnp.cos(phi / 2.0), -1j * jnp.sin(phi / 2.0)], [-1j * jnp.sin(phi / 2.0), jnp.cos(phi / 2.0)]],
-            dtype=complex,
-        ),
-        ((2,), (2,)),
-    )
+    return cis(X * (-0.5 * phi))
 
 
 def RY(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array([[jnp.cos(phi / 2.0), -jnp.sin(phi / 2.0)], [jnp.sin(phi / 2.0), jnp.cos(phi / 2.0)]], dtype=complex),
-        ((2,), (2,)),
-    )
+    return cis(Y * (-0.5 * phi))
 
 
 def RZ(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.cos(phi / 2.0) - 1j * jnp.sin(phi / 2.0), 0],
-                [0, jnp.cos(phi / 2.0) + 1j * jnp.sin(phi / 2.0)],
-            ],
-            dtype=complex,
-        ),
-        ((2,), (2,)),
-    )
+    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
+    return cast(Unitary, PHASE(phi) * jnp.exp(-1j * phi / 2.0))
 
 
 def PHASEDRX(theta: float, phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [
-                    jnp.exp(1j * theta / 2) * jnp.cos(theta / 2.0),
-                    -1j * jnp.exp(1j * (theta / 2 - phi)) * jnp.sin(theta / 2.0),
-                ],
-                [
-                    -1j * jnp.exp(1j * (theta / 2 + phi)) * jnp.sin(theta / 2.0),
-                    jnp.exp(1j * theta / 2) * jnp.cos(theta / 2.0),
-                ],
-            ]
-        ),
-        ((2,), (2,)),
-    )
+    return jnp.exp(1j * theta / 2.0) * (RZ(phi) @ RX(theta) @ RZ(-phi))
 
 
 def U(theta: float, phi: float, lam: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.cos(theta / 2.0), -1 * jnp.exp(1j * lam) * jnp.sin(theta / 2.0)],
-                [jnp.exp(1j * phi) * jnp.sin(theta / 2.0), jnp.exp(1j * (phi + lam)) * jnp.cos(theta / 2.0)],
-            ],
-            dtype=complex,
-        ),
-        ((2,), (2,)),
-    )
+    return jnp.exp(1j * (phi + lam) / 2.0) * (RZ(phi) @ RY(theta) @ RZ(lam))
 
 
 CZ = Involution.from_matrix(
@@ -227,25 +189,20 @@ CCNOT = Involution.from_matrix(
 
 
 def CPHASE00(phi: float) -> Unitary:
-    return Unitary.from_matrix(jnp.diag(jnp.array([jnp.exp(1j * phi), 1.0, 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)))
+    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
+    return cast(Unitary, jnp.exp(1j * phi) * cis((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi)))
 
 
 def CPHASE01(phi: float) -> Unitary:
-    return Unitary.from_matrix(jnp.diag(jnp.array([1.0, jnp.exp(1j * phi), 1.0, 1.0], dtype=complex)), ((2, 2), (2, 2)))
+    return cis((((I | I) + (Z | I) - (I | Z)) - (Z | Z)) * (0.25 * phi))
 
 
 def CPHASE10(phi: float) -> Unitary:
-    return Unitary.from_matrix(jnp.diag(jnp.array([1.0, 1.0, jnp.exp(1j * phi), 1.0], dtype=complex)), ((2, 2), (2, 2)))
+    return cis((((I | I) - (Z | I) + (I | Z)) - (Z | Z)) * (0.25 * phi))
 
 
 def CPHASE(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, jnp.exp(1j * phi)]],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return cis((((I | I) - (Z | I) - (I | Z)) + (Z | Z)) * (0.25 * phi))
 
 
 SWAP = Involution.from_matrix(
@@ -275,112 +232,40 @@ ISWAP = Unitary.from_matrix(
 
 
 def PSWAP(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [[1, 0, 0, 0], [0, 0, jnp.exp(1j * phi), 0], [0, jnp.exp(1j * phi), 0, 0], [0, 0, 0, 1]], dtype=complex
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return cis(((I | I) - (Z | Z)) * (0.5 * (phi - jnp.pi / 2.0))) @ cis(((X | X) + (Y | Y)) * (jnp.pi / 4.0))
 
 
 def XY(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [1, 0, 0, 0],
-                [0, jnp.cos(phi / 2), 1j * jnp.sin(phi / 2), 0],
-                [0, 1j * jnp.sin(phi / 2), jnp.cos(phi / 2), 0],
-                [0, 0, 0, 1],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return cis(((X | X) + (Y | Y)) * (phi / 4.0))
 
 
 def FSIM(theta: float, phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [1, 0, 0, 0],
-                [0, jnp.cos(theta / 2), 1j * jnp.sin(theta / 2), 0],
-                [0, 1j * jnp.sin(theta / 2), jnp.cos(theta / 2), 0],
-                [0, 0, 0, jnp.exp(1j * phi)],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return CPHASE(phi) @ XY(theta)
 
 
 def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [1, 0, 0, 0],
-                [
-                    0,
-                    jnp.exp(-1j * (gamma + zeta)) * jnp.cos(theta / 2),
-                    1j * jnp.exp(-1j * (gamma - chi)) * jnp.sin(theta / 2),
-                    0,
-                ],
-                [
-                    0,
-                    1j * jnp.exp(-1j * (gamma + chi)) * jnp.sin(theta / 2),
-                    jnp.exp(-1j * (gamma - zeta)) * jnp.cos(theta / 2),
-                    0,
-                ],
-                [0, 0, 0, jnp.exp(1j * phi - 2j * gamma)],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
+    diagonal_generator = (
+        (I | I) * ((phi / 4.0) - gamma) + ((Z | I) + (I | Z)) * ((2.0 * gamma - phi) / 4.0) + (Z | Z) * (phi / 4.0)
     )
+    zeta_generator = ((Z | I) - (I | Z)) * (-zeta / 4.0)
+    interaction_generator = (((X | X) + (Y | Y)) * (theta / 4.0) * jnp.cos(chi)) - (
+        ((Y | X) - (X | Y)) * (theta / 4.0) * jnp.sin(chi)
+    )
+
+    return cis(diagonal_generator) @ cis(zeta_generator) @ cis(interaction_generator) @ cis(zeta_generator)
 
 
 def RZZ(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.exp(-1j * phi / 2), 0, 0, 0],
-                [0, jnp.exp(+1j * phi / 2), 0, 0],
-                [0, 0, jnp.exp(+1j * phi / 2), 0],
-                [0, 0, 0, jnp.exp(-1j * phi / 2)],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
+    return cast(Unitary, jnp.exp(-1j * phi / 2.0) * cis((Z | Z) * (-0.5 * phi)))
 
 
 def RXX(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.cos(phi / 2), 0, 0, -1j * jnp.sin(phi / 2)],
-                [0, jnp.cos(phi / 2), -1j * jnp.sin(phi / 2), 0],
-                [0, -1j * jnp.sin(phi / 2), jnp.cos(phi / 2), 0],
-                [-1j * jnp.sin(phi / 2), 0, 0, jnp.cos(phi / 2)],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return cis((X | X) * (-0.5 * phi))
 
 
 def RYY(phi: float) -> Unitary:
-    return Unitary.from_matrix(
-        jnp.array(
-            [
-                [jnp.cos(phi / 2), 0, 0, +1j * jnp.sin(phi / 2)],
-                [0, jnp.cos(phi / 2), -1j * jnp.sin(phi / 2), 0],
-                [0, -1j * jnp.sin(phi / 2), jnp.cos(phi / 2), 0],
-                [+1j * jnp.sin(phi / 2), 0, 0, jnp.cos(phi / 2)],
-            ],
-            dtype=complex,
-        ),
-        ((2, 2), (2, 2)),
-    )
+    return cis((Y | Y) * (-0.5 * phi))
 
 
 SQISWAP = SQISW = Unitary.from_matrix(
@@ -404,14 +289,56 @@ P1 = Operator.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,
 
 # Specialized useful gates; not officially in standard gate set
 def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
-    lower_unitary = jnp.array(
+    lower_unitary = jnp.stack(
         [
-            [jnp.exp(1j * phi) * jnp.cos(theta), -1j * jnp.exp(1j * (alpha - phi)) * jnp.sin(theta)],
-            [-1j * jnp.exp(1j * (alpha + phi)) * jnp.sin(theta), jnp.exp(1j * alpha) * jnp.cos(theta)],
+            jnp.stack(
+                [
+                    jnp.exp(1j * phi) * jnp.cos(theta),
+                    -1j * jnp.exp(1j * (alpha - phi)) * jnp.sin(theta),
+                ],
+                axis=-1,
+            ),
+            jnp.stack(
+                [
+                    -1j * jnp.exp(1j * (alpha + phi)) * jnp.sin(theta),
+                    jnp.exp(1j * alpha) * jnp.cos(theta),
+                ],
+                axis=-1,
+            ),
         ],
-        dtype=complex,
+        axis=-2,
     )
-    return Unitary.from_matrix(jnp.kron(P0.matrix, jnp.eye(2)) + jnp.kron(P1.matrix, lower_unitary), ((2, 2), (2, 2)))
+    ensemble_shape = lower_unitary.shape[:-2]
+    top_left = jnp.broadcast_to(jnp.eye(2, dtype=complex), ensemble_shape + (2, 2))
+    zeros = jnp.zeros(ensemble_shape + (2, 2), dtype=complex)
+    top_block = jnp.concatenate([top_left, zeros], axis=-1)
+    bottom_block = jnp.concatenate([zeros, lower_unitary], axis=-1)
+    return Unitary.from_matrix(
+        jnp.concatenate([top_block, bottom_block], axis=-2),
+        ((2, 2), (2, 2)),
+    )
+
+
+def CAN(tx: float, ty: float, tz: float) -> Unitary:
+    """Canonical gate."""
+    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
+    return cast(
+        Unitary, jnp.exp(1j * tz / 2.0) * cis((X | X) * (0.5 * tx) + (Y | Y) * (0.5 * ty) + (Z | Z) * (0.5 * tz))
+    )
+
+
+B = CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
+
+
+ECR = cis((jnp.pi / 4.0) * (Z | X)) @ (X | I)
+
+
+def GIVENS(theta: float) -> Unitary:
+    """Givens rotation on the subspace spanned by |01> and |10>."""
+    return cis(((Y | X) - (X | Y)) * (-0.5 * theta))
+
+
+SYCAMORE = CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
 
 
 QUANTUM_GATES = {
@@ -446,4 +373,9 @@ QUANTUM_GATES = {
     "RZZ": RZZ,
     "U": U,
     "PHASEDRX": PHASEDRX,
+    "CAN": CAN,
+    "B": B,
+    "ECR": ECR,
+    "GIVENS": GIVENS,
+    "SYCAMORE": SYCAMORE,
 }

@@ -53,12 +53,19 @@ class QuantumObject:
         """Negate the quantum object."""
         return type(self)(-self.data, self.num_qubits)
 
-    def __mul__(self, scalar: complex) -> Self:
-        """Scalar multiplication."""
-        return type(self)(self.data * scalar, self.num_qubits)
+    def __mul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the superoperator."""
+        scalar_array = jnp.asarray(scalar)
+        broadcast_dims = jnp.broadcast_shapes(scalar_array.shape, self.ensemble_size)
+        broadcast_scalar = jnp.broadcast_to(scalar, broadcast_dims)
+        tail_ndims = self.data.ndim - self.num_ensemble_dims
+        broadcast_scalar = broadcast_scalar.reshape(broadcast_scalar.shape + (1,) * tail_ndims)
+        padded_data = self.data.reshape((1,) * (len(broadcast_dims) - self.num_ensemble_dims) + self.data.shape)
 
-    def __rmul__(self, scalar: complex) -> Self:
-        """Scalar multiplication (scalar on the left)."""
+        return type(self)(padded_data * broadcast_scalar, self.num_qubits)
+
+    def __rmul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the superoperator."""
         return self * scalar
 
     # ----- display / comparison -----
@@ -186,54 +193,55 @@ class State(QuantumObject):
 @dataclass(frozen=True)
 class Operator(QuantumObject):
     """Base class for a quantum operator."""
+            
+    def __mul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the superoperator."""
+        scalar_array = jnp.asarray(scalar)
+        broadcast_dims = jnp.broadcast_shapes(scalar_array.shape, self.ensemble_size)
+        broadcast_scalar = jnp.broadcast_to(scalar, broadcast_dims)
+        tail_ndims = self.data.ndim - self.num_ensemble_dims
+        broadcast_scalar = broadcast_scalar.reshape(broadcast_scalar.shape + (1,) * tail_ndims)
+        padded_data = self.data.reshape((1,) * (len(broadcast_dims) - self.num_ensemble_dims) + self.data.shape)
 
-    def __add__(self, other: Any) -> "Operator":
-        """Addition of two operators.
+        return type(self)(padded_data * broadcast_scalar, self.num_qubits)
 
-        Returns an Operator (subclasses override to return a more specific type where valid).
-        """
-        match other:
-            case Operator():
-                if self.dims != other.dims:
-                    raise ValueError(f"Cannot add operators with different dims: {self.dims} vs {other.dims}")
-                return Operator.from_matrix(self.matrix + other.matrix, self.dims)
-            case _:
-                return NotImplemented
+    def __rmul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the superoperator."""
+        return self * scalar
 
-    def __radd__(self, other: Any) -> "Operator":
-        """Right-hand addition of two operators."""
-        match other:
-            case Operator():
-                return other.__add__(self)
-            case _:
-                return NotImplemented
+    def __add__(self, other: Any) -> Self:
+        """Add an operator with another object. Results in an operator."""
+        # the other object must be an Operator or a subclass of Operator and num_qubits must match
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return type(self)(self.data + other.data, self.num_qubits)
+        else:
+            raise TypeError(f"Addition not supported between {type(self)} and {type(other)}.")
 
-    def __sub__(self, other: Any) -> "Operator":
-        """Subtraction of two operators.
+    def __radd__(self, other: Any) -> Self:
+        """Add an operator with another object. Results in an operator."""
+        return self.__add__(other)
 
-        Returns an Operator (subclasses override to return a more specific type where valid).
-        """
-        match other:
-            case Operator():
-                if self.dims != other.dims:
-                    raise ValueError(f"Cannot subtract operators with different dims: {self.dims} vs {other.dims}")
-                return Operator.from_matrix(self.matrix - other.matrix, self.dims)
-            case _:
-                return NotImplemented
+    def __sub__(self, other: Any) -> Self:
+        """Subtract an operator with another object. Results in an operator."""
+        # the other object must be an Operator or a subclass of Operator and num_qubits must match
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return type(self)(self.data - other.data, self.num_qubits)
+        else:
+            raise TypeError(f"Subtraction not supported between {type(self)} and {type(other)}.")
 
-    def __rsub__(self, other: Any) -> "Operator":
-        """Right-hand subtraction of two operators."""
-        match other:
-            case Operator():
-                return other.__sub__(self)
-            case _:
-                return NotImplemented
+    def __rsub__(self, other: Any) -> Self:
+        """Subtract an operator with another object. Results in an operator."""
+        # the other object must be an Operator or a subclass of Operator and num_qubits must match
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return type(self)(other.data - self.data, self.num_qubits)
+        else:
+            raise TypeError(f"Subtraction not supported between {type(self)} and {type(other)}.")
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the operator"""
         # By default, only support integer exponents
         # matrix_power is not _correct_ for all operators
-        if jnp.isclose(int(jnp.abs(exponent)), exponent):
+        if jnp.allclose(int(jnp.abs(exponent)), exponent):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return type(self).from_matrix(new_data, self.dims)
         else:

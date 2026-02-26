@@ -121,11 +121,16 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
 
     assert jnp.allclose(scaled_q_object.data, scalar * q_object.data)
 
+<<<<<<< HEAD
     if isinstance(q_object, Observable) and not jnp.isreal(scalar):
         # Observable * complex scalar loses Hermitian structure → Operator
         assert type(scaled_q_object) is Operator
     elif isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
         assert type(scaled_q_object) is Operator
+=======
+    if isinstance(q_object, Unitary) and not jnp.allclose(jnp.abs(scalar), 1.0):
+        assert type(scaled_q_object) is Kraus
+>>>>>>> b1e67e4 (Modify gates to work with ensemble parameters)
     else:
         assert type(scaled_q_object) is type(q_object)
     assert scaled_q_object.ensemble_size == q_object.ensemble_size
@@ -135,11 +140,16 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
 
     assert jnp.allclose(scaled_q_object.data, scalar * q_object.data)
 
+<<<<<<< HEAD
     if isinstance(q_object, Observable) and not jnp.isreal(scalar):
         # Observable * complex scalar loses Hermitian structure → Operator
         assert type(scaled_q_object) is Operator
     elif isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
         assert type(scaled_q_object) is Operator
+=======
+    if isinstance(q_object, Unitary) and not jnp.allclose(jnp.abs(scalar), 1.0):
+        assert type(scaled_q_object) is Kraus
+>>>>>>> b1e67e4 (Modify gates to work with ensemble parameters)
     else:
         assert type(scaled_q_object) is type(q_object)
     assert scaled_q_object.ensemble_size == q_object.ensemble_size
