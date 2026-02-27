@@ -1161,6 +1161,7 @@ class Involution(Observable, Unitary):
         - ``Involution ⊗ Involution`` → ``Involution``
         - ``Involution ⊗ Observable`` → ``Observable``
         - ``Involution ⊗ Unitary / Operator`` → ``Operator``
+        - ``Involution ⊗ SuperOp / Choi / PauliLiouville / KrausMap`` → (delegates to Unitary)
         """
         match other:
             case Involution():
@@ -1184,7 +1185,9 @@ class Involution(Observable, Unitary):
 
                 return tensor_operator(self, other)
             case _:
-                return NotImplemented
+                # Superoperator types (SuperOp, Choi, PauliLiouville, KrausMap)
+                # are handled by the Unitary parent class.
+                return Unitary.__or__(self, other)
 
 
 # ---------- superoperators ----------
