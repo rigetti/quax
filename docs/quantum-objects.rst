@@ -11,6 +11,26 @@ Quax stores all quantum objects in **tensor format**, preserving the structure o
 individual qudits for efficient tensor network operations. The ``.matrix`` property
 provides the flattened matrix representation when needed.
 
+Type Hierarchy
+--------------
+
+.. code-block:: text
+
+   QuantumObject
+   ├── State
+   │   ├── StateVector          |ψ⟩  — pure state vector
+   │   └── DensityMatrix        ρ    — mixed state
+   ├── Operator                 O    — general linear operator
+   │   ├── Observable           A    — A = A† (Hermitian)
+   │   └── Unitary              U    — U U† = I
+   │       └── Involution       A    — A = A† and A² = I  (e.g. Paulis, Hadamard)
+   └── SuperOperator
+       ├── SuperOp              S    — Liouville / superoperator matrix
+       ├── KrausMap             K    — {Kᵢ} (Kraus operators)
+       ├── Choi                 J    — Choi–Jamiołkowski matrix
+       ├── Chi                  χ    — process / χ matrix  (limited support)
+       └── PauliLiouville       P    — Pauli transfer matrix
+
 .. list-table:: Quantum Object Shapes
    :header-rows: 1
    :widths: 25 40 35
@@ -24,7 +44,7 @@ provides the flattened matrix representation when needed.
    * - DensityMatrix
      - ``(*ensemble, d0_out, ..., d0_in, ...)``
      - ``(*ensemble, prod(dims), prod(dims))``
-   * - Unitary/Operator
+   * - Unitary/Operator/Observable
      - ``(*ensemble, d0_out, ..., d0_in, ...)``
      - ``(*ensemble, prod(dims_out), prod(dims_in))``
    * - KrausMap
