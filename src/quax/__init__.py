@@ -60,7 +60,7 @@ from ._distance_metrics import (
     unitarity_to_stochastic_infidelity,
     unitary_entanglement_fidelity,
 )
-from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary
+from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import (
     Choi,
@@ -260,6 +260,8 @@ __all__ = [
     "power_pauli_liouville",
     "power_superop",
     "power_unitary",
+    "exp",
+    "cis",
     # Submodules
     "gates",
     "states",

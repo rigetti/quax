@@ -33,31 +33,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import qutip as qt
-from scipy.linalg import fractional_matrix_power
+from scipy.linalg import fractional_matrix_power, expm
 
-from quax import (
-    Choi,
-    DensityMatrix,
-    SuperOp,
-    Unitary,
-    choi_to_kraus,
-    choi_to_pauli_liouville,
-    choi_to_superop,
-    kraus_to_choi,
-    pauli_liouville_to_choi,
-    process_fidelity,
-    random_density_matrix,
-    random_unitary,
-    superop_to_choi,
-)
-from quax._power import (
-    density_matrix_power,
-    power_choi,
-    power_kraus,
-    power_pauli_liouville,
-    power_superop,
-    power_unitary,
-)
+import quax as qx
 
 
 # Entirely random CPTP maps are often not infinitely divisible,
@@ -98,7 +76,7 @@ def _random_lindbladian(
         chois.append(choi)
 
     data = jnp.asarray(chois).reshape(size + (d2, d2))
-    return Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits))
+    return qx.Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits))
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
@@ -110,41 +88,41 @@ def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
     dims = ((2,) * num_qubits, (2,) * num_qubits)
     # random_choi = random_choi_BCSZ(dims=dims, rank=rank, key=key, size=ensemble_size)
     random_choi = _random_lindbladian(num_qubits, size=ensemble_size)
-    random_superop = choi_to_superop(random_choi)
-    random_kraus = choi_to_kraus(random_choi)
-    random_pauli_liouville = choi_to_pauli_liouville(random_choi)
+    random_superop = qx.choi_to_superop(random_choi)
+    random_kraus = qx.choi_to_kraus(random_choi)
+    random_pauli_liouville = qx.choi_to_pauli_liouville(random_choi)
 
     # here we use scipy.linalg.fractional_matrix_power as a reference implementation
-    powered_reference_superop = SuperOp.from_matrix(
+    powered_reference_superop = qx.SuperOp.from_matrix(
         jnp.asarray(fractional_matrix_power(np.array(random_superop.matrix), power)), dims
     )
-    powered_reference_choi = superop_to_choi(powered_reference_superop)
+    powered_reference_choi = qx.superop_to_choi(powered_reference_superop)
 
     # Test SuperOp power
-    powered_superop = power_superop(random_superop, power)
-    fid = process_fidelity(powered_superop, powered_reference_superop)
+    powered_superop = qx.power_superop(random_superop, power)
+    fid = qx.process_fidelity(powered_superop, powered_reference_superop)
 
-    assert jnp.allclose(superop_to_choi(powered_superop).matrix, powered_reference_choi.matrix, atol=1e-6)
+    assert jnp.allclose(qx.superop_to_choi(powered_superop).matrix, powered_reference_choi.matrix, atol=1e-6)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
 
     # Test Choi power
-    powered_choi = power_choi(random_choi, power)
-    fid = process_fidelity(powered_choi, powered_reference_choi)
+    powered_choi = qx.power_choi(random_choi, power)
+    fid = qx.process_fidelity(powered_choi, powered_reference_choi)
     assert jnp.allclose(powered_choi.matrix, powered_reference_choi.matrix, atol=1e-6)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
 
     # Test Kraus power
-    powered_kraus = power_kraus(random_kraus, power)
-    fid = process_fidelity(kraus_to_choi(powered_kraus), powered_reference_choi)
+    powered_kraus = qx.power_kraus(random_kraus, power)
+    fid = qx.process_fidelity(qx.kraus_to_choi(powered_kraus), powered_reference_choi)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
-    assert jnp.allclose(kraus_to_choi(powered_kraus).matrix, powered_reference_choi.matrix, atol=1e-5)
+    assert jnp.allclose(qx.kraus_to_choi(powered_kraus).matrix, powered_reference_choi.matrix, atol=1e-5)
 
     # Test Pauli-Liouville power
-    powered_pauli_liouville = power_pauli_liouville(random_pauli_liouville, power)
-    fid = process_fidelity(pauli_liouville_to_choi(powered_pauli_liouville), powered_reference_choi)
+    powered_pauli_liouville = qx.power_pauli_liouville(random_pauli_liouville, power)
+    fid = qx.process_fidelity(qx.pauli_liouville_to_choi(powered_pauli_liouville), powered_reference_choi)
     assert jnp.allclose(fid, 1.0, atol=1e-6)
     assert jnp.allclose(
-        pauli_liouville_to_choi(powered_pauli_liouville).matrix, powered_reference_choi.matrix, atol=1e-6
+        qx.pauli_liouville_to_choi(powered_pauli_liouville).matrix, powered_reference_choi.matrix, atol=1e-6
     )
 
 
@@ -158,13 +136,13 @@ def test_power_unitarys(num_qubits, power, seed, ensemble_size):
     dims = ((2,) * num_qubits, (2,) * num_qubits)
 
     # Generate random unitary
-    random_U = random_unitary(dims=dims, key=key, size=ensemble_size)
+    random_U = qx.random_unitary(dims=dims, key=key, size=ensemble_size)
 
     # Compute power using our implementation
-    powered_U = power_unitary(random_U, power)
+    powered_U = qx.power_unitary(random_U, power)
 
     # Use scipy as reference
-    powered_reference = Unitary.from_matrix(
+    powered_reference = qx.Unitary.from_matrix(
         jnp.asarray(fractional_matrix_power(np.array(random_U.matrix), power)), dims
     )
 
@@ -198,13 +176,13 @@ def test_density_matrix_powers(num_qubits, power, seed, ensemble_size):
     rank = 2**num_qubits
 
     # Generate random density matrix
-    random_rho = random_density_matrix(rank=rank, dims=dims, key=key, size=ensemble_size)
+    random_rho = qx.random_density_matrix(rank=rank, dims=dims, key=key, size=ensemble_size)
 
     # Compute power using our implementation
-    powered_rho = density_matrix_power(random_rho, power)
+    powered_rho = random_rho**power
 
     # Use scipy as reference
-    powered_reference = DensityMatrix.from_matrix(
+    powered_reference = qx.DensityMatrix.from_matrix(
         jnp.asarray(fractional_matrix_power(np.array(random_rho.matrix), power)), dims
     )
 
@@ -217,3 +195,33 @@ def test_density_matrix_powers(num_qubits, power, seed, ensemble_size):
     # Check positive semidefiniteness (eigenvalues should be non-negative)
     eigvals = jnp.linalg.eigvalsh(powered_rho.matrix)
     assert jnp.all(eigvals >= -1e-6), f"Negative eigenvalues found: min={jnp.min(eigvals)}"
+
+
+@pytest.mark.parametrize("theta", [0, jnp.pi / 8, jnp.pi / 4, jnp.pi / 2])
+def test_cis(theta):
+    """Test that cis function correctly computes matrix exponentials."""
+    X = jnp.array([[0, 1], [1, 0]], dtype=complex)
+    Y = jnp.array([[0, -1j], [1j, 0]], dtype=complex)
+    XX = jnp.kron(X, X)
+    YY = jnp.kron(Y, Y)
+
+    # 1Q operator
+    expected_value = expm(1j * theta * X)
+    computed_value = qx.cis((theta * qx.gates.X)).matrix
+    assert jnp.allclose(computed_value, expected_value, atol=1e-6)
+    computed_value = qx.exp((1j * theta * qx.gates.X)).matrix
+    assert jnp.allclose(computed_value, expected_value, atol=1e-6)
+
+    # 2Q operator
+    expected_value_XX = expm(1j * theta * XX)
+    computed_value_XX = qx.cis((theta * (qx.gates.X | qx.gates.X))).matrix
+    assert jnp.allclose(computed_value_XX, expected_value_XX, atol=1e-6)
+    computed_value_XX = qx.exp(1j * (theta * (qx.gates.X | qx.gates.X))).matrix
+    assert jnp.allclose(computed_value_XX, expected_value_XX, atol=1e-6)
+
+    # Ensemble of 2Q operators
+    # Make a 2D array of thetas
+    thetas = jnp.linspace(0, jnp.pi / 2, 12).reshape((3, 4))
+    expected_values = jnp.asarray([expm(1j * t * (XX + YY)) for t in thetas.flatten()]).reshape((3, 4, 4, 4))
+    computed_values = qx.cis((thetas * ((qx.gates.X | qx.gates.X) + (qx.gates.Y | qx.gates.Y)))).matrix
+    assert jnp.allclose(computed_values, expected_values, atol=1e-6)

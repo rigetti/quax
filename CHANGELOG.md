@@ -14,6 +14,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.4.1] - 2026-03-09
+
+## Added
+
+- Example notebook `hamiltonians.ipynb`
+- Functions `exp` and `cis`.
+
+## Changed
+
+- Gates are now defined as exponentials of Paulis.
+- Parametric gates can be created with arrays of parameters.
+
 ## [0.4.0] - 2026-02-26
 
 ### Added
