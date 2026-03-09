@@ -119,17 +119,17 @@ Specialized gates / internal utility gates:
 
 import jax.numpy as jnp
 
-from ._quantum_objects import Kraus, Unitary
+from ._quantum_objects import Involution, Operator, Unitary
 
-I = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
+I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
 
-X = Unitary.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
+X = Involution.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
 
-Y = Unitary.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)))
+Y = Involution.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)))
 
-Z = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)))
+Z = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)))
 
-H = Unitary.from_matrix((1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,)))
+H = Involution.from_matrix((1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,)))
 
 S = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2,), (2,)))
 
@@ -201,15 +201,15 @@ def U(theta: float, phi: float, lam: float) -> Unitary:
     )
 
 
-CZ = Unitary.from_matrix(
+CZ = Involution.from_matrix(
     jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]], dtype=complex), ((2, 2), (2, 2))
 )
 
-CNOT = Unitary.from_matrix(
+CNOT = Involution.from_matrix(
     jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex), ((2, 2), (2, 2))
 )
 
-CCNOT = Unitary.from_matrix(
+CCNOT = Involution.from_matrix(
     jnp.array(
         [
             [1, 0, 0, 0, 0, 0, 0, 0],
@@ -248,11 +248,11 @@ def CPHASE(phi: float) -> Unitary:
     )
 
 
-SWAP = Unitary.from_matrix(
+SWAP = Involution.from_matrix(
     jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
 )
 
-CSWAP = Unitary.from_matrix(
+CSWAP = Involution.from_matrix(
     jnp.array(
         [
             [1, 0, 0, 0, 0, 0, 0, 0],
@@ -397,9 +397,9 @@ SQISWAP = SQISW = Unitary.from_matrix(
 )
 
 # Utility gates for internal QVM use
-P0 = Kraus.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)))
+P0 = Operator.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)))
 
-P1 = Kraus.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)))
+P1 = Operator.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)))
 
 
 # Specialized useful gates; not officially in standard gate set

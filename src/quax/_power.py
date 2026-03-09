@@ -49,7 +49,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
+from ._quantum_objects import Choi, DensityMatrix, KrausMap, Observable, PauliLiouville, StateVector, SuperOp, Unitary
 from ._superoperator_transformations import choi_to_superop, kraus_to_superop, superop_to_choi, superop_to_kraus
 
 
@@ -236,6 +236,22 @@ def power_unitary(unitary: Unitary, power: float) -> Unitary:
     """
     powered_data = _matrix_power_via_eig(unitary.matrix, power)
     return Unitary.from_matrix(powered_data, unitary.dims)
+
+
+@jax.jit
+def power_observable(observable: Observable, power: float) -> Observable:
+    """
+    Compute the fractional power of an observable (Hermitian matrix).
+
+    For a Hermitian matrix with real eigenvalues, any real power yields
+    another Hermitian matrix (real eigenvalues raised to a real power).
+
+    :param observable: The observable object.
+    :param power: The power to raise the observable to.
+    :return: The observable raised to the specified power.
+    """
+    powered_data = _matrix_power_via_eig(observable.matrix, power)
+    return Observable.from_matrix(powered_data, observable.dims)
 
 
 @jax.custom_vjp

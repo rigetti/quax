@@ -27,14 +27,14 @@ from quax import (
     choi_to_pauli_liouville,
     choi_to_superop,
     compose_choi,
-    compose_kraus,
+    compose_kraus_map,
     compose_pauli_liouville,
     compose_superop,
     compose_unitary,
     kraus_to_choi,
     pauli_liouville_to_choi,
     process_fidelity,
-    random_choi_BCSZ,
+    random_choi,
     random_unitary,
     superop_to_choi,
     unitary_entanglement_fidelity,
@@ -53,8 +53,8 @@ def test_compose_superoperators(seed, num_qubits, size_a, size_b):
 
     # Generate two random channels
     dims = ((2,) * num_qubits, (2,) * num_qubits)
-    choi_a = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=key1, size=size_a)
-    choi_b = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=key2, size=size_b)
+    choi_a = random_choi(dims=dims, rank=kraus_rank, key=key1, size=size_a)
+    choi_b = random_choi(dims=dims, rank=kraus_rank, key=key2, size=size_b)
 
     # Compute the reference result using QuTiP
     qobj_a = choi_a._to_qobj()
@@ -106,7 +106,7 @@ def test_compose_superoperators(seed, num_qubits, size_a, size_b):
     # Compose KrausMaps
     kraus_a = choi_to_kraus(choi_a)
     kraus_b = choi_to_kraus(choi_b)
-    kraus_composed = compose_kraus(kraus_a, kraus_b)
+    kraus_composed = compose_kraus_map(kraus_a, kraus_b)
     assert kraus_composed.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
     choi_from_kraus = kraus_to_choi(kraus_composed)
     fid_kraus = process_fidelity(choi_from_kraus, qobj_composed_ref)
@@ -118,6 +118,47 @@ def test_compose_superoperators(seed, num_qubits, size_a, size_b):
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
 def test_compose_unitaries(seed, num_qubits, size_a, size_b):
     """Test unitary and kraus composition."""
+    key = jax.random.key(seed)
+    key1, key2 = jax.random.split(key)
+
+    # Generate two random channels
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    unitary_a = random_unitary(dims=dims, key=key1, size=size_a)
+    unitary_b = random_unitary(dims=dims, key=key2, size=size_b)
+
+    # Compute the reference result using QuTiP
+    qobj_a = unitary_a._to_qobj()
+    qobj_b = unitary_b._to_qobj()
+
+    def qt_compose(a, b):
+        # Accept scalar Qobj or numpy array(dtype=object) of Qobj
+        A = np.asarray(a, dtype=object)
+        B = np.asarray(b, dtype=object)
+
+        A, B = np.broadcast_arrays(A, B)
+        out_shape = A.shape
+
+        mats = [(x @ y).full() for x, y in zip(A.ravel(), B.ravel())]  # each is (d,d) ndarray
+        dense = np.stack(mats, axis=0)
+        dense = dense.reshape(out_shape + dense.shape[1:])  # out_shape + (d,d)
+        return jnp.asarray(dense)  # numeric ndarray (complex)
+
+    composed_data = qt_compose(qobj_a, qobj_b)
+    qobj_composed_ref = Unitary.from_matrix(composed_data, dims)
+
+    # Compose unitaries
+
+    composed_unitaries = compose_unitary(unitary_a, unitary_b)
+    # Check match
+    fid = unitary_entanglement_fidelity(qobj_composed_ref, composed_unitaries)
+    assert jnp.allclose(fid, 1.0, atol=1e-6), "Composed Unitary operators don't match"
+
+
+@pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
+@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
+def test_compose_operators(seed, num_qubits, size_a, size_b):
+    """Test operator composition."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
 

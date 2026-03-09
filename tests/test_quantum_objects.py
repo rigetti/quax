@@ -24,8 +24,10 @@ import quax as qx
 from quax import (
     Choi,
     DensityMatrix,
-    Kraus,
+    Involution,
     KrausMap,
+    Observable,
+    Operator,
     PauliLiouville,
     StateVector,
     SuperOp,
@@ -33,7 +35,7 @@ from quax import (
     choi_to_kraus,
     choi_to_pauli_liouville,
     choi_to_superop,
-    random_choi_BCSZ,
+    random_choi,
     random_density_matrix,
     random_state_vector,
     random_unitary,
@@ -43,19 +45,23 @@ from quax import (
 def _generate_random_object(object_type, key, size, dims, rank):
     match object_type:
         case t if t is Choi:
-            return random_choi_BCSZ(dims, rank, key, size)
+            return random_choi(dims, rank, key, size)
         case t if t is SuperOp:
-            return choi_to_superop(random_choi_BCSZ(dims, rank, key, size))
+            return choi_to_superop(random_choi(dims, rank, key, size))
         case t if t is KrausMap:
-            return choi_to_kraus(random_choi_BCSZ(dims, rank, key, size))
+            return choi_to_kraus(random_choi(dims, rank, key, size))
         case t if t is PauliLiouville:
-            return choi_to_pauli_liouville(random_choi_BCSZ(dims, rank, key, size))
+            return choi_to_pauli_liouville(random_choi(dims, rank, key, size))
         case t if t is StateVector:
             return random_state_vector(dims[0], key, size)
         case t if t is DensityMatrix:
             return random_density_matrix(rank, dims[0], key, size)
         case t if t is Unitary:
             return random_unitary(dims, key, size)
+        case t if t is Observable:
+            return qx.random_observable(dims, key, size)
+        case t if t is Operator:
+            return qx.random_operator(dims, key, size)
         case _:
             raise ValueError(f"{object_type} is not a valid quantum object type")
 
@@ -100,7 +106,8 @@ def test_negation(num_qubits, ensemble_size, quantum_object):
 )
 @pytest.mark.parametrize("scalar", [1.0, jnp.exp(1j * jnp.pi / 4), 0.5, 0.25 + 0.5j])
 @pytest.mark.parametrize(
-    "quantum_object", [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, StateVector, DensityMatrix]
+    "quantum_object",
+    [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, Operator, Observable, StateVector, DensityMatrix],
 )
 def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object):
     """Test multiplication of the object (__mul__ and __rmul__)."""
@@ -114,8 +121,11 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
 
     assert jnp.allclose(scaled_q_object.data, scalar * q_object.data)
 
-    if isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
-        assert type(scaled_q_object) is Kraus
+    if isinstance(q_object, Observable) and not jnp.isreal(scalar):
+        # Observable * complex scalar loses Hermitian structure → Operator
+        assert type(scaled_q_object) is Operator
+    elif isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
+        assert type(scaled_q_object) is Operator
     else:
         assert type(scaled_q_object) is type(q_object)
     assert scaled_q_object.ensemble_size == q_object.ensemble_size
@@ -125,8 +135,11 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
 
     assert jnp.allclose(scaled_q_object.data, scalar * q_object.data)
 
-    if isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
-        assert type(scaled_q_object) is Kraus
+    if isinstance(q_object, Observable) and not jnp.isreal(scalar):
+        # Observable * complex scalar loses Hermitian structure → Operator
+        assert type(scaled_q_object) is Operator
+    elif isinstance(q_object, Unitary) and jnp.abs(scalar) != 1.0:
+        assert type(scaled_q_object) is Operator
     else:
         assert type(scaled_q_object) is type(q_object)
     assert scaled_q_object.ensemble_size == q_object.ensemble_size
@@ -484,3 +497,115 @@ def test_indexing():
 
     with pytest.raises(IndexError):
         operators[0, 0, 0]
+
+
+def test_operator_algebra():
+    """
+    Check that the algebra of various operator types is handled correctly.
+
+    | Operation            | Operators (O) | Observables (H)               | Unitaries (U)              | Involutions (I)                          |
+    |----------------------|---------------|-------------------------------|----------------------------|-------------------------------------------|
+    | Addition (+)         | O             | H                             | O                          | H                                         |
+    | Subtraction (−)      | O             | H                             | O                          | H                                         |
+    | Composition (·)      | O             | H if commute                  | U                          | U (H if commute)                          |
+    | Tensor product (⊗)   | O             | H                             | U                          | I                                         |
+    | Scalar mult. (c·A)   | O             | H if c ∈ ℝ                    | U if |c| = 1               | I if c = ±1                               |
+    """
+    dims = ((2, 2), (2, 2))
+    key = jax.random.key(1234)
+    operator = qx.random_operator(dims=dims, key=key)
+    observable = qx.random_observable(dims=dims, key=key)
+    unitary = qx.random_unitary(dims=dims, key=key)
+    involution = qx.gates.CZ
+
+    # Addition
+    assert type(operator + operator) is type(operator)
+    assert type(observable + observable) is type(observable)
+    assert type(unitary + unitary) is Operator
+    assert type(involution + involution) is Observable
+    assert type(operator + observable) is Operator
+    assert type(operator + unitary) is Operator
+    assert type(operator + involution) is Operator
+    assert type(observable + unitary) is Operator
+    assert type(observable + involution) is Observable
+    assert type(unitary + involution) is Operator
+    # reverse order
+    assert type(observable + operator) is Operator
+    assert type(unitary + operator) is Operator
+    assert type(involution + operator) is Operator
+    assert type(unitary + observable) is Operator
+    assert type(involution + observable) is Observable
+    assert type(involution + unitary) is Operator
+
+    # Subtraction
+    assert type(operator - operator) is type(operator)
+    assert type(observable - observable) is type(observable)
+    assert type(unitary - unitary) is Operator
+    assert type(involution - involution) is Observable
+    assert type(operator - observable) is Operator
+    assert type(operator - unitary) is Operator
+    assert type(operator - involution) is Operator
+    assert type(observable - unitary) is Operator
+    assert type(observable - involution) is Observable
+    assert type(unitary - involution) is Operator
+    # reverse order
+    assert type(observable - operator) is Operator
+    assert type(unitary - operator) is Operator
+    assert type(involution - operator) is Operator
+    assert type(unitary - observable) is Operator
+    assert type(involution - observable) is Observable
+    assert type(involution - unitary) is Operator
+
+    # Composition
+    assert type(operator @ operator) is type(operator)
+    assert type(observable @ observable) is Operator  # product of non-commuting Hermitians is not generally Hermitian
+    assert type(unitary @ unitary) is Unitary
+    assert type(involution @ involution) is Unitary
+    assert type(operator @ observable) is Operator
+    assert type(operator @ unitary) is Operator
+    assert type(operator @ involution) is Operator
+    assert type(observable @ unitary) is Operator
+    assert type(observable @ involution) is Operator  # H·I is not generally Hermitian or Unitary
+    assert type(unitary @ involution) is Unitary  # product of unitaries is unitary
+    # reverse order
+    assert type(observable @ operator) is Operator
+    assert type(unitary @ operator) is Operator
+    assert type(involution @ operator) is Operator
+    assert type(unitary @ observable) is Operator
+    assert type(involution @ observable) is Operator
+    assert type(involution @ unitary) is Unitary  # product of unitaries is unitary
+
+    # Tensor product
+    assert type(operator | operator) is type(operator)
+    assert type(observable | observable) is type(observable)
+    assert type(unitary | unitary) is Unitary
+    assert type(involution | involution) is Involution
+    assert type(operator | observable) is Operator
+    assert type(operator | unitary) is Operator
+    assert type(operator | involution) is Operator
+    assert type(observable | unitary) is Operator
+    assert type(observable | involution) is Observable
+    assert type(unitary | involution) is Unitary
+    # reverse order
+    assert type(observable | operator) is Operator
+    assert type(unitary | operator) is Operator
+    assert type(involution | operator) is Operator
+    assert type(unitary | observable) is Operator
+    assert type(involution | observable) is Observable
+    assert type(involution | unitary) is Operator  # unitary but not Hermitian
+
+    # Scalar multiplication
+    assert type(0.5 * operator) is type(operator)
+    assert type(0.5 * observable) is Observable
+    assert type(0.5 * unitary) is Operator
+    assert type(0.5 * involution) is Observable
+
+    assert type(1j * operator) is type(operator)
+    assert type(1j * observable) is Operator  # complex scalar → Operator (Hermitian structure lost)
+    assert type(1j * unitary) is Unitary  # |1j| = 1, so result is still Unitary
+    assert type(1j * involution) is Unitary  # |1j| = 1, unit complex → Unitary
+
+    assert type(jnp.exp(1j * jnp.pi / 4) * operator) is type(operator)
+    assert type(jnp.exp(1j * jnp.pi / 4) * observable) is Operator  # complex → Operator (Hermitian structure lost)
+    assert type(jnp.exp(1j * jnp.pi / 4) * unitary) is Unitary  # |exp(iπ/4)| = 1 → Unitary
+    assert type(jnp.exp(1j * jnp.pi / 4) * involution) is Unitary  # unit complex but ≠ ±1 → Unitary

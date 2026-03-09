@@ -14,6 +14,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.4.0] - 2026-02-26
+
+### Added
+
+- `QuantumObject` base class that holds the shared data representation (`data`, `num_qubits`) and common operations (negation, scalar multiplication, pytree support, conjugation, ensemble indexing) for `State`, `Operator`, and `SuperOperator`.
+- `Observable(Operator)` — Hermitian operator type (`A = A†`) with type-preserving algebra: real scalar multiplication and addition/subtraction of observables return `Observable`; complex scalar multiplication or mixing with a plain `Operator` returns `Operator`.
+- `Involution(Observable, Unitary)` — self-inverse Hermitian unitary (`A² = I`) with fine-grained scalar multiplication (±1 → `Involution`, unit complex → `Unitary`, real → `Observable`, general → `Operator`).
+- `estimate()` function for computing expectation values `⟨ψ|A|ψ⟩` and `Tr[Aρ]` of an `Observable` given a `StateVector` or `DensityMatrix`.
+- `compose_operator()` for composing two `Operator` instances (with ensemble broadcasting). `compose_unitary` now delegates to it internally.
+- `tensor_operator()`, `tensor_observable()`, `tensor_involution()` for tensor products at each type level. `tensor_unitary` now delegates to `tensor_operator` internally.
+- `random_operator()` and `random_observable()` for generating random operators and Hermitian operators from the Ginibre ensemble.
+- `power_observable()` for fractional powers of Hermitian matrices via eigendecomposition.
+- 10 gate constants promoted to `Involution`: `I`, `X`, `Y`, `Z`, `H`, `CZ`, `CNOT`, `CCNOT`, `SWAP`, `CSWAP`.
+
+### Changed
+
+- `State`, `Operator`, and `SuperOperator` now inherit from `QuantumObject` instead of being independent base classes. `State` and `SuperOperator` are siblings of `Operator` (not subclasses).
+- `Kraus` type removed and replaced by `Operator` throughout. Projection operators `P0`/`P1` in `gates.py` are now `Operator` instances.
+- `compose_kraus` renamed to `compose_kraus_map`.
+- `random_choi_BCSZ` renamed to `random_choi`.
+- Common channel functions (`bit_flip_operators`, `phase_flip_operators`, `depolarizing_operators`, `amplitude_damping_operators`, `relaxation_operators`) now return `KrausMap` instead of tuples of `Kraus`.
+
 ## [0.3.1] - 2026-02-23
 
 ### Added

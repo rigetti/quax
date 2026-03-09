@@ -26,7 +26,7 @@ from quax import (
     average_fidelity_to_process_fidelity,
     fidelity,
     process_fidelity,
-    random_choi_BCSZ,
+    random_choi,
     random_unitary,
     unitary_entanglement_fidelity,
     unitary_to_choi,
@@ -228,8 +228,8 @@ def test_process_fidelity_random_maps(seed, num_qubits):
     key, subkey = jax.random.split(jax.random.key(seed))
     dims = ((2,) * num_qubits, (2,) * num_qubits)
 
-    choi_U_jax = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=key)
-    choi_V_jax = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=subkey)
+    choi_U_jax = random_choi(dims=dims, rank=kraus_rank, key=key)
+    choi_V_jax = random_choi(dims=dims, rank=kraus_rank, key=subkey)
 
     fid_qutip = qutip.process_fidelity(
         choi_U_jax._to_qobj(),

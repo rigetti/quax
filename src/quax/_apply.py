@@ -20,7 +20,18 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, Kraus, KrausMap, PauliLiouville, StateVector, SuperOp, Unitary
+from ._quantum_objects import (
+    Choi,
+    DensityMatrix,
+    KrausMap,
+    Observable,
+    Operator,
+    PauliLiouville,
+    State,
+    StateVector,
+    SuperOp,
+    Unitary,
+)
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
 
 
@@ -152,7 +163,7 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
 
 
 @jax.jit
-def apply_kraus_to_state_vector(kraus_map: Kraus, state: StateVector) -> DensityMatrix:
+def apply_kraus_to_state_vector(kraus_map: Operator, state: StateVector) -> DensityMatrix:
     """Apply a Kraus map to a state vector, resulting in a density matrix."""
     raise NotImplementedError("Applying Kraus operators to state vectors is not yet implemented.")
 
@@ -375,3 +386,43 @@ def compute_pauli_liouville_observables_from_states(
 
     # Use the superoperator implementation
     return compute_superop_observables_from_states(superop, input_states, observables)
+
+
+@singledispatch
+def estimate(state: State, observable: "Observable") -> Array:
+    """Compute the expectation value of a Hermitian observable for a quantum state.
+
+    For a state vector ``|ψ⟩``:  ⟨A⟩ = ⟨ψ|A|ψ⟩
+
+    For a density matrix ``ρ``:   ⟨A⟩ = Tr[A ρ]
+
+    Dispatches on the type of *state*.  Supports arbitrary ensemble broadcasting
+    between ``observable`` and ``state``; the result has shape equal to the broadcast
+    of their ensemble sizes.
+
+    :param state: A ``StateVector`` or ``DensityMatrix`` (may be ensembled).
+    :param observable: A Hermitian ``Observable`` (may be ensembled).
+    :return: Real-valued ``Array`` of expectation values with shape
+        ``jnp.broadcast_shapes(state.ensemble_size, observable.ensemble_size)``.
+    """
+    raise TypeError(f"estimate() does not support state type {type(state)!r}. Expected StateVector or DensityMatrix.")
+
+
+@estimate.register(StateVector)
+def _estimate_state_vector(state: StateVector, observable: "Observable") -> Array:
+    broadcast_ens = jnp.broadcast_shapes(observable.ensemble_size, state.ensemble_size)
+    obs_mat = jnp.broadcast_to(observable.matrix, broadcast_ens + observable.matrix.shape[-2:])
+    sv_mat = jnp.broadcast_to(state.matrix, broadcast_ens + state.matrix.shape[-1:])
+    # ⟨ψ|A|ψ⟩ = Σ_{ab} ψ*_a A_{ab} ψ_b
+    result = jnp.einsum("...a,...ab,...b->...", sv_mat.conj(), obs_mat, sv_mat)
+    return jnp.real(result)
+
+
+@estimate.register(DensityMatrix)
+def _estimate_density_matrix(state: DensityMatrix, observable: "Observable") -> Array:
+    broadcast_ens = jnp.broadcast_shapes(observable.ensemble_size, state.ensemble_size)
+    obs_mat = jnp.broadcast_to(observable.matrix, broadcast_ens + observable.matrix.shape[-2:])
+    dm_mat = jnp.broadcast_to(state.matrix, broadcast_ens + state.matrix.shape[-2:])
+    # Tr[A ρ] = Σ_{ab} A_{ab} ρ_{ba}
+    result = jnp.einsum("...ab,...ba->...", obs_mat, dm_mat)
+    return jnp.real(result)

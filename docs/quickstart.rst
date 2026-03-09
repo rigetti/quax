@@ -110,7 +110,7 @@ Composing Operations
    # Compose Kraus maps
    K1 = qx.to_kraus(qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(0)))
    K2 = qx.to_kraus(qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(1)))
-   K_composed = qx.compose_kraus(K1, K2)
+   K_composed = qx.compose_kraus_map(K1, K2)
 
 Fidelity Calculations
 ---------------------

@@ -48,7 +48,7 @@ Unary Operations
      - StateVector
      - DensityMatrix
      - Unitary
-     - Kraus
+     - Operator
      - SuperOp
      - KrausMap
      - Choi
@@ -115,7 +115,7 @@ Unary Operations
      - ✗
      - ✓
 
-| ¹ Returns ``Unitary`` if ``|scalar| = 1``, otherwise ``Kraus``
+| ¹ Returns ``Unitary`` if ``|scalar| = 1``, otherwise ``Operator``
 | ³ Returns ``conj()`` for vectors
 
 Binary Operations: Composition (``@``)
