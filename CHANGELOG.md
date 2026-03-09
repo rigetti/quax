@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.4.2] - 2026-03-09
+
+## Added 
+
+- `validate` will check if the quantum object meets is mathematically valid.
+
 ## [0.4.1] - 2026-03-09
 
 ## Added
