@@ -53,12 +53,14 @@ class QuantumObject:
         """Negate the quantum object."""
         return type(self)(-self.data, self.num_qubits)
 
-    def __mul__(self, scalar: complex) -> Self:
-        """Scalar multiplication."""
-        return type(self)(self.data * scalar, self.num_qubits)
+    def __mul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the quantum object."""
+        from ._mul import mul
 
-    def __rmul__(self, scalar: complex) -> Self:
-        """Scalar multiplication (scalar on the left)."""
+        return mul(self, scalar)  # type: ignore[return-value]
+
+    def __rmul__(self, scalar: complex | Array) -> Self:
+        """Scalar multiplication of the quantum object."""
         return self * scalar
 
     # ----- display / comparison -----
@@ -188,52 +190,40 @@ class Operator(QuantumObject):
     """Base class for a quantum operator."""
 
     def __add__(self, other: Any) -> "Operator":
-        """Addition of two operators.
+        """Add an operator with another operator. Returns an Operator.
 
-        Returns an Operator (subclasses override to return a more specific type where valid).
+        Subclasses override to return a more specific type where valid.
         """
-        match other:
-            case Operator():
-                if self.dims != other.dims:
-                    raise ValueError(f"Cannot add operators with different dims: {self.dims} vs {other.dims}")
-                return Operator.from_matrix(self.matrix + other.matrix, self.dims)
-            case _:
-                return NotImplemented
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(self.data + other.data, self.num_qubits)
+        return NotImplemented
 
     def __radd__(self, other: Any) -> "Operator":
         """Right-hand addition of two operators."""
-        match other:
-            case Operator():
-                return other.__add__(self)
-            case _:
-                return NotImplemented
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(other.data + self.data, self.num_qubits)
+        return NotImplemented
 
     def __sub__(self, other: Any) -> "Operator":
-        """Subtraction of two operators.
+        """Subtract an operator from another. Returns an Operator.
 
-        Returns an Operator (subclasses override to return a more specific type where valid).
+        Subclasses override to return a more specific type where valid.
         """
-        match other:
-            case Operator():
-                if self.dims != other.dims:
-                    raise ValueError(f"Cannot subtract operators with different dims: {self.dims} vs {other.dims}")
-                return Operator.from_matrix(self.matrix - other.matrix, self.dims)
-            case _:
-                return NotImplemented
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(self.data - other.data, self.num_qubits)
+        return NotImplemented
 
     def __rsub__(self, other: Any) -> "Operator":
         """Right-hand subtraction of two operators."""
-        match other:
-            case Operator():
-                return other.__sub__(self)
-            case _:
-                return NotImplemented
+        if isinstance(other, Operator) and self.num_qubits == other.num_qubits:
+            return Operator(other.data - self.data, self.num_qubits)
+        return NotImplemented
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the operator"""
         # By default, only support integer exponents
         # matrix_power is not _correct_ for all operators
-        if jnp.isclose(int(jnp.abs(exponent)), exponent):
+        if jnp.allclose(int(jnp.abs(exponent)), exponent):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return type(self).from_matrix(new_data, self.dims)
         else:
@@ -784,18 +774,17 @@ class Unitary(Operator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __mul__(self, scalar: complex) -> "Unitary | Operator":
+    def __mul__(self, scalar: complex | Array) -> "Operator":
         """Scalar multiplication of the unitary.
 
-        - |scalar| = 1: result is unitary → returns ``Unitary``.
-        - Otherwise: returns ``Operator``.
+        Always returns ``Operator`` since scalar multiplication does not,
+        in general, preserve unitarity.
         """
-        if jnp.isclose(jnp.abs(scalar), 1.0):
-            return Unitary(self.data * scalar, self.num_qubits)
-        else:
-            return Operator(self.data * scalar, self.num_qubits)
+        from ._mul import mul
 
-    def __rmul__(self, scalar: complex) -> "Unitary | Operator":
+        return mul(self, scalar)
+
+    def __rmul__(self, scalar: complex | Array) -> "Operator":
         """Scalar multiplication of the unitary."""
         return self * scalar
 
@@ -964,14 +953,14 @@ class Observable(Operator):
     def __mul__(self, scalar: Array) -> "Observable | Operator": ...
 
     def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
-        """Scalar multiplication.
+        """Scalar multiplication with ensemble broadcasting.
 
         - Real scalar: result is Hermitian → returns ``Observable``.
         - Complex scalar: result is not generally Hermitian → returns ``Operator``.
         """
-        if jnp.isreal(scalar):
-            return Observable(self.data * scalar, self.num_qubits)
-        return Operator(self.data * scalar, self.num_qubits)
+        from ._mul import mul
+
+        return mul(self, scalar)
 
     @overload
     def __rmul__(self, scalar: float) -> "Observable": ...
@@ -995,6 +984,12 @@ class Observable(Operator):
 
         return power_observable(self, exponent)
 
+    @overload
+    def __add__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __add__(self, other: "Operator") -> "Operator": ...
+
     def __add__(self, other: Any) -> "Observable | Operator":
         """Addition of observables.
 
@@ -1013,6 +1008,12 @@ class Observable(Operator):
             case _:
                 return NotImplemented
 
+    @overload
+    def __radd__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __radd__(self, other: "Operator") -> "Operator": ...
+
     def __radd__(self, other: Any) -> "Observable | Operator":
         """Right-hand addition."""
         match other:
@@ -1020,6 +1021,12 @@ class Observable(Operator):
                 return other.__add__(self)
             case _:
                 return NotImplemented
+
+    @overload
+    def __sub__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __sub__(self, other: "Operator") -> "Operator": ...
 
     def __sub__(self, other: Any) -> "Observable | Operator":
         """Subtraction of observables.
@@ -1038,6 +1045,12 @@ class Observable(Operator):
                 return Operator.from_matrix(self.matrix - other.matrix, self.dims)
             case _:
                 return NotImplemented
+
+    @overload
+    def __rsub__(self, other: "Observable") -> "Observable": ...
+
+    @overload
+    def __rsub__(self, other: "Operator") -> "Operator": ...
 
     def __rsub__(self, other: Any) -> "Observable | Operator":
         """Right-hand subtraction."""
@@ -1089,8 +1102,7 @@ class Involution(Observable, Unitary):
 
     Algebra rules
     -------------
-    - Real scalar × Involution: ±1 → ``Involution``; |s|=1 non-real → ``Unitary``;
-      real |s| ≠ 1 → ``Observable``; otherwise → ``Operator``.
+    - Real scalar × Involution → ``Observable``; complex scalar → ``Operator``.
     - Involution + Involution → ``Observable`` (sum not generally unitary).
     - Involution ⊗ Involution → ``Involution``.
     - Involution ⊗ Observable → ``Observable``.
@@ -1104,27 +1116,17 @@ class Involution(Observable, Unitary):
     def __mul__(self, scalar: complex) -> "Operator": ...
 
     @overload
-    def __mul__(self, scalar: Array) -> "Involution | Unitary | Observable | Operator": ...
+    def __mul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __mul__(self, scalar: float | complex | Array) -> "Involution | Unitary | Observable | Operator":
-        """Scalar multiplication, preserving the most specific correct type.
+    def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+        """Scalar multiplication with ensemble broadcasting.
 
-        - ±1: stays ``Involution``.
-        - |scalar| = 1, complex: unitary but not Hermitian → ``Unitary``.
-        - Real, |scalar| ≠ 1: Hermitian but not unitary → ``Observable``.
-        - Otherwise: general ``Operator``.
+        - Real scalar/dtype: Hermitian is preserved → ``Observable``.
+        - Complex scalar/dtype: → ``Operator``.
         """
-        scalar_c = complex(scalar)
-        is_real = abs(scalar_c.imag) < 1e-10
-        is_unit = abs(abs(scalar_c) - 1.0) < 1e-10
-        is_plus_minus_one = is_real and is_unit
-        if is_plus_minus_one:
-            return Involution(self.data * scalar, self.num_qubits)
-        if is_unit:
-            return Unitary(self.data * scalar, self.num_qubits)
-        if is_real:
-            return Observable(self.data * scalar, self.num_qubits)
-        return Operator(self.data * scalar, self.num_qubits)
+        from ._mul import mul
+
+        return mul(self, scalar)
 
     @overload
     def __rmul__(self, scalar: float) -> "Observable": ...
@@ -1133,9 +1135,9 @@ class Involution(Observable, Unitary):
     def __rmul__(self, scalar: complex) -> "Operator": ...
 
     @overload
-    def __rmul__(self, scalar: Array) -> "Involution | Unitary | Observable | Operator": ...
+    def __rmul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __rmul__(self, scalar: float | complex | Array) -> "Involution | Unitary | Observable | Operator":
+    def __rmul__(self, scalar: float | complex | Array) -> "Observable | Operator":
         """Scalar multiplication (scalar on the left)."""
         return self * scalar
 
@@ -1145,7 +1147,7 @@ class Involution(Observable, Unitary):
         - Integer exponents: eigenvalues stay in {±1} → returns ``Involution``.
         - Fractional exponents: eigenvalues move onto the unit circle → returns ``Unitary``.
         """
-        if jnp.isclose(int(jnp.abs(exponent)), exponent):
+        if jnp.allclose(int(jnp.abs(exponent)), exponent):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return Involution.from_matrix(new_data, self.dims)
 
