@@ -30,7 +30,7 @@ from quax import (
     kraus_to_choi,
     pauli_liouville_to_choi,
     process_fidelity,
-    random_choi_BCSZ,
+    random_choi,
     random_density_matrix,
     random_state_vector,
     random_unitary,
@@ -89,8 +89,8 @@ def test_tensor_superoperators(seed, num_qubits, size_a, size_b):
     # Generate two random channels
     dims = ((2,) * num_qubits, (2,) * num_qubits)
     tensor_dims = ((2,) * num_qubits * 2, (2,) * num_qubits * 2)
-    choi_a = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=key1, size=size_a)
-    choi_b = random_choi_BCSZ(dims=dims, rank=kraus_rank, key=key2, size=size_b)
+    choi_a = random_choi(dims=dims, rank=kraus_rank, key=key1, size=size_a)
+    choi_b = random_choi(dims=dims, rank=kraus_rank, key=key2, size=size_b)
 
     # Compute the reference result using QuTiP
     qobj_a = choi_a._to_qobj()

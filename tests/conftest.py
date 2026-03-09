@@ -15,20 +15,22 @@
 """Test fixtures for JAX operator tools tests."""
 
 import jax
-import jax.numpy as jnp
-import pytest
-import qutip as qt
 
-from quax import (
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp  # noqa: E402
+import pytest  # noqa: E402
+import qutip as qt  # noqa: E402
+
+from quax import (  # noqa: E402
     Choi,
     KrausMap,
     PauliLiouville,
     SuperOp,
-    random_choi_BCSZ,
+    random_choi,
     random_unitary,
 )
 
-from .reference_pauli_liouville import choi2pauli_liouville, kraus2pauli_liouville
+from .reference_pauli_liouville import choi2pauli_liouville, kraus2pauli_liouville  # noqa: E402
 
 
 @pytest.fixture(scope="session", params=[58, 3854])
@@ -64,7 +66,7 @@ def random_choi_channels(seed, num_qubits, ensemble_size):
     rank = 2**num_qubits
     dims = ((2,) * num_qubits, (2,) * num_qubits)
     key = jax.random.PRNGKey(seed)
-    return random_choi_BCSZ(dims=dims, rank=rank, key=key, size=ensemble_size)
+    return random_choi(dims=dims, rank=rank, key=key, size=ensemble_size)
 
 
 @pytest.fixture(scope="session")
@@ -119,7 +121,7 @@ def random_kraus_channels(random_choi_channels):
     Handles scalar and batched Choi matrices by converting each element.
 
     :param random_choi_channels: Choi matrices (scalar or batched)
-    :return: Kraus object with same ensemble_size as input
+    :return: KrausMap object with same ensemble_size as input
     """
     choi = random_choi_channels
 
@@ -262,7 +264,7 @@ def random_unitaries_kraus_maps(random_unitaries):
     Handles scalar and batched Unitaries by converting each element.
 
     :param random_unitaries: Unitary objects (scalar or batched)
-    :return: Kraus object with same ensemble_size as input
+    :return: KrausMap object with same ensemble_size as input
     """
     unitary = random_unitaries
 

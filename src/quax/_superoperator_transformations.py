@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, Kraus, KrausMap, PauliLiouville, SuperOp, Unitary
+from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
 
 # ============================================================================
 # Choi <-> Superoperator transformations
@@ -253,7 +253,7 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
 
 
 @jax.jit
-def kraus_to_pauli_liouville(kraus_ops: List[Kraus]) -> PauliLiouville:
+def kraus_to_pauli_liouville(kraus_ops: KrausMap) -> PauliLiouville:
     """
     Convert Kraus operators to Pauli-Liouville matrix.
 
