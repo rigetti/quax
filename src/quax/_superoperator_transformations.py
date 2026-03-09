@@ -413,7 +413,7 @@ def unitary_to_pauli_liouville(unitary: Unitary) -> PauliLiouville:
 
 
 @jax.jit
-def unitary_to_kraus(unitary: Unitary) -> KrausMap:
+def unitary_to_kraus_map(unitary: Unitary) -> KrausMap:
     """
     Convert unitary operator to Kraus operators.
 
@@ -611,4 +611,4 @@ def _kraus_map_to_kraus_map(kraus_map: KrausMap) -> KrausMap:
 @to_kraus.register(Unitary)
 def _unitary_to_kraus_map(unitary: Unitary) -> KrausMap:
     """Convert Unitary to KrausMap."""
-    return unitary_to_kraus(unitary)
+    return unitary_to_kraus_map(unitary)

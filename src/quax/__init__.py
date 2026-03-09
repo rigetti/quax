@@ -27,6 +27,8 @@ from ._apply import (
     compute_superop_observables_from_states,
     estimate,
     partial_trace,
+    targeted_apply_kraus_map,
+    targeted_apply_superop,
 )
 from ._common_channels import (
     depolarizing_channel_superoperator,
@@ -111,6 +113,7 @@ from ._superoperator_transformations import (
     to_pauli_liouville,
     to_superop,
     unitary_to_choi,
+    unitary_to_kraus_map,
     unitary_to_pauli_liouville,
     unitary_to_superop,
 )
@@ -159,6 +162,8 @@ __all__ = [
     "apply_superop_to_density_matrix",
     "apply_unitary_to_state_vector",
     "apply_kraus_to_state_vector",
+    "targeted_apply_kraus_map",
+    "targeted_apply_superop",
     # Common channels
     "depolarizing_channel_superoperator",
     "integrated_thermal_superoperator",
@@ -206,6 +211,7 @@ __all__ = [
     "to_superop",
     "to_kraus",
     "unitary_to_choi",
+    "unitary_to_kraus_map",
     "unitary_to_pauli_liouville",
     "unitary_to_superop",
     # Distance metrics

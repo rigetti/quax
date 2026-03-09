@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.4.3] - 2026-03-09
+
+## Added
+
+- `targeted_apply` to apply superoperators to larger states.
+
+## Changed
+
+- `unitary_to_kraus` renamed to `unitary_to_kraus_map` to be consistent with other changed functions in version 4.0.
+
 ## [0.4.2] - 2026-03-09
 
 ## Added 

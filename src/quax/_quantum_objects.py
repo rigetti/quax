@@ -823,9 +823,9 @@ class Unitary(Operator):
             case KrausMap():
                 # K @ U -> KrausMap (promotion)
                 from ._compose import compose_kraus_map
-                from ._superoperator_transformations import unitary_to_kraus
+                from ._superoperator_transformations import unitary_to_kraus_map
 
-                return compose_kraus_map(other, unitary_to_kraus(self))
+                return compose_kraus_map(other, unitary_to_kraus_map(self))
             case StateVector():
                 # <psi|U = <phi| -> StateVector (apply unitary to state vector)
                 from ._apply import apply_unitary_to_state_vector
@@ -873,10 +873,10 @@ class Unitary(Operator):
                 return tensor_pauli_liouville(unitary_to_pauli_liouville(self), other)
             case KrausMap():
                 # U ⊗ K -> KrausMap (promote unitary)
-                from ._superoperator_transformations import unitary_to_kraus
+                from ._superoperator_transformations import unitary_to_kraus_map
                 from ._tensor import tensor_kraus
 
-                return tensor_kraus(unitary_to_kraus(self), other)
+                return tensor_kraus(unitary_to_kraus_map(self), other)
             case StateVector() | DensityMatrix():
                 # Operator | State -> NotImplemented
                 return NotImplemented
@@ -1161,6 +1161,7 @@ class Involution(Observable, Unitary):
         - ``Involution ⊗ Involution`` → ``Involution``
         - ``Involution ⊗ Observable`` → ``Observable``
         - ``Involution ⊗ Unitary / Operator`` → ``Operator``
+        - ``Involution ⊗ SuperOp / Choi / PauliLiouville / KrausMap`` → (delegates to Unitary)
         """
         match other:
             case Involution():
@@ -1184,7 +1185,9 @@ class Involution(Observable, Unitary):
 
                 return tensor_operator(self, other)
             case _:
-                return NotImplemented
+                # Superoperator types (SuperOp, Choi, PauliLiouville, KrausMap)
+                # are handled by the Unitary parent class.
+                return Unitary.__or__(self, other)
 
 
 # ---------- superoperators ----------
@@ -1459,9 +1462,9 @@ class KrausMap(SuperOperator):
             case Unitary():
                 # K @ U -> KrausMap (promotion)
                 from ._compose import compose_kraus_map
-                from ._superoperator_transformations import unitary_to_kraus
+                from ._superoperator_transformations import unitary_to_kraus_map
 
-                return compose_kraus_map(self, unitary_to_kraus(other))
+                return compose_kraus_map(self, unitary_to_kraus_map(other))
             case StateVector():
                 # K @ |ψ⟩ -> DensityMatrix (promotion)
                 from ._apply import apply_kraus_to_density_matrix
@@ -1504,10 +1507,10 @@ class KrausMap(SuperOperator):
                 return tensor_pauli_liouville(kraus_to_pauli_liouville(self), other)
             case Unitary():
                 # K | U -> KrausMap (promote Unitary to KrausMap and tensor)
-                from ._superoperator_transformations import unitary_to_kraus
+                from ._superoperator_transformations import unitary_to_kraus_map
                 from ._tensor import tensor_kraus
 
-                return tensor_kraus(self, unitary_to_kraus(other))
+                return tensor_kraus(self, unitary_to_kraus_map(other))
             case StateVector() | DensityMatrix():
                 # K | |ψ⟩ or K | ρ -> NotImplemented (operator | state)
                 return NotImplemented
@@ -1530,9 +1533,9 @@ class KrausMap(SuperOperator):
             case Unitary():
                 # Promote Unitary to KrausMap and compare
                 from ._distance_metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_kraus
+                from ._superoperator_transformations import unitary_to_kraus_map
 
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_kraus(other)), 1.0))
+                return bool(jnp.allclose(process_fidelity(self, unitary_to_kraus_map(other)), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
