@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.4.4] - 2026-03-11
+
+## Added
+
+- `targeted_apply_kraus_map_trajectory` for Monte Carlo trajectory simulation: applies a Kraus map to a state vector probabilistically, sampling one outcome per ensemble element. Supports ensemble broadcasting of operators, states, and keys.
+
 ## [0.4.3] - 2026-03-09
 
 ## Added

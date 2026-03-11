@@ -28,7 +28,9 @@ from ._apply import (
     estimate,
     partial_trace,
     targeted_apply_kraus_map,
+    targeted_apply_kraus_map_trajectory,
     targeted_apply_superop,
+    targeted_apply_unitary,
 )
 from ._common_channels import (
     depolarizing_channel_superoperator,
@@ -163,7 +165,9 @@ __all__ = [
     "apply_unitary_to_state_vector",
     "apply_kraus_to_state_vector",
     "targeted_apply_kraus_map",
+    "targeted_apply_kraus_map_trajectory",
     "targeted_apply_superop",
+    "targeted_apply_unitary",
     # Common channels
     "depolarizing_channel_superoperator",
     "integrated_thermal_superoperator",

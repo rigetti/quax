@@ -510,6 +510,119 @@ def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem:
     return DensityMatrix(data=output_density_tensor, num_qubits=rho.num_qubits)
 
 
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: Tuple[int, ...]) -> StateVector:
+    """
+    Apply a unitary to state vector. U|𝜓⟩
+
+    :param unitary: The unitary.
+    :param psi: The state vector.
+    :param subsystem: The qubit indices of the operator.
+    :return: A state vector.
+    """
+    n = len(psi.dims)
+    einsum_str = _generate_unitary_contraction(subsystem, n)
+    output_state_vector = jnp.einsum(
+        einsum_str,
+        unitary.data,
+        psi.data,
+        optimize="optimal",
+    )
+    return StateVector(data=output_state_vector, num_qubits=psi.num_qubits)
+
+
+def _batched_categorical(key: Array, logits: Array) -> Array:
+    """
+    Sample from categorical distribution, supporting both scalar and batched keys.
+
+    ``jax.random.categorical`` requires a scalar key. When ``key`` has ensemble
+    dimensions we vmap over them, broadcasting against ``logits``.
+
+    :param key: A JAX PRNG key with shape ``()`` or ``(*ens_key,)``.
+    :param logits: Log-probabilities with shape ``(*ens_logits, n_categories)``.
+    :return: Sampled indices with shape ``(*broadcast_ens,)``.
+    """
+    key_ndim = key.ndim
+    if key_ndim == 0:
+        # Scalar key: categorical handles batched logits natively.
+        return jax.random.categorical(key, logits, axis=-1)
+
+    # Batched keys: broadcast key and logits ensemble shapes, then vmap.
+    # key shape: (*ens_key,), logits shape: (*ens_logits, n_kraus)
+    ens_key = key.shape
+    ens_logits = logits.shape[:-1]
+    broadcast_ens = jnp.broadcast_shapes(ens_key, ens_logits)
+
+    key = jnp.broadcast_to(key, broadcast_ens)
+    logits = jnp.broadcast_to(logits, broadcast_ens + logits.shape[-1:])
+
+    # Flatten all ensemble dims, vmap over them, then reshape back.
+    flat_size = 1
+    for s in broadcast_ens:
+        flat_size *= s
+    flat_keys = key.reshape(flat_size)
+    flat_logits = logits.reshape(flat_size, logits.shape[-1])
+
+    flat_samples = jax.vmap(lambda k, l: jax.random.categorical(k, l, axis=-1))(flat_keys, flat_logits)  # noqa: E741
+    return flat_samples.reshape(broadcast_ens)
+
+
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_kraus_map_trajectory(
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+) -> StateVector:
+    """
+    Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
+
+    Applies all Kraus operators K_i to |ψ⟩, computes Born-rule probabilities
+    p_i = ⟨ψ|K_i†K_i|ψ⟩, samples one outcome per ensemble element, and returns
+    the normalized post-measurement state |ψ'_i⟩ / √p_i.
+
+    Supports ensemble broadcasting between kraus_map, psi, and key.
+
+    :param kraus_map: The Kraus map with data shape (*ens_k, n_kraus, d_out..., d_in...).
+    :param psi: The state vector with data shape (*ens_s, d0, d1, ...).
+    :param key: A JAX PRNG key (scalar or ensemble of keys with shape (*ens_key,)) for sampling.
+    :param subsystem: The qubit indices the operator acts on.
+    :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
+    """
+    n = len(psi.dims)
+    n_kraus = kraus_map.data.shape[kraus_map.num_ensemble_dims]
+
+    # Step 1: Apply all Kraus operators to the state vector.
+    # Result shape: (*broadcast_ens, n_kraus, d0, d1, ..., dn-1)
+    einsum_str = _generate_kraus_trajectory_contraction(subsystem, n)
+    all_outcomes = jnp.einsum(
+        einsum_str,
+        kraus_map.data,
+        psi.data,
+        optimize="optimal",
+    )
+
+    # Step 2: Compute Born-rule probabilities p_i = ⟨ψ'_i|ψ'_i⟩
+    # Sum |amplitude|^2 over qubit dimensions (last n axes), keeping Kraus axis.
+    qubit_axes = tuple(range(-n, 0))
+    probs = jnp.sum(jnp.abs(all_outcomes) ** 2, axis=qubit_axes)  # (*ens, n_kraus)
+
+    # Step 3: Sample one Kraus outcome per ensemble element.
+    # categorical requires a scalar key, so we vmap over key ensemble dims if present.
+    logits = jnp.log(jnp.clip(probs, min=1e-30))  # guard against log(0)
+    sampled_idx = _batched_categorical(key, logits)  # (*broadcast_ens,)
+
+    # Step 4: Select the sampled states via one-hot multiply.
+    one_hot = jax.nn.one_hot(sampled_idx, n_kraus)  # (*ens, n_kraus)
+    # Reshape to (*ens, n_kraus, 1, 1, ..., 1) for broadcasting over qubit dims
+    one_hot = one_hot.reshape(one_hot.shape + (1,) * n)
+    selected = jnp.sum(all_outcomes * one_hot, axis=-(n + 1))  # (*ens, d0, ..., dn-1)
+
+    # Step 5: Normalize by 1/sqrt(p_selected).
+    p_selected = jnp.sum(probs * jax.nn.one_hot(sampled_idx, n_kraus), axis=-1)  # (*ens,)
+    norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
+    selected = selected / norm.reshape(norm.shape + (1,) * n)
+
+    return StateVector(data=selected, num_qubits=psi.num_qubits)
+
+
 @lru_cache(maxsize=1000)
 def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
     """
@@ -545,4 +658,59 @@ def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
             else CHARS[1 + operator_support + i]
             for i in range(d)
         )
+    )
+
+
+@lru_cache(maxsize=1000)
+def _generate_unitary_contraction(qubits: Tuple[int], n: int) -> str:
+    """
+    Generate the einsum string for operating on a state tensor.
+
+    :param qubits: The qubit indices of the operator.
+    :param n: The number of dimensions in the state tensor.
+    :return: The einsum string.
+    """
+    operator_support = len(qubits)
+    return (
+        "..."
+        + CHARS[:operator_support]
+        + "".join(CHARS[operator_support + q] for q in qubits)
+        + ","
+        + "..."
+        + CHARS[operator_support : (operator_support + n)]
+        + "->"
+        + "..."
+        + "".join(CHARS[qubits.index(i)] if i in qubits else CHARS[operator_support + i] for i in range(n))
+    )
+
+
+@lru_cache(maxsize=1000)
+def _generate_kraus_trajectory_contraction(qubits: Tuple[int, ...], n: int) -> str:
+    """
+    Generate the einsum string for applying Kraus operators to a state tensor,
+    preserving the Kraus index in the output.
+
+    Produces all K_i|ψ⟩ at once: (*ens_k, n_kraus, d_out..., d_in...), (*ens_s, d...) -> (*ens, n_kraus, d...)
+
+    :param qubits: The qubit indices of the operator.
+    :param n: The number of dimensions in the state tensor.
+    :return: The einsum string.
+    """
+    operator_support = len(qubits)
+    # CHARS[0] = Kraus index (preserved in output)
+    # CHARS[1:1+op_support] = operator output qubit indices
+    # CHARS[1+op_support+q] for q in qubits = operator input qubit indices (contracted with state)
+    # CHARS[1+op_support : 1+op_support+n] = state tensor indices
+    return (
+        "..."
+        + CHARS[0]
+        + CHARS[1 : 1 + operator_support]
+        + "".join(CHARS[1 + operator_support + q] for q in qubits)
+        + ","
+        + "..."
+        + CHARS[1 + operator_support : 1 + operator_support + n]
+        + "->"
+        + "..."
+        + CHARS[0]
+        + "".join(CHARS[1 + qubits.index(i)] if i in qubits else CHARS[1 + operator_support + i] for i in range(n))
     )
