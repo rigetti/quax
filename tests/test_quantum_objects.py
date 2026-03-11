@@ -594,7 +594,7 @@ def test_operator_algebra():
     assert type(involution | operator) is Operator
     assert type(unitary | observable) is Operator
     assert type(involution | observable) is Observable
-    assert type(involution | unitary) is Operator  # unitary but not Hermitian
+    assert type(involution | unitary) is Unitary  # unitary but not Hermitian
 
     # Scalar multiplication
     assert type(0.5 * operator) is type(operator)

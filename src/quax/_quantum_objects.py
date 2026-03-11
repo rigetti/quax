@@ -1176,9 +1176,9 @@ class Involution(Observable, Unitary):
                 return tensor_observable(self, other)
             case Unitary():
                 # I ⊗ U -> Operator (unitary, but not generally Hermitian)
-                from ._tensor import tensor_operator
+                from ._tensor import tensor_unitary
 
-                return tensor_operator(self, other)
+                return tensor_unitary(self, other)
             case Operator():
                 # I ⊗ Op -> Operator
                 from ._tensor import tensor_operator

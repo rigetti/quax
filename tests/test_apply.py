@@ -471,3 +471,215 @@ def test_targeted_apply_kraus_map_ensemble(seed, ensemble_size):
     reference_operator = s_eye | s_ensemble | s_eye
     rho_reference = reference_operator @ initial_state
     assert jnp.allclose(rho_targeted.matrix, rho_reference.matrix, atol=1e-6)
+
+
+def test_targeted_apply_unitary():
+    """Test that targeted_apply_unitary works correctly."""
+    seed = 90573
+    key = jax.random.key(seed)
+    initial_state = qx.random_state_vector((2, 2, 2), key)
+
+    # X on qubit 0
+    reference_operator = qx.gates.X | qx.gates.I | qx.gates.I
+    psi_reference = reference_operator @ initial_state
+    psi_targeted = qx.targeted_apply_unitary(qx.gates.X, initial_state, (0,))
+    assert psi_targeted == psi_reference
+
+    # X on qubit 2
+    reference_operator = qx.gates.I | qx.gates.I | qx.gates.X
+    psi_reference = reference_operator @ initial_state
+    psi_targeted = qx.targeted_apply_unitary(qx.gates.X, initial_state, (2,))
+    assert psi_targeted == psi_reference
+
+    # CNOT on qubits 1 0
+    reference_operator = (qx.gates.SWAP @ qx.gates.CNOT @ qx.gates.SWAP) | qx.gates.I
+    psi_reference = reference_operator @ initial_state
+    psi_targeted = qx.targeted_apply_unitary(qx.gates.CNOT, initial_state, (1, 0))
+    assert psi_targeted == psi_reference
+
+    # CNOT on qubits 0 2
+    reference_operator = (qx.gates.I | qx.gates.SWAP) @ (qx.gates.CNOT | qx.gates.I) @ (qx.gates.I | qx.gates.SWAP)
+    psi_reference = reference_operator @ initial_state
+    psi_targeted = qx.targeted_apply_unitary(qx.gates.CNOT, initial_state, (0, 2))
+    assert psi_targeted == psi_reference
+
+
+@pytest.mark.parametrize("seed", [90573, 42])
+@pytest.mark.parametrize(
+    "ensemble_size",
+    [
+        ((), ()),
+        ((3,), ()),
+        ((), (3,)),
+        ((3,), (3,)),
+        ((2, 3), (2, 3)),
+    ],
+)
+def test_targeted_apply_unitary_ensemble(seed, ensemble_size):
+    """Test that targeted_apply_unitary works correctly with ensembles."""
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+    ens_op, ens_psi = ensemble_size
+
+    initial_state = qx.random_state_vector((2, 2, 2), key, size=ens_psi)
+
+    # Build ensemble of unitaries if needed (stack copies with different noise params)
+    if ens_op:
+        u_ensemble = qx.gates.RX(jnp.ones(ens_op) * jnp.pi / 3)
+    else:
+        u_ensemble = qx.gates.RX(jnp.pi / 3)
+
+    # Apply targeted
+    psi_targeted = qx.targeted_apply_unitary(u_ensemble, initial_state, (1,))
+
+    # Build full-system reference via tensor and apply element-wise
+    broadcast_ens = jnp.broadcast_shapes(ens_op, ens_psi)
+    assert psi_targeted.ensemble_size == broadcast_ens
+
+    # Build reference: tensor I | U | I and apply
+    u_eye = qx.gates.I
+    reference_operator = u_eye | u_ensemble | u_eye
+    psi_reference = reference_operator @ initial_state
+    assert jnp.allclose(psi_targeted.matrix, psi_reference.matrix, atol=1e-6)
+
+
+def test_targeted_apply_kraus_map_trajectory_unitary():
+    """A single-operator Kraus map (unitary) should match targeted_apply_unitary exactly."""
+    seed = 90573
+    key = jax.random.key(seed)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector((2, 2, 2), key)
+
+    # X on qubit 0
+    kraus = qx.unitary_to_kraus_map(qx.gates.X)
+    psi_trajectory = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (0,))
+    psi_reference = qx.targeted_apply_unitary(qx.gates.X, initial_state, (0,))
+    assert psi_trajectory == psi_reference
+
+    # X on qubit 2
+    kraus = qx.unitary_to_kraus_map(qx.gates.X)
+    psi_trajectory = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (2,))
+    psi_reference = qx.targeted_apply_unitary(qx.gates.X, initial_state, (2,))
+    assert psi_trajectory == psi_reference
+
+    # CNOT on qubits 1 0
+    kraus = qx.unitary_to_kraus_map(qx.gates.CNOT)
+    psi_trajectory = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (1, 0))
+    psi_reference = qx.targeted_apply_unitary(qx.gates.CNOT, initial_state, (1, 0))
+    assert psi_trajectory == psi_reference
+
+    # CNOT on qubits 0 2
+    kraus = qx.unitary_to_kraus_map(qx.gates.CNOT)
+    psi_trajectory = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (0, 2))
+    psi_reference = qx.targeted_apply_unitary(qx.gates.CNOT, initial_state, (0, 2))
+    assert psi_trajectory == psi_reference
+
+
+def test_targeted_apply_kraus_map_trajectory_normalization():
+    """Output states should always be normalized."""
+    key = jax.random.key(42)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector((2, 2, 2), key)
+
+    # Depolarizing channel on qubit 1
+    s = qx.depolarizing_channel_superoperator(0.1, 1)
+    kraus = qx.superop_to_kraus(s)
+    psi_out = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (1,))
+    norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [42, 123, 7])
+def test_targeted_apply_kraus_map_trajectory_statistical_convergence(seed):
+    """Averaging |ψ⟩⟨ψ| over many trajectories should converge to ∑ K_i ρ K_i†."""
+    key = jax.random.key(seed)
+    key, state_key = jax.random.split(key)
+    initial_state = qx.random_state_vector((2, 2), state_key)
+
+    # Depolarizing channel on qubit 0
+    p = 0.1
+    s = qx.depolarizing_channel_superoperator(p, 1)
+    kraus = qx.superop_to_kraus(s)
+
+    # Reference: apply Kraus map to density matrix
+    rho_initial = qx.promote_state_vector_to_density_matrix(initial_state)
+    rho_reference = qx.targeted_apply_kraus_map(kraus, rho_initial, (0,))
+
+    # Monte Carlo: use an ensemble of keys to get all trajectories at once
+    n_trajectories = 5000
+    sample_keys = jax.random.split(key, num=n_trajectories)
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_keys, (0,))
+    # psi_out.matrix has shape (n_trajectories, d) — compute |ψ⟩⟨ψ| and average
+    rho_avg = jnp.mean(psi_out.matrix[:, :, None] * psi_out.matrix[:, None, :].conj(), axis=0)
+    rho_avg = qx.DensityMatrix.from_matrix(rho_avg, (2, 2))
+
+    assert qx.fidelity(rho_avg, rho_reference) > 0.99
+
+    # Second example: 3-qubit state with a 1q depolarizing channel on qubit 2
+    # followed by a 2q depolarizing channel on qubits (0, 1)
+    key, state_key2 = jax.random.split(key)
+    initial_state_3q = qx.random_state_vector((2, 2, 2), state_key2)
+
+    s_1q = qx.depolarizing_channel_superoperator(0.05, 1)
+    kraus_1q = qx.superop_to_kraus(s_1q)
+    s_2q = qx.depolarizing_channel_superoperator(0.08, 2)
+    kraus_2q = qx.superop_to_kraus(s_2q)
+
+    # Reference: apply both channels to density matrix
+    rho_initial_3q = qx.promote_state_vector_to_density_matrix(initial_state_3q)
+    rho_ref_3q = qx.targeted_apply_kraus_map(kraus_1q, rho_initial_3q, (2,))
+    rho_ref_3q = qx.targeted_apply_kraus_map(kraus_2q, rho_ref_3q, (0, 1))
+
+    # Monte Carlo: apply both channels sequentially per trajectory
+    key, key1, key2 = jax.random.split(key, 3)
+    sample_keys_1 = jax.random.split(key1, num=n_trajectories)
+    sample_keys_2 = jax.random.split(key2, num=n_trajectories)
+
+    psi_mid = qx.targeted_apply_kraus_map_trajectory(kraus_1q, initial_state_3q, sample_keys_1, (2,))
+    psi_out_3q = qx.targeted_apply_kraus_map_trajectory(kraus_2q, psi_mid, sample_keys_2, (0, 1))
+
+    rho_avg_3q = jnp.mean(psi_out_3q.matrix[:, :, None] * psi_out_3q.matrix[:, None, :].conj(), axis=0)
+    rho_avg_3q = qx.DensityMatrix.from_matrix(rho_avg_3q, (2, 2, 2))
+
+    assert qx.fidelity(rho_avg_3q, rho_ref_3q) > 0.99
+
+
+@pytest.mark.parametrize("seed", [90573, 42])
+@pytest.mark.parametrize("ens_key", [(), (3,)])
+@pytest.mark.parametrize("ens_psi", [(), (3,)])
+@pytest.mark.parametrize("ens_op", [(), (3,)])
+def test_targeted_apply_kraus_map_trajectory_ensemble(seed, ens_op, ens_psi, ens_key):
+    """Test ensemble broadcasting for trajectory Kraus application, including key ensembles."""
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+
+    initial_state = qx.random_state_vector((2, 2, 2), key, size=ens_psi)
+
+    # Build ensemble of Kraus maps if needed
+    if ens_op:
+        noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
+        kraus_list = [
+            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(float(p), 1)).data for p in noise_params
+        ]
+        kraus_mats = jnp.stack(kraus_list).reshape(ens_op + jnp.stack(kraus_list).shape[1:])
+        k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
+    else:
+        k_ensemble = qx.superop_to_kraus(qx.depolarizing_channel_superoperator(0.05, 1))
+
+    # Build ensemble of keys if needed
+    if ens_key:
+        n_keys = reduce(lambda a, b: a * b, ens_key, 1)
+        sample_keys = jax.random.split(subkey, num=n_keys).reshape(ens_key)
+    else:
+        sample_keys = subkey
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory(k_ensemble, initial_state, sample_keys, (1,))
+
+    # Check ensemble size matches broadcast
+    broadcast_ens = jnp.broadcast_shapes(ens_op, ens_psi, ens_key)
+    assert psi_out.ensemble_size == broadcast_ens
+
+    # Check normalization for all ensemble elements
+    norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+    assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
