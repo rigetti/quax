@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ._operator_basis import n_qudit_basis, weyl_to_herm_basis_change
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
 
 # ============================================================================
@@ -77,50 +78,33 @@ def superop_to_choi(superop: SuperOp) -> Choi:
 # ============================================================================
 
 
-@lru_cache(maxsize=10)
-def _n_qubit_pauli_basis_jax(n_qubits: int) -> List[Array]:
+@lru_cache(maxsize=32)
+def _n_qudit_basis_jax(dims: Tuple[int, ...]) -> List[Array]:
     """
-    Generate n-qubit Pauli basis matrices.
+    Generate the operator basis matrices for a composite qudit system.
 
-    Returns list of 4^n Pauli matrices in tensor product order.
+    For dims = (2,)*n this returns the standard n-qubit Pauli basis.
+    For general dims it returns the generalized Gell-Mann (Weyl) basis.
+
+    Returns a list of d_total^2 JAX arrays (converted from cached numpy arrays).
     """
-    # Single qubit Paulis
-    Identity = jnp.array([[1, 0], [0, 1]], dtype=jnp.complex128)
-    X = jnp.array([[0, 1], [1, 0]], dtype=jnp.complex128)
-    Y = jnp.array([[0, -1j], [1j, 0]], dtype=jnp.complex128)
-    Z = jnp.array([[1, 0], [0, -1]], dtype=jnp.complex128)
-
-    single_paulis = [Identity, X, Y, Z]
-
-    if n_qubits == 1:
-        return single_paulis
-
-    # Build n-qubit Paulis recursively
-    result = single_paulis
-    for _ in range(n_qubits - 1):
-        new_result = []
-        for pauli in result:
-            for single_pauli in single_paulis:
-                new_result.append(jnp.kron(pauli, single_pauli))
-        result = new_result
-
-    return result
+    return [jnp.asarray(op) for op in n_qudit_basis(dims)]
 
 
 @partial(jax.jit, static_argnames=["dims"])
 def _pauli2computational_basis_matrix_jax(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
     """
-    Produce basis transform matrix from unnormalized Pauli basis to computational basis.
+    Produce basis transform matrix from unnormalized operator basis to computational basis.
 
-    Returns a dim**2 by dim**2 matrix where column i is vec(sigma_i).
+    For qubits this is the Pauli-to-computational transform.
+    For general qudits this is the Weyl-to-computational transform.
+
+    Returns a d^2 by d^2 matrix where column i is vec(sigma_i).
     """
-    # Compute n_qubits from dims[0] directly (must be a power of 2)
-    n_qubits = len(dims[0])  # dims[0] is a tuple of qubit dimensions, each should be 2
+    basis_ops = _n_qudit_basis_jax(dims[0])
 
-    paulis = _n_qubit_pauli_basis_jax(n_qubits)
-
-    # Stack vectorized Paulis as columns
-    conversion_mat = jnp.stack([pauli.T.ravel() for pauli in paulis], axis=1)
+    # Stack vectorized basis operators as columns
+    conversion_mat = jnp.stack([op.T.ravel() for op in basis_ops], axis=1)
 
     return conversion_mat
 
@@ -128,7 +112,7 @@ def _pauli2computational_basis_matrix_jax(dims: Tuple[Tuple[int, ...], Tuple[int
 @partial(jax.jit, static_argnames=["dims"])
 def _computational2pauli_basis_matrix_jax(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
     """
-    Produce basis transform matrix from computational basis to unnormalized Pauli basis.
+    Produce basis transform matrix from computational basis to unnormalized operator basis.
 
     This is (1/dim) * conjugate transpose of pauli2computational_basis_matrix.
     """
@@ -150,7 +134,7 @@ def superop_to_pauli_liouville(superop: SuperOp) -> PauliLiouville:
 
     c2p = _computational2pauli_basis_matrix_jax(superop.dims)
     data = c2p @ superop.matrix @ jnp.conj(c2p).T * d
-    return PauliLiouville.from_matrix(jnp.real(data), superop.dims)
+    return PauliLiouville.from_matrix(data, superop.dims)
 
 
 @jax.jit
@@ -189,6 +173,23 @@ def pauli_liouville_to_choi(pauli_liouville: PauliLiouville) -> Choi:
     """
     S = pauli_liouville_to_superop(pauli_liouville)
     return superop_to_choi(S)
+
+
+def pauli_liouville_to_herm_ptm(pl: PauliLiouville) -> jnp.ndarray:
+    """
+    Convert a (possibly complex) Weyl-Liouville matrix to the real Hermitian
+    Pauli Transfer Matrix.
+
+    For d=2, the WL matrix is already real/Hermitian so this is a no-op.
+    For d>2, applies the change-of-basis U from plain Weyl to Hermitian Weyl
+    basis: ``herm_ptm = U^† @ wl @ U``.
+
+    The result is always real-valued.
+    """
+    dims = pl.dims[0]  # input dims, e.g. (3,) or (3, 3)
+    U = jnp.asarray(weyl_to_herm_basis_change(dims))
+    herm = U.T.conj() @ pl.matrix @ U
+    return jnp.real(herm)
 
 
 # ============================================================================
