@@ -17,8 +17,6 @@ This module provides JIT-compiled implementations of quantum fidelity measures
 for use in differentiable quantum algorithms and high-performance computing.
 """
 
-from typing import Optional
-
 import jax
 import jax.numpy as jnp
 from jax import Array
@@ -171,108 +169,101 @@ def process_fidelity(
 
 
 @jax.jit
-def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1) -> Array:
     """
     Convert the depolarizing constant to the average fidelity.
 
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Average fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     F = ((d - 1) * p + 1) / d
-    return jnp.asarray(F)
+    return F
 
 
 @jax.jit
-def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int) -> Array:
     """
     Convert the depolarizing constant to the process fidelity.
 
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Process fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     chi_00 = ((d**2 - 1) * p + 1) / (d**2)
-    return jnp.asarray(chi_00)
+    return chi_00
 
 
 @jax.jit
-def average_fidelity_to_process_fidelity(F: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def average_fidelity_to_process_fidelity(F: ArrayLike, num_sys: int) -> Array:
     """
     Convert the average gate fidelity to the process fidelity.
 
     :param F: The average fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Process fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     chi_00 = (F * (d + 1) - 1) / d
-    return jnp.asarray(chi_00)
+    return chi_00
 
 
 @jax.jit
-def process_fidelity_to_average_fidelity(chi_00: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def process_fidelity_to_average_fidelity(chi_00: ArrayLike, num_sys: int) -> Array:
     """
     Convert the process fidelity to the average fidelity.
 
     :param chi_00: The process fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Average fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     F = (d * chi_00 + 1) / (d + 1)
-    return jnp.asarray(F)
+    return F
 
 
 @jax.jit
-def process_fidelity_to_depolarizing_constant(chi_00: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def process_fidelity_to_depolarizing_constant(chi_00: ArrayLike, num_sys: int) -> Array:
     """
     Convert the process fidelity to a depolarizing constant.
     Defined so that a 1% depolarizing error corresponds to p=0.99.
 
     :param chi_00: The process fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Depolarizing constant
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     p = (d**2 * chi_00 - 1) / (d**2 - 1)
-    return jnp.asarray(p)
+    return p
 
 
 @jax.jit
-def average_fidelity_to_depolarizing_constant(F: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def average_fidelity_to_depolarizing_constant(F: ArrayLike, num_sys: int) -> Array:
     """
     Convert the average fidelity to a depolarizing constant.
     Defined so that a 1% depolarizing error corresponds to p=0.99.
 
     :param F: The average fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Depolarizing constant
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     p = (d * F - 1) / (d - 1)
-    return jnp.asarray(p)
+    return p
 
 
 @jax.jit
-def unitarity_to_stochastic_infidelity(unitarity: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def unitarity_to_stochastic_infidelity(unitarity: ArrayLike, num_sys: int) -> Array:
     """
     Convert a unitarity to a stochastic infidelity.
 
     Valid for unital trace-preserving maps.
 
     :param unitarity: The unitarity of the channel.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param num_sys: The number of qubits.
     :return: Stochastic infidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = 2**num_sys
     return 1 - jnp.sqrt(unitarity * (1 - 1 / d**2) + (1 / d**2))

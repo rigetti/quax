@@ -81,12 +81,11 @@ def _generate_random_object(object_type, key, size, dims, rank):
 @pytest.mark.parametrize(
     "quantum_object", [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, StateVector, DensityMatrix]
 )
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_negation(num_qubits, ensemble_size, quantum_object, qudit_dim):
+def test_negation(num_qubits, ensemble_size, quantum_object):
     """Test negation of the object (__neg__)."""
     key = jax.random.key(1234)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
 
     q_object = _generate_random_object(quantum_object, key, ensemble_size, dims, rank)
     negated_q_object = -q_object
@@ -110,12 +109,11 @@ def test_negation(num_qubits, ensemble_size, quantum_object, qudit_dim):
     "quantum_object",
     [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, Operator, Observable, StateVector, DensityMatrix],
 )
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object, qudit_dim):
+def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object):
     """Test multiplication of the object (__mul__ and __rmul__)."""
     key = jax.random.key(1234)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     q_object = _generate_random_object(quantum_object, key, ensemble_size, dims, rank)
 
     # Check forward mul
@@ -160,12 +158,11 @@ def test_scalar_multiplication(num_qubits, ensemble_size, scalar, quantum_object
 )
 @pytest.mark.parametrize("power", [1, 2, 3])
 @pytest.mark.parametrize("quantum_object", [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, DensityMatrix])
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_integer_power(num_qubits, ensemble_size, power, quantum_object, qudit_dim):
+def test_integer_power(num_qubits, ensemble_size, power, quantum_object):
     """Test raising a quantum object to an integer power."""
     key = jax.random.key(1234)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     q_object = _generate_random_object(quantum_object, key, ensemble_size, dims, rank)
 
     raised_object = q_object**power
@@ -185,13 +182,12 @@ def test_integer_power(num_qubits, ensemble_size, power, quantum_object, qudit_d
 )
 @pytest.mark.parametrize("power", [1.5, 2.2])
 @pytest.mark.parametrize("quantum_object", [Choi, KrausMap, SuperOp, PauliLiouville, Unitary, DensityMatrix])
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_fractional_power(num_qubits, ensemble_size, power, quantum_object, qudit_dim):
+def test_fractional_power(num_qubits, ensemble_size, power, quantum_object):
     """Test raising a quantum object to an fractional power."""
     # TODO: Which objects does this make sense for?
     key = jax.random.key(1234)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     q_object = _generate_random_object(quantum_object, key, ensemble_size, dims, rank)
 
     raised_object = q_object**power
@@ -203,7 +199,7 @@ def test_fractional_power(num_qubits, ensemble_size, power, quantum_object, qudi
 ## Binary operations
 
 
-@pytest.mark.parametrize("num_qubits, qudit_dim", [(1, 2), (2, 2), (3, 2), (1, 3), (2, 3)])
+@pytest.mark.parametrize("num_qubits", [1, 2, 3])
 @pytest.mark.parametrize(
     "ensemble_size",
     [
@@ -276,12 +272,12 @@ def test_fractional_power(num_qubits, ensemble_size, power, quantum_object, qudi
         (DensityMatrix, DensityMatrix, DensityMatrix),
     ],
 )
-def test_compositions(num_qubits, ensemble_size, object_1, object_2, expected_object, qudit_dim):
+def test_compositions(num_qubits, ensemble_size, object_1, object_2, expected_object):
     """This tests that the object compositons work, that they are the right type and the right dimension."""
     k = jax.random.key(1234)
     key_1, key_2 = jax.random.split(k)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     ensemble_size_1, ensemble_size_2 = ensemble_size
 
     random_object_1 = _generate_random_object(object_1, key_1, ensemble_size_1, dims, rank)
@@ -306,7 +302,7 @@ def test_compositions(num_qubits, ensemble_size, object_1, object_2, expected_ob
     # If the results is a DensityMatrix it should have shape ensemble_size + (d, d)
 
 
-@pytest.mark.parametrize("num_qubits, qudit_dim", [(1, 2), (2, 2), (1, 3)])
+@pytest.mark.parametrize("num_qubits", [1, 2])
 @pytest.mark.parametrize(
     "ensemble_size",
     [
@@ -357,12 +353,12 @@ def test_compositions(num_qubits, ensemble_size, object_1, object_2, expected_ob
         (DensityMatrix, DensityMatrix, DensityMatrix),
     ],
 )
-def test_tensor_products(num_qubits, ensemble_size, object_1, object_2, expected_object, qudit_dim):
+def test_tensor_products(num_qubits, ensemble_size, object_1, object_2, expected_object):
     """This tests that the object compositons work, that they are the right type and the right dimension."""
     k = jax.random.key(1234)
     key_1, key_2 = jax.random.split(k)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     ensemble_size_1, ensemble_size_2 = ensemble_size
 
     random_object_1 = _generate_random_object(object_1, key_1, ensemble_size_1, dims, rank)
@@ -383,7 +379,7 @@ def test_tensor_products(num_qubits, ensemble_size, object_1, object_2, expected
     # If the results is a DensityMatrix it should have shape ensemble_size + (d0*d1, d0*d1)
 
 
-@pytest.mark.parametrize("num_qubits, qudit_dim", [(1, 2), (2, 2), (3, 2), (1, 3), (2, 3)])
+@pytest.mark.parametrize("num_qubits", [1, 2])
 @pytest.mark.parametrize(
     "ensemble_size",
     [
@@ -434,12 +430,12 @@ def test_tensor_products(num_qubits, ensemble_size, object_1, object_2, expected
         (DensityMatrix, DensityMatrix),
     ],
 )
-def test_equality(num_qubits, ensemble_size, object_1, object_2, qudit_dim):
+def test_equality(num_qubits, ensemble_size, object_1, object_2):
     """Check equality between objects."""
     k = jax.random.key(1234)
     key_1, key_2 = jax.random.split(k)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    rank = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    rank = 2**num_qubits
     ensemble_size_1, ensemble_size_2 = ensemble_size
 
     random_object_1 = _generate_random_object(object_1, key_1, ensemble_size_1, dims, rank)
@@ -450,14 +446,12 @@ def test_equality(num_qubits, ensemble_size, object_1, object_2, qudit_dim):
     assert random_object_2 == random_object_2
 
 
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_indexing(qudit_dim):
+def test_indexing():
     """Test that an ensemble can be indexed."""
     key = jax.random.key(1234)
-    num_qudits = 4
+    num_qubits = 4
     ensemble_size = (10, 4)
-    dims = (qudit_dim,) * num_qudits
-    states = qx.zero_state_vector(dims=dims, ensemble_size=ensemble_size)
+    states = qx.zero_state_vector(num_qubits, ensemble_size)
     assert states.ensemble_size == ensemble_size
 
     state_row = states[0]
@@ -471,7 +465,7 @@ def test_indexing(qudit_dim):
     selected_states = states[3][jnp.array([2, 3])]
     assert selected_states.ensemble_size == (2,)
 
-    states = qx.zero_state_matrix(dims=dims, ensemble_size=ensemble_size)
+    states = qx.zero_state_matrix(num_qubits, ensemble_size)
     assert states.ensemble_size == ensemble_size
 
     state_row = states[0]
@@ -485,8 +479,7 @@ def test_indexing(qudit_dim):
     selected_states = states[3][jnp.array([2, 3])]
     assert selected_states.ensemble_size == (2,)
 
-    op_dims = (dims, dims)
-    operators = qx.random_unitary(dims=op_dims, size=ensemble_size, key=key)
+    operators = qx.random_unitary(dims=((2, 2), (2, 2)), size=ensemble_size, key=key)
     assert operators.ensemble_size == ensemble_size
 
     operator_row = operators[0]
@@ -508,8 +501,7 @@ def test_indexing(qudit_dim):
         operators[0, 0, 0]
 
 
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_operator_algebra(qudit_dim):
+def test_operator_algebra():
     """
     Check that the algebra of various operator types is handled correctly.
 
@@ -521,15 +513,12 @@ def test_operator_algebra(qudit_dim):
     | Tensor product (⊗)   | O             | H                             | U                          | I                                         |
     | Scalar mult. (c·A)   | O             | H if c ∈ ℝ                    | O (always)                 | H if c ∈ ℝ                                |
     """
-    dims = ((qudit_dim, qudit_dim), (qudit_dim, qudit_dim))
-    d_total = qudit_dim**2
+    dims = ((2, 2), (2, 2))
     key = jax.random.key(1234)
     operator = qx.random_operator(dims=dims, key=key)
     observable = qx.random_observable(dims=dims, key=key)
     unitary = qx.random_unitary(dims=dims, key=key)
-    # Build a qudit involution: a diagonal matrix with eigenvalues ±1
-    diag_vals = jnp.array([(-1) ** i for i in range(d_total)], dtype=complex)
-    involution = Involution.from_matrix(jnp.diag(diag_vals), dims)
+    involution = qx.gates.CZ
 
     # Addition
     assert type(operator + operator) is type(operator)
@@ -622,99 +611,3 @@ def test_operator_algebra(qudit_dim):
     assert type(jnp.exp(1j * jnp.pi / 4) * observable) is Operator  # complex → Operator (Hermitian structure lost)
     assert type(jnp.exp(1j * jnp.pi / 4) * unitary) is Operator  # scalar mul never preserves Unitary
     assert type(jnp.exp(1j * jnp.pi / 4) * involution) is Operator  # complex scalar → Operator
-
-
-## Mixed-dimension composition tests (auto-promotion)
-
-
-@pytest.mark.parametrize(
-    "object_1, object_2, expected_object",
-    [
-        # Channel-channel compositions
-        (Choi, Choi, Choi),
-        (SuperOp, SuperOp, SuperOp),
-        (PauliLiouville, PauliLiouville, PauliLiouville),
-        (KrausMap, KrausMap, KrausMap),
-        (Unitary, Unitary, Unitary),
-        # Channel-state compositions
-        (Unitary, StateVector, StateVector),
-        (Choi, DensityMatrix, DensityMatrix),
-        (SuperOp, DensityMatrix, DensityMatrix),
-        (KrausMap, DensityMatrix, DensityMatrix),
-        (PauliLiouville, DensityMatrix, DensityMatrix),
-        # State-state compositions
-        (StateVector, StateVector, complex),
-        (DensityMatrix, DensityMatrix, DensityMatrix),
-        (DensityMatrix, StateVector, StateVector),
-        (StateVector, DensityMatrix, StateVector),
-    ],
-)
-def test_mixed_dim_compositions(object_1, object_2, expected_object):
-    """Test that composing qubit and qutrit objects auto-promotes the lower-dim operand.
-
-    Only subsystems that differ in dimension are promoted; the number of
-    subsystems must match.
-    """
-    k = jax.random.key(42)
-    key_1, key_2 = jax.random.split(k)
-    # Object 1 acts on qutrits, object 2 on qubits (same number of subsystems)
-    num_qudits = 2
-    dims_qutrit = ((3,) * num_qudits, (3,) * num_qudits)
-    dims_qubit = ((2,) * num_qudits, (2,) * num_qudits)
-    rank_qutrit = 3**num_qudits
-    rank_qubit = 2**num_qudits
-
-    random_object_1 = _generate_random_object(object_1, key_1, (), dims_qutrit, rank_qutrit)
-    random_object_2 = _generate_random_object(object_2, key_2, (), dims_qubit, rank_qubit)
-
-    result = random_object_1 @ random_object_2
-
-    if expected_object is complex:
-        assert isinstance(result, jax.Array)
-    else:
-        assert type(result) is expected_object
-        # The promoted result should live in the larger (qutrit) space
-        expected_dims = (3,) * num_qudits
-        if isinstance(result, (StateVector, DensityMatrix)):
-            assert result.dims == expected_dims
-        else:
-            assert result.dims == (expected_dims, expected_dims)
-
-
-@pytest.mark.parametrize(
-    "object_1, object_2, expected_object",
-    [
-        (Choi, Choi, Choi),
-        (SuperOp, SuperOp, SuperOp),
-        (PauliLiouville, PauliLiouville, PauliLiouville),
-        (KrausMap, KrausMap, KrausMap),
-        (Unitary, Unitary, Unitary),
-        (Unitary, StateVector, StateVector),
-        (SuperOp, DensityMatrix, DensityMatrix),
-    ],
-)
-def test_mixed_dim_partial_promotion(object_1, object_2, expected_object):
-    """Test that only subsystems that differ in dimension are promoted.
-
-    Object 1 has dims (3, 2) while object 2 has dims (2, 3).  After
-    promotion both should operate on (3, 3).
-    """
-    k = jax.random.key(99)
-    key_1, key_2 = jax.random.split(k)
-
-    dims_1 = ((3, 2), (3, 2))
-    dims_2 = ((2, 3), (2, 3))
-    rank_1 = 6
-    rank_2 = 6
-
-    random_object_1 = _generate_random_object(object_1, key_1, (), dims_1, rank_1)
-    random_object_2 = _generate_random_object(object_2, key_2, (), dims_2, rank_2)
-
-    result = random_object_1 @ random_object_2
-
-    assert type(result) is expected_object
-    expected_dims = (3, 3)
-    if isinstance(result, (StateVector, DensityMatrix)):
-        assert result.dims == expected_dims
-    else:
-        assert result.dims == (expected_dims, expected_dims)

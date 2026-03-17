@@ -14,8 +14,6 @@
 
 """Test fixtures for JAX operator tools tests."""
 
-import numpy as np
-from pathlib import Path
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -28,12 +26,11 @@ from quax import (  # noqa: E402
     KrausMap,
     PauliLiouville,
     SuperOp,
-    choi_to_superop,
     random_choi,
     random_unitary,
 )
 
-from .reference_pauli_liouville import kraus2pauli_liouville  # noqa: E402
+from .reference_pauli_liouville import choi2pauli_liouville, kraus2pauli_liouville  # noqa: E402
 
 
 @pytest.fixture(scope="session", params=[58, 3854])
@@ -42,20 +39,9 @@ def seed(request):
     return request.param
 
 
-@pytest.fixture(
-    scope="session",
-    params=[
-        (2,),  # 1 qubit
-        (2, 2),  # 2 qubits
-        (2, 2, 2),  # 3 qubits
-        (3,),  # 1 qutrit
-        (3, 3),  # 2 qutrits
-        (5,),  # 1 qu-5-it
-        (2, 3),  # qubit-qutrit (mixed dims)
-    ],
-)
-def dims(request):
-    """Parametrized per-subsystem dimensions fixture."""
+@pytest.fixture(scope="session", params=[1, 2, 3])
+def num_qubits(request):
+    """Parametrized number of qubits fixture."""
     return request.param
 
 
@@ -65,62 +51,39 @@ def ensemble_size(request):
     return request.param
 
 
-def _dims_str(dims: tuple) -> str:
-    """Format a dims tuple as a filename-safe string, e.g. (2, 3) -> '2_3'."""
-    return "_".join(str(d) for d in dims)
-
-
 @pytest.fixture(scope="session")
-def random_choi_channels(seed, dims, ensemble_size):
+def random_choi_channels(seed, num_qubits, ensemble_size):
     """
     Generate random quantum channel as Choi matrix using BCSZ distribution.
 
+    Session-scoped fixture parametrized over seeds [58, 3854]
+    and num_qubits [1, 2, 3], providing 12 different random channels.
+
     :param seed: Random seed for JAX PRNG
-    :param dims: Per-subsystem dimensions, e.g. (2, 3) for qubit-qutrit
-    :param ensemble_size: Size of the ensemble
+    :param num_qubits: Number of qubits for the channel
     :return: Choi object representing a random CPTP channel
     """
-    from functools import reduce
-    from operator import mul
-
-    d_total = reduce(mul, dims)
-    channel_dims = (dims, dims)
+    rank = 2**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
     key = jax.random.PRNGKey(seed)
-    return random_choi(dims=channel_dims, rank=d_total, key=key, size=ensemble_size)
+    return random_choi(dims=dims, rank=rank, key=key, size=ensemble_size)
 
 
 @pytest.fixture(scope="session")
-def save_random_choi_channels(random_choi_channels, seed, dims, ensemble_size):
-    """Save random Choi channels as column-stacked superoperator matrices in npz format."""
-    save_dir = Path(__file__).parent / "fixtures" / "superops"
-    save_dir.mkdir(parents=True, exist_ok=True)
-    ensemble_str = "_".join(str(s) for s in ensemble_size) if ensemble_size else "scalar"
-    filepath = save_dir / f"superop_seed{seed}_dims{_dims_str(dims)}_ens{ensemble_str}.npz"
-    # Convert Choi to superoperator matrix form
-    superop = choi_to_superop(random_choi_channels)
-    np.savez(
-        filepath,
-        data=np.asarray(superop.matrix),
-        seed=np.array(seed),
-        dims=np.array(dims),
-        ensemble_size=np.array(ensemble_size),
-    )
-    return filepath
-
-
-@pytest.fixture(scope="session")
-def random_unitaries(seed, dims, ensemble_size):
+def random_unitaries(seed, num_qubits, ensemble_size):
     """
     Generate random unitaries using the Haar measure.
 
+    Session-scoped fixture parametrized over seeds [58, 3854]
+    and num_qubits [1, 2, 3], providing 12 different random unitaries.
+
     :param seed: Random seed for JAX PRNG
-    :param dims: Per-subsystem dimensions, e.g. (2, 3) for qubit-qutrit
-    :param ensemble_size: Size of the ensemble
+    :param num_qubits: Number of qubits for the channel
     :return: Unitary object representing a random unitary operation
     """
-    channel_dims = (dims, dims)
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
     key = jax.random.PRNGKey(seed)
-    return random_unitary(dims=channel_dims, key=key, size=ensemble_size)
+    return random_unitary(dims=dims, key=key, size=ensemble_size)
 
 
 @pytest.fixture(scope="session")
@@ -184,28 +147,34 @@ def random_kraus_channels(random_choi_channels):
 
 
 @pytest.fixture(scope="session")
-def random_pauli_liouville_channels(random_choi_channels, seed, dims, ensemble_size):
+def random_pauli_liouville_channels(random_choi_channels):
     """
-    Load pre-computed Pauli-Liouville (Weyl-Liouville) channels from disk.
+    Convert random Choi channels to Pauli-Liouville representation using operator_tools.
 
-    :param random_choi_channels: Choi matrices (used for dims)
-    :param seed: Random seed
-    :param dims: Per-subsystem dimensions
-    :param ensemble_size: Size of the ensemble
+    Handles scalar and batched Choi matrices by converting each element.
+
+    :param random_choi_channels: Choi matrices (scalar or batched)
     :return: PauliLiouville object with same ensemble_size as input
     """
-    ensemble_str = "_".join(str(s) for s in ensemble_size) if ensemble_size else "scalar"
-    filepath = (
-        Path(__file__).parent
-        / "fixtures"
-        / "weyl_liouvilles"
-        / f"pauli-liouville_seed{seed}_dims{_dims_str(dims)}_ens{ensemble_str}.npz"
-    )
-    if not filepath.exists():
-        pytest.skip(f"Reference PL file not found: {filepath.name}")
-    loaded = np.load(filepath)
-    pl_data = jnp.array(loaded["data"])
-    return PauliLiouville.from_matrix(pl_data, random_choi_channels.dims)
+    choi = random_choi_channels
+
+    if choi.ensemble_size == ():
+        # Scalar case
+        pl_data = choi2pauli_liouville(choi.matrix)  # type: ignore
+    else:
+        # Batched case - convert each element
+        flat_shape = (-1,) + choi.matrix.shape[-2:]
+        flat_choi = choi.matrix.reshape(flat_shape)
+
+        pl_list = []
+        for i in range(flat_choi.shape[0]):
+            pl_data_i = choi2pauli_liouville(flat_choi[i])  # type: ignore
+            pl_list.append(jnp.array(pl_data_i))
+
+        # Reshape back to original ensemble shape
+        pl_data = jnp.stack(pl_list).reshape(choi.ensemble_size + flat_choi.shape[-2:])
+
+    return PauliLiouville.from_matrix(jnp.array(pl_data), choi.dims)
 
 
 @pytest.fixture(scope="session")
@@ -273,10 +242,6 @@ def random_unitaries_pauli_liouvilles(random_unitaries):
     :return: PauliLiouville object with same ensemble_size as input
     """
     unitary = random_unitaries
-
-    # Reference implementation only supports qubits
-    if any(d > 2 for d in unitary.dims[0]):
-        pytest.skip("Reference PL implementation doesn't support qudit_dim > 2")
 
     if unitary.ensemble_size == ():
         # Scalar case

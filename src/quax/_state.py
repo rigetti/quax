@@ -13,76 +13,50 @@
 # limitations under the License.
 import jax
 import jax.numpy as jnp
-from functools import reduce
-from operator import mul
-from typing import Optional, Tuple
+from typing import Tuple
 from ._quantum_objects import DensityMatrix, StateVector
 
 
-@jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
-def zero_state_vector(
-    n_qubits: int = 0,
-    ensemble_size: Tuple[int, ...] = (),
-    dims: Optional[Tuple[int, ...]] = None,
-) -> StateVector:
+@jax.jit(static_argnames=("n_qubits", "ensemble_size"))
+def zero_state_vector(n_qubits: int, ensemble_size: Tuple[int, ...] = ()) -> StateVector:
     """
     Construct a vector corresponding to ``|0>``.
 
-    :param n_qubits: The number of qubits (ignored when *dims* is given).
+    :param n_qubits: The number of qubits.
     :param ensemble_size: The shape of the ensemble dimensions (default: no ensemble).
-    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
-        When supplied, *n_qubits* is ignored.
-    :return: The state vector ``|000...0>`` for the given system.
+    :return: The state vector ``|000...0>`` for `n_qubits`.
     """
-    if dims is None:
-        dims = (2,) * n_qubits
-    d = reduce(mul, dims, 1)
+    d = 2**n_qubits
     state_matrix = jnp.zeros(ensemble_size + (d,), complex)
     state_matrix = state_matrix.at[..., 0].set(complex(1.0, 0))
-    return StateVector.from_matrix(state_matrix, dims)
+    return StateVector.from_matrix(state_matrix, (2,) * n_qubits)
 
 
-@jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
-def zero_state_matrix(
-    n_qubits: int = 0,
-    ensemble_size: Tuple[int, ...] = (),
-    dims: Optional[Tuple[int, ...]] = None,
-) -> DensityMatrix:
+@jax.jit(static_argnames=("n_qubits", "ensemble_size"))
+def zero_state_matrix(n_qubits: int, ensemble_size: Tuple[int, ...] = ()) -> DensityMatrix:
     """
     Construct a matrix corresponding to ``|0><0|``.
 
-    :param n_qubits: The number of qubits (ignored when *dims* is given).
+    :param n_qubits: The number of qubits.
     :param ensemble_size: The shape of the ensemble dimensions (default: no ensemble).
-    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
-        When supplied, *n_qubits* is ignored.
-    :return: The state matrix ``|000...0><000...0|`` for the given system.
+    :return: The state matrix ``|000...0><000...0|`` for `n_qubits`.
     """
-    if dims is None:
-        dims = (2,) * n_qubits
-    d = reduce(mul, dims, 1)
-    state_matrix = jnp.zeros(ensemble_size + (d, d), complex)
+    state_matrix = jnp.zeros(ensemble_size + (2**n_qubits, 2**n_qubits), complex)
     state_matrix = state_matrix.at[..., 0, 0].set(complex(1.0, 0))
-    return DensityMatrix.from_matrix(state_matrix, dims)
+    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
 
 
-@jax.jit(static_argnames=("n_qubits", "dims"))
-def mixed_state_matrix(
-    n_qubits: int = 0,
-    dims: Optional[Tuple[int, ...]] = None,
-) -> DensityMatrix:
+@jax.jit(static_argnames=("n_qubits",))
+def mixed_state_matrix(n_qubits: int) -> DensityMatrix:
     """
     Construct a matrix corresponding to the maximally mixed state.
 
-    :param n_qubits: The number of qubits (ignored when *dims* is given).
-    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
-        When supplied, *n_qubits* is ignored.
-    :return: The state matrix  ``I / d`` where ``d`` is the total dimension.
+    :param n_qubits: The number of qubits.
+    :return: The state matrix  ``I / d`` where ``d = 2**n_qubits``.
     """
-    if dims is None:
-        dims = (2,) * n_qubits
-    d = reduce(mul, dims, 1)
+    d = 2**n_qubits
     state_matrix = jnp.eye(d, dtype=complex) / d
-    return DensityMatrix.from_matrix(state_matrix, dims)
+    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
 
 
 @jax.jit

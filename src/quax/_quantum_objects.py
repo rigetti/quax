@@ -512,16 +512,10 @@ class StateVector(State):
         """Left multiply the state by another."""
         match other:
             case StateVector():  # <𝜓|𝜙> -> p
-                from ._promotion import promote_if_necessary
-
-                self_p, other_p = promote_if_necessary(self, other)
-                return jnp.einsum("...a,...a->...", self_p.matrix.conj(), other_p.matrix)
+                return jnp.einsum("...a,...a->...", self.matrix.conj(), other.matrix)
             case DensityMatrix():  #  <𝜓|𝜌 -> <𝜙|
-                from ._promotion import promote_if_necessary
-
-                self_p, other_p = promote_if_necessary(self, other)
-                result = jnp.einsum("...b,...ba->...a", self_p.matrix.conj(), other_p.matrix)
-                return StateVector.from_matrix(result, self_p.dims)
+                result = jnp.einsum("...b,...ba->...a", self.matrix.conj(), other.matrix)
+                return StateVector.from_matrix(result, self.dims)
             case _:
                 return NotImplemented
 
@@ -664,17 +658,11 @@ class DensityMatrix(State):
         """Left multiply the density matrix by another object."""
         match other:
             case StateVector():  # 𝜌|𝜓> -> |𝜙>
-                from ._promotion import promote_if_necessary
-
-                self_p, other_p = promote_if_necessary(self, other)
-                result = jnp.einsum("...ab,...b->...a", self_p.matrix, other_p.matrix)
-                return StateVector.from_matrix(result, other_p.dims)
+                result = jnp.einsum("...ab,...b->...a", self.matrix, other.matrix)
+                return StateVector.from_matrix(result, other.dims)
             case DensityMatrix():  # 𝜌𝜎 -> 𝜏
-                from ._promotion import promote_if_necessary
-
-                self_p, other_p = promote_if_necessary(self, other)
-                result = jnp.einsum("...ab,...bc->...ac", self_p.matrix, other_p.matrix)
-                return DensityMatrix.from_matrix(result, self_p.dims)
+                result = jnp.einsum("...ab,...bc->...ac", self.matrix, other.matrix)
+                return DensityMatrix.from_matrix(result, self.dims)
             case _:
                 return NotImplemented
 
