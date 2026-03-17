@@ -33,6 +33,7 @@ from ._quantum_objects import (
     Unitary,
 )
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
+from ._promotion import promote_if_necessary
 
 CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
 
@@ -48,7 +49,7 @@ def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> Den
     :param rho: Density matrix with shape ensemble_size + (d, d)
     :return: Transformed density matrix with broadcasted ensemble_size + (d, d)
     """
-    assert superop.dims[0] == rho.dims, "Superoperator and density matrix must have the same dims."
+    superop, rho = promote_if_necessary(superop, rho)
 
     # Get dimension
     d = rho.d  # Linear dimension
@@ -105,7 +106,7 @@ def apply_kraus_to_density_matrix(kraus_map: KrausMap, rho: DensityMatrix) -> De
     :param rho: Density matrix with shape ensemble_size + (d, d)
     :return: Transformed density matrix with broadcasted ensemble_size + (d, d)
     """
-    assert kraus_map.dims[0] == rho.dims, "Kraus map and density matrix must have the same dims."
+    kraus_map, rho = promote_if_necessary(kraus_map, rho)
 
     # Get matrix representations
     kraus_mat = kraus_map.matrix
@@ -151,7 +152,7 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
     :param state: State vector with shape ensemble_size + (d,)
     :return: Transformed state vector with broadcasted ensemble_size + (d,)
     """
-    assert unitary.dims[0] == state.dims, "Unitary and state vector must have the same dims."
+    unitary, state = promote_if_necessary(unitary, state)
 
     # Get matrix representations
     unitary_mat = unitary.matrix
