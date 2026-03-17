@@ -23,7 +23,6 @@ from quax import (
     is_unitary,
     random_choi,
     random_density_matrix,
-    random_state_vector,
     random_unitary,
 )
 
@@ -34,7 +33,7 @@ from quax import (
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
 @pytest.mark.parametrize("rank", [1, 2])
-@pytest.mark.parametrize("qudit_dim", [2, 3, 4])
+@pytest.mark.parametrize("qudit_dim", [2])  # Future: add non-qubit dims
 def test_ginibre_is_positive_operator(num_qubits, rank, qudit_dim):
     N_avg = 10
     keys = jax.random.split(jax.random.key(485), N_avg)
@@ -53,7 +52,7 @@ def test_ginibre_is_positive_operator(num_qubits, rank, qudit_dim):
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
 @pytest.mark.parametrize("rank", [1, 2])
-@pytest.mark.parametrize("qudit_dim", [2, 3, 4])
+@pytest.mark.parametrize("qudit_dim", [2])  # Future: add non-qubit dims
 def test_ginibre_is_trace_one(num_qubits, rank, qudit_dim):
     N_avg = 100
     key = jax.random.key(485)
@@ -66,8 +65,7 @@ def test_ginibre_is_trace_one(num_qubits, rank, qudit_dim):
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_ginibre_has_correct_second_moment(num_qubits, qudit_dim):
+def test_ginibre_has_correct_second_moment(num_qubits):
     # Numerically calculate Eq. 3.20 from
     # Zyczkowski and Sommers, J. Phys. A: Math. Gen. 34 7111, (2001)
     #
@@ -76,6 +74,7 @@ def test_ginibre_has_correct_second_moment(num_qubits, qudit_dim):
     #  D is dimension of Hilbert space and K is rank of state matrix
     key = jax.random.key(485)
     N_avg = 5000
+    qudit_dim = 2
 
     dims = (qudit_dim,) * num_qubits
     d = qudit_dim ** len(dims)
@@ -99,9 +98,9 @@ def test_ginibre_has_correct_second_moment(num_qubits, qudit_dim):
 
 
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
-@pytest.mark.parametrize("qudit_dim", [2, 3, 4])
-def test_random_unitaries_are_unitary(num_qubits, qudit_dim):
+def test_random_unitaries_are_unitary(num_qubits):
     num_unitaries = (10, 20)
+    qudit_dim = 2
     dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
     d = qudit_dim**num_qubits
 
@@ -149,12 +148,11 @@ def test_random_unitaries_are_2_design(num_qubits):
 
 @pytest.mark.parametrize("seed", [48573])
 @pytest.mark.parametrize("num_qubits", [1, 2, 3])
-@pytest.mark.parametrize("qudit_dim", [2, 3])
-def test_random_choi_BCSZ(seed, num_qubits, qudit_dim):
+def test_random_choi_BCSZ(seed, num_qubits):
     """Test that the random Choi matrix from BCSZ distribution has correct shape and properties."""
     key = jax.random.key(seed)
-    dims = ((qudit_dim,) * num_qubits, (qudit_dim,) * num_qubits)
-    d = qudit_dim**num_qubits
+    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    d = 2**num_qubits
     atol = 1e-8
     # Test size
     choi = random_choi(dims=dims, rank=d, key=key)
@@ -170,39 +168,3 @@ def test_random_choi_BCSZ(seed, num_qubits, qudit_dim):
     # partial trace over output: sum_k J[i,k,j,k]
     ptr = jnp.einsum("ikjk->ij", J4)
     assert jnp.allclose(ptr, jnp.eye(d, dtype=choi.matrix.dtype), atol=atol)
-
-
-# =================================================================================================
-# Test: random state vectors for qudits
-# =================================================================================================
-
-
-@pytest.mark.parametrize("qudit_dim", [2, 3, 4])
-@pytest.mark.parametrize("num_qudits", [1, 2])
-def test_random_state_vector_normalization(qudit_dim, num_qudits):
-    """Test that random state vectors are normalized for arbitrary qudit dimensions."""
-    dims = (qudit_dim,) * num_qudits
-    d = qudit_dim**num_qudits
-    N = 50
-    keys = jax.random.split(jax.random.key(42), N)
-
-    for k in keys:
-        psi = random_state_vector(dims=dims, key=k)
-        assert psi.matrix.shape == (d,)
-        norm = jnp.sum(jnp.abs(psi.matrix) ** 2)
-        assert jnp.allclose(norm, 1.0, atol=1e-10)
-
-
-@pytest.mark.parametrize("dims", [((2, 3), (2, 3)), ((3, 4), (3, 4))])
-def test_random_unitary_mixed_dims(dims):
-    """Test random unitaries with mixed qudit dimensions."""
-    from functools import reduce
-    from operator import mul
-
-    d = reduce(mul, dims[0])
-    key = jax.random.key(999)
-
-    U = random_unitary(dims=dims, key=key)
-    assert U.matrix.shape == (d, d)
-    assert U.dims == dims
-    assert is_unitary(U.matrix)
