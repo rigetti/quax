@@ -24,13 +24,14 @@ import quax as qx
 # ---------- Unitary Tests ----------
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_unitary_ensemble_is_unitary(num_qubits, ensemble_size, seed):
+def test_random_unitary_ensemble_is_unitary(num_qudits, qudit_dim, ensemble_size, seed):
     """Ensembles of random unitaries should all pass the is_unitary check."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     U = qx.random_unitary(dims, key, size=ensemble_size)
 
     assert jnp.all(qx.validate(U))
@@ -53,13 +54,14 @@ def test_is_hermitian_gates():
 # ---------- State Validation Tests ----------
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_state_vector_ensemble_validates(num_qubits, ensemble_size, seed):
+def test_random_state_vector_ensemble_validates(num_qudits, qudit_dim, ensemble_size, seed):
     """Ensembles of random state vectors should all pass validate."""
     key = jax.random.key(seed)
-    dims = (2,) * num_qubits
+    dims = (qudit_dim,) * num_qudits
     state = qx.random_state_vector(dims, key, size=ensemble_size)
 
     assert jnp.all(qx.validate(state))
@@ -68,14 +70,15 @@ def test_random_state_vector_ensemble_validates(num_qubits, ensemble_size, seed)
     assert not jnp.any(qx.validate(unnormalized_state))
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_density_matrix_ensemble_validates(num_qubits, ensemble_size, seed):
+def test_random_density_matrix_ensemble_validates(num_qudits, qudit_dim, ensemble_size, seed):
     """Ensembles of random density matrices should all pass validate."""
     key = jax.random.key(seed)
-    dims = (2,) * num_qubits
-    rank = 2**num_qubits
+    dims = (qudit_dim,) * num_qudits
+    rank = qudit_dim**num_qudits
     rho = qx.random_density_matrix(rank, dims, key, size=ensemble_size)
 
     assert jnp.all(qx.validate(rho))
@@ -88,14 +91,15 @@ def test_random_density_matrix_ensemble_validates(num_qubits, ensemble_size, see
 # ---------- Superoperator Tests (using package-level functions) ----------
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_choi_ensemble_is_cptp(num_qubits, ensemble_size, seed):
+def test_random_choi_ensemble_is_cptp(num_qudits, qudit_dim, ensemble_size, seed):
     """Ensembles of random Choi matrices should all be CPTP."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    rank = 2**num_qubits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    rank = qudit_dim**num_qudits
     choi = qx.random_choi(dims, rank, key, size=ensemble_size)
 
     assert jnp.all(qx.is_completely_positive(choi))
@@ -105,14 +109,15 @@ def test_random_choi_ensemble_is_cptp(num_qubits, ensemble_size, seed):
     assert jnp.all(qx.validate(choi))
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_superop_is_cptp(num_qubits, ensemble_size, seed):
+def test_random_superop_is_cptp(num_qudits, qudit_dim, ensemble_size, seed):
     """SuperOp converted from random Choi should be CPTP."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    rank = 2**num_qubits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    rank = qudit_dim**num_qudits
     superop = qx.choi_to_superop(qx.random_choi(dims, rank, key, size=ensemble_size))
 
     assert jnp.all(qx.is_completely_positive(superop))
@@ -122,14 +127,15 @@ def test_random_superop_is_cptp(num_qubits, ensemble_size, seed):
     assert jnp.all(qx.validate(superop))
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_kraus_is_cptp(num_qubits, ensemble_size, seed):
+def test_random_kraus_is_cptp(num_qudits, qudit_dim, ensemble_size, seed):
     """KrausMap converted from random Choi should be CPTP."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    rank = 2**num_qubits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    rank = qudit_dim**num_qudits
     kraus = qx.choi_to_kraus(qx.random_choi(dims, rank, key, size=ensemble_size))
 
     assert jnp.all(qx.is_completely_positive(kraus))
@@ -139,14 +145,15 @@ def test_random_kraus_is_cptp(num_qubits, ensemble_size, seed):
     assert jnp.all(qx.validate(kraus))
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_random_pauli_liouville_is_cptp(num_qubits, ensemble_size, seed):
+def test_random_pauli_liouville_is_cptp(num_qudits, qudit_dim, ensemble_size, seed):
     """PauliLiouville converted from random Choi should be CPTP."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    rank = 2**num_qubits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    rank = qudit_dim**num_qudits
     pauli_liouville = qx.choi_to_pauli_liouville(qx.random_choi(dims, rank, key, size=ensemble_size))
 
     assert jnp.all(qx.is_completely_positive(pauli_liouville))
@@ -168,53 +175,57 @@ def test_unitary_channel_validates():
 # ---------- Negative Tests: Random Matrices Should Fail ----------
 
 
-def test_random_matrix_superop_not_cp():
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_random_matrix_superop_not_cp(qudit_dim):
     """A random matrix treated as SuperOp should not be CP."""
     key = jax.random.key(42)
-    d2 = 4  # 1 qubit: d^2 = 4
+    d2 = qudit_dim**2
     random_matrix = jax.random.normal(key, (d2, d2), dtype=complex)
     random_matrix = random_matrix + 1j * jax.random.normal(jax.random.key(43), (d2, d2))
 
-    superop = qx.SuperOp.from_matrix(random_matrix, dims=((2,), (2,)))
+    superop = qx.SuperOp.from_matrix(random_matrix, dims=((qudit_dim,), (qudit_dim,)))
 
     # Random matrix is very unlikely to be CP
     assert not qx.is_completely_positive(superop)
     assert not qx.validate(superop)
 
 
-def test_random_matrix_superop_not_tp():
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_random_matrix_superop_not_tp(qudit_dim):
     """A random matrix treated as SuperOp should not be TP."""
     key = jax.random.key(42)
-    d2 = 4
+    d2 = qudit_dim**2
     random_matrix = jax.random.normal(key, (d2, d2), dtype=complex)
     random_matrix = random_matrix + 1j * jax.random.normal(jax.random.key(43), (d2, d2))
 
-    superop = qx.SuperOp.from_matrix(random_matrix, dims=((2,), (2,)))
+    superop = qx.SuperOp.from_matrix(random_matrix, dims=((qudit_dim,), (qudit_dim,)))
 
     assert not qx.is_trace_preserving(superop)
 
 
-def test_random_matrix_choi_not_cptp():
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_random_matrix_choi_not_cptp(qudit_dim):
     """A random matrix treated as Choi should not be CPTP."""
     key = jax.random.key(42)
-    d2 = 4
+    d2 = qudit_dim**2
     random_matrix = jax.random.normal(key, (d2, d2), dtype=complex)
     random_matrix = random_matrix + 1j * jax.random.normal(jax.random.key(43), (d2, d2))
 
-    choi = qx.Choi.from_matrix(random_matrix, dims=((2,), (2,)))
+    choi = qx.Choi.from_matrix(random_matrix, dims=((qudit_dim,), (qudit_dim,)))
 
     assert not qx.is_cptp(choi)
     assert not qx.validate(choi)
 
 
-def test_random_matrix_not_hermicity_preserving():
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_random_matrix_not_hermicity_preserving(qudit_dim):
     """A random matrix treated as SuperOp should not be HP."""
     key = jax.random.key(42)
-    d2 = 4
+    d2 = qudit_dim**2
     random_matrix = jax.random.normal(key, (d2, d2), dtype=complex)
     random_matrix = random_matrix + 1j * jax.random.normal(jax.random.key(43), (d2, d2))
 
-    superop = qx.SuperOp.from_matrix(random_matrix, dims=((2,), (2,)))
+    superop = qx.SuperOp.from_matrix(random_matrix, dims=((qudit_dim,), (qudit_dim,)))
 
     assert not qx.is_hermicity_preserving(superop)
 
@@ -241,16 +252,17 @@ def test_cnot_validates():
     assert qx.is_cptp(CNOT)
 
 
-def test_cp_but_not_tp():
-    """Construct a CP but not TP map (amplitude damping with incomplete normalization)."""
-    # A simple non-TP map: just the first Kraus operator of amplitude damping
-    # K0 = [[1, 0], [0, sqrt(1-gamma)]]
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_cp_but_not_tp(qudit_dim):
+    """Construct a CP but not TP map (incomplete Kraus decomposition)."""
     gamma = 0.5
-    K0 = jnp.array([[1, 0], [0, jnp.sqrt(1 - gamma)]], dtype=complex)
+    # Diagonal operator: identity on all levels except last, which is scaled by sqrt(1-gamma)
+    diag = jnp.ones(qudit_dim, dtype=complex).at[-1].set(jnp.sqrt(1 - gamma))
+    K0 = jnp.diag(diag)
 
     # Create a KrausMap with only one Kraus operator (incomplete)
-    kraus_data = K0.reshape(1, 2, 2)
-    kraus = qx.KrausMap.from_matrix(kraus_data, dims=((2,), (2,)))
+    kraus_data = K0.reshape(1, qudit_dim, qudit_dim)
+    kraus = qx.KrausMap.from_matrix(kraus_data, dims=((qudit_dim,), (qudit_dim,)))
 
     # This should be CP (Kraus operators always give CP maps) but not TP
     assert qx.is_completely_positive(kraus)
@@ -262,12 +274,13 @@ def test_cp_but_not_tp():
 # ---------- validate() dispatch: Operator, Observable, Involution ----------
 
 
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_validate_operator(ensemble_size, seed):
+def test_validate_operator(qudit_dim, ensemble_size, seed):
     """validate(Operator) always returns True (any linear operator is well-formed)."""
     key = jax.random.key(seed)
-    dims = ((2,), (2,))
+    dims = ((qudit_dim,), (qudit_dim,))
     op = qx.random_operator(dims, key, size=ensemble_size)
 
     result = qx.validate(op)
@@ -275,12 +288,13 @@ def test_validate_operator(ensemble_size, seed):
     assert result.shape == ensemble_size
 
 
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (2, 4)])
 @pytest.mark.parametrize("seed", [42, 123])
-def test_validate_observable(ensemble_size, seed):
+def test_validate_observable(qudit_dim, ensemble_size, seed):
     """validate(Observable) checks Hermiticity; random Hermitian matrices should pass."""
     key = jax.random.key(seed)
-    dims = ((2,), (2,))
+    dims = ((qudit_dim,), (qudit_dim,))
     obs = qx.random_observable(dims, key, size=ensemble_size)
 
     assert jnp.all(qx.validate(obs))

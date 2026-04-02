@@ -3,8 +3,7 @@ Quax
 
 **High-performance quantum information science with JAX**
 
-Quax is a library for quantum operator transformations built on JAX, enabling hardware-accelerated
-quantum computations with automatic differentiation.
+Quax is a library for working with states, gates and superoperators in quantum information science. It's built on top of JAX, which enables great performance and automatic differentiation.
 
 ----
 
@@ -36,34 +35,29 @@ Getting Started
 
         Source code and issue tracker
 
-Overview
---------
-
-Quax provides JAX-based quantum operator transformations with support for:
-
-- **Quantum Objects**: States, gates and superoperators objects are defined ot allow natural manipulations and operations.
-- **Standard operators** composition/application `@`, tensor products `|`, scalar multiplication `*` and powers `*` are defined on all quantum objects.
-- **Qudits** Operations on d-dimensional qudits are supported.
-- **Batch operations** Operating on batches or ensembles of states is supported for straightforward parallelization.
-
 Key Features
 ------------
+
+Quantum Objects
+   States, gates and superoperators are represented as typed objects for clarity and ease of use
+
+Standard Operators
+   Composition, tensor products, scalar multiplication and powers are defined on all quantum objects allowing for natural manipulations.
+
+Qudits
+   Support for d-dimensional qudits, enabling operations beyond qubits
+
+Batch Operations
+   Operate on batches or ensembles of states for straightforward parallelization
+
+Standard gate set
+   A set of standard gates is included, based on the QUIL language specification
 
 High Performance
    Built on JAX for GPU/TPU acceleration and automatic differentiation
 
-Multiple Representations
-   Seamlessly convert between different quantum operator representations
-
-Composable Operations
-   Chain quantum operations with intuitive Python syntax
-
-Type-Safe
-   Standard objects such as Unitaries, Chois and Density matrices are all typed, clarifying the nature of various objects.
-
 Automatic Promotion
    Pure states and operators are automatically promoted to mixed states and superoperators when appropriate.
-
 
 
 .. toctree::
@@ -74,4 +68,9 @@ Automatic Promotion
    installation
    quickstart
    quantum-objects
+   examples/quax
+   examples/hamiltonians
+   examples/quantum-volume
+   examples/leakage-randomized-benchmarking
+   examples/qudits
    api/index

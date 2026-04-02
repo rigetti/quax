@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from math import prod
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -77,20 +79,20 @@ def qt_super_tensor(a, b):
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("dims", [(2,), (3,), (2, 2), (2, 3)])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_tensor_superoperators(seed, num_qubits, size_a, size_b):
+def test_tensor_superoperators(seed, dims, size_a, size_b):
     """Test tensor product for all representations."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
-    d = 2**num_qubits
+    d = prod(dims)
     kraus_rank = d
 
     # Generate two random channels
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    tensor_dims = ((2,) * num_qubits * 2, (2,) * num_qubits * 2)
-    choi_a = random_choi(dims=dims, rank=kraus_rank, key=key1, size=size_a)
-    choi_b = random_choi(dims=dims, rank=kraus_rank, key=key2, size=size_b)
+    op_dims = (dims, dims)
+    tensor_op_dims = (dims + dims, dims + dims)
+    choi_a = random_choi(dims=op_dims, rank=kraus_rank, key=key1, size=size_a)
+    choi_b = random_choi(dims=op_dims, rank=kraus_rank, key=key2, size=size_b)
 
     # Compute the reference result using QuTiP
     qobj_a = choi_a._to_qobj()
@@ -99,7 +101,7 @@ def test_tensor_superoperators(seed, num_qubits, size_a, size_b):
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
 
     # Use qt_super_tensor helper for broadcasting
-    qobj_tensored_ref = Choi.from_matrix(qt_super_tensor(qobj_a, qobj_b), tensor_dims)
+    qobj_tensored_ref = Choi.from_matrix(qt_super_tensor(qobj_a, qobj_b), tensor_op_dims)
     assert qobj_tensored_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     # Tensor product chois
@@ -137,18 +139,18 @@ def test_tensor_superoperators(seed, num_qubits, size_a, size_b):
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("dims", [(2,), (3,), (2, 2), (2, 3)])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_tensor_unitaries(seed, num_qubits, size_a, size_b):
+def test_tensor_unitaries(seed, dims, size_a, size_b):
     """Test tensor product for unitaries."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
 
     # Generate two random unitaries
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    tensor_dims = ((2,) * num_qubits * 2, (2,) * num_qubits * 2)
-    unitary_a = random_unitary(dims=dims, key=key1, size=size_a)
-    unitary_b = random_unitary(dims=dims, key=key2, size=size_b)
+    op_dims = (dims, dims)
+    tensor_op_dims = (dims + dims, dims + dims)
+    unitary_a = random_unitary(dims=op_dims, key=key1, size=size_a)
+    unitary_b = random_unitary(dims=op_dims, key=key2, size=size_b)
 
     # Compute the reference result using QuTiP
     qobj_a = unitary_a._to_qobj()
@@ -157,7 +159,7 @@ def test_tensor_unitaries(seed, num_qubits, size_a, size_b):
     ensemble_size = jnp.broadcast_shapes(size_a, size_b)
 
     # Use qt_tensor helper for broadcasting
-    qobj_composed_ref = Unitary.from_matrix(qt_tensor(qobj_a, qobj_b), tensor_dims)
+    qobj_composed_ref = Unitary.from_matrix(qt_tensor(qobj_a, qobj_b), tensor_op_dims)
     assert qobj_composed_ref.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
 
     tensored_unitaries = tensor_unitary(unitary_a, unitary_b)
@@ -167,15 +169,14 @@ def test_tensor_unitaries(seed, num_qubits, size_a, size_b):
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("dims", [(2,), (3,), (2, 2), (2, 3)])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_tensor_state_vectors(seed, num_qubits, size_a, size_b):
+def test_tensor_state_vectors(seed, dims, size_a, size_b):
     """Test tensor product for state vectors."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
 
     # Generate two random state vectors
-    dims = (2,) * num_qubits
     psi_a = random_state_vector(dims=dims, key=key1, size=size_a)
     psi_b = random_state_vector(dims=dims, key=key2, size=size_b)
 
@@ -202,16 +203,15 @@ def test_tensor_state_vectors(seed, num_qubits, size_a, size_b):
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2])
+@pytest.mark.parametrize("dims", [(2,), (3,), (2, 2), (2, 3)])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_tensor_density_matrices(seed, num_qubits, size_a, size_b):
+def test_tensor_density_matrices(seed, dims, size_a, size_b):
     """Test tensor product for density matrices."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
-    d = 2**num_qubits
+    d = prod(dims)
 
     # Generate two random density matrices
-    dims = (2,) * num_qubits
     rho_a = random_density_matrix(rank=d, dims=dims, key=key1, size=size_a)
     rho_b = random_density_matrix(rank=d, dims=dims, key=key2, size=size_b)
 

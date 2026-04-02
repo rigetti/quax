@@ -82,8 +82,8 @@ test-package:
   tags:
     - flexible
   variables:
-    KUBERNETES_CPU_REQUEST: 8
-    KUBERNETES_MEMORY_LIMIT: 12Gi
+    KUBERNETES_CPU_REQUEST: 12
+    KUBERNETES_MEMORY_LIMIT: 20Gi
     KUBERNETES_NODE_SELECTOR_INSTANCE_CATEGORY: karpenter.k8s.aws/instance-category=c
   script:
     - make test-package
@@ -100,10 +100,15 @@ test-examples:
 build-docs:
   extends: .base
   stage: build
+  tags:
+    - flexible
   needs: [] # This stage does not need tests to pass
   variables:
     INDEX_HTML: "docs/_build/index.html"
+    KUBERNETES_CPU_REQUEST: 2
+    KUBERNETES_MEMORY_LIMIT: 8Gi
   script:  # See: https://docs.gitlab.com/ee/ci/environments/#set-dynamic-environment-urls-after-a-job-finishes
+    - apt-get update -qq && apt-get install -y -qq pandoc
     - make build-docs
     - INDEX_HTML_URL=https://rigetti.gitlab.io/-/${CI_PROJECT_PATH#*/}/-/jobs/${CI_JOB_ID}/artifacts/${INDEX_HTML}
     - echo INDEX_HTML_URL=${INDEX_HTML_URL} >> deploy.env

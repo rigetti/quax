@@ -236,15 +236,15 @@ class Operator(QuantumObject):
 
         matrix = self.matrix
 
+        dims = [list(self.dims[0]), list(self.dims[1])]
         if self.ensemble_size == ():
             return qt.Qobj(
                 np.array(matrix),
-                dims=[[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]],
+                dims=dims,
             )
 
         flat_shape = (-1,) + matrix.shape[-2:]
         flat_kraus = np.asarray(matrix).reshape(flat_shape)
-        dims = [[list(self.dims[0]), list(self.dims[0])], [list(self.dims[1]), list(self.dims[1])]]
         qobjs = np.asarray(
             [
                 qt.Qobj(
@@ -325,7 +325,7 @@ class Operator(QuantumObject):
 
     @property
     def matrix(self) -> Array:
-        """Returns the matrix representation (*ensemble, d_out, d_in) of the operator."""
+        """Returns the matrix representation ``(*ensemble, d_out, d_in)`` of the operator."""
         ensemble_shape = self.data.shape[: self.num_ensemble_dims]
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 2
@@ -337,7 +337,7 @@ class Operator(QuantumObject):
     def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
-        :param matrix: Array with shape (*ensemble, d_out, d_in)
+        :param matrix: Array with shape ``(*ensemble, d_out, d_in)``
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
         :return: Operator with tensor data
         """
@@ -365,8 +365,7 @@ class SuperOperator(QuantumObject):
     """Base class for a quantum superoperator.
 
     SuperOperators have a 4-group tensor structure:
-    (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
-            d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
+    ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
 
     SuperOperators represent CPTP maps; ``+`` and ``-`` are intentionally not
     defined because the sum/difference of CPTP maps is not generally CPTP.
@@ -379,7 +378,7 @@ class SuperOperator(QuantumObject):
 
     @property
     def matrix(self) -> Array:
-        """Returns the matrix representation (*ensemble, d_out^2, d_in^2) of the superoperator."""
+        """Returns the matrix representation ``(*ensemble, d_out^2, d_in^2)`` of the superoperator."""
         ensemble_shape = self.data.shape[: self.num_ensemble_dims]
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         # 4 groups of dimensions: out_bra, out_ket, in_bra, in_ket
@@ -396,7 +395,7 @@ class SuperOperator(QuantumObject):
     def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
-        :param matrix: Array with shape (*ensemble, d_out^2, d_in^2)
+        :param matrix: Array with shape ``(*ensemble, d_out^2, d_in^2)``
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
         :return: SuperOperator with tensor data
         """
@@ -458,7 +457,7 @@ class SuperOperator(QuantumObject):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class StateVector(State):
-    """State vector |psi>, shape (*ensemble, d0, d1, ...) in tensor form or (*ensemble, d) in matrix form."""
+    """State vector ``|psi>``, shape ``(*ensemble, d0, d1, ...)`` in tensor form or ``(*ensemble, d)`` in matrix form."""
 
     @property
     def num_ensemble_dims(self) -> int:
@@ -477,7 +476,7 @@ class StateVector(State):
 
     @property
     def matrix(self) -> Array:
-        """Returns the vector representation (*ensemble, d) of the state."""
+        """Returns the vector representation ``(*ensemble, d)`` of the state."""
         ensemble_shape = self.data.shape[: self.num_ensemble_dims]
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         d = reduce(mul, qudit_shape, 1)
@@ -487,7 +486,7 @@ class StateVector(State):
     def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "StateVector":
         """Construct from vector representation.
 
-        :param matrix: Array with shape (*ensemble, d) where d = prod(dims)
+        :param matrix: Array with shape ``(*ensemble, d)`` where d = prod(dims)
         :param dims: Tuple of qudit dimensions (d0, d1, ...)
         :return: StateVector with tensor data
         """
@@ -512,10 +511,16 @@ class StateVector(State):
         """Left multiply the state by another."""
         match other:
             case StateVector():  # <𝜓|𝜙> -> p
-                return jnp.einsum("...a,...a->...", self.matrix.conj(), other.matrix)
+                from ._promotion import promote_hilbert_space
+
+                self_p, other_p = promote_hilbert_space(self, other)
+                return jnp.einsum("...a,...a->...", self_p.matrix.conj(), other_p.matrix)
             case DensityMatrix():  #  <𝜓|𝜌 -> <𝜙|
-                result = jnp.einsum("...b,...ba->...a", self.matrix.conj(), other.matrix)
-                return StateVector.from_matrix(result, self.dims)
+                from ._promotion import promote_hilbert_space
+
+                self_p, other_p = promote_hilbert_space(self, other)
+                result = jnp.einsum("...b,...ba->...a", self_p.matrix.conj(), other_p.matrix)
+                return StateVector.from_matrix(result, self_p.dims)
             case _:
                 return NotImplemented
 
@@ -544,12 +549,12 @@ class StateVector(State):
         match other:
             case StateVector():
                 # Compare two state vectors using fidelity
-                from ._distance_metrics import fidelity
+                from ._metrics import fidelity
 
                 return bool(jnp.allclose(fidelity(self, other), 1.0))
             case DensityMatrix():
                 # Promote self to density matrix and compare
-                from ._distance_metrics import fidelity
+                from ._metrics import fidelity
                 from ._promotion import promote_state_vector_to_density_matrix
 
                 return bool(jnp.allclose(fidelity(promote_state_vector_to_density_matrix(self), other), 1.0))
@@ -558,6 +563,39 @@ class StateVector(State):
                 return False
             case _:
                 return NotImplemented
+
+    def pretty_print(self, decimals: int = 3, atol: float = 1e-6) -> str:
+        """Return a human-readable Unicode Dirac-notation string for this state vector.
+
+        Basis states whose amplitude magnitude is below *atol* are omitted.
+        Amplitudes are rounded to *decimals* decimal places with trailing zeros stripped.
+        For ensembled states each element is printed on its own labelled line.
+
+        :param decimals: Number of decimal places for each amplitude (default: 3).
+        :param atol: Amplitude magnitude threshold below which terms are dropped (default: 1e-6).
+        :return: A Unicode string, e.g. ``0.707|0\u27e9 + 0.707|1\u27e9``.
+
+        Example::
+
+            >>> sv = StateVector.from_matrix(jnp.array([0.0, 1.0], dtype=complex), dims=(2,))
+            >>> sv.pretty_print()
+            '1|1\u27e9'
+        """
+        from ._state import _format_state_vector_str
+        import itertools
+
+        matrix = self.matrix
+        dims = self.dims
+
+        if self.ensemble_size == ():
+            return _format_state_vector_str(matrix, dims, decimals, atol)
+
+        lines = []
+        for idx in itertools.product(*[range(s) for s in self.ensemble_size]):
+            label = "[" + ", ".join(str(i) for i in idx) + "]"
+            vec = matrix[idx]
+            lines.append(f"{label}: {_format_state_vector_str(vec, dims, decimals, atol)}")
+        return "\n".join(lines)
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj (or array of Qobjs for ensembles) for interoperability testing."""
@@ -589,8 +627,8 @@ class StateVector(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class DensityMatrix(State):
-    """Density matrix ρ, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
-    or (*ensemble, d, d) in matrix form."""
+    """Density matrix ρ, shape ``(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`` in tensor form
+    or ``(*ensemble, d, d)`` in matrix form."""
 
     @property
     def num_ensemble_dims(self) -> int:
@@ -614,7 +652,7 @@ class DensityMatrix(State):
 
     @property
     def matrix(self) -> Array:
-        """Returns the matrix representation (*ensemble, d, d) of the density matrix."""
+        """Returns the matrix representation ``(*ensemble, d, d)`` of the density matrix."""
         ensemble_shape = self.data.shape[: self.num_ensemble_dims]
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 2
@@ -626,7 +664,7 @@ class DensityMatrix(State):
     def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "DensityMatrix":
         """Construct from matrix representation.
 
-        :param matrix: Array with shape (*ensemble, d, d) where d = prod(dims)
+        :param matrix: Array with shape ``(*ensemble, d, d)`` where d = prod(dims)
         :param dims: Tuple of qudit dimensions (d0, d1, ...)
         :return: DensityMatrix with tensor data
         """
@@ -658,11 +696,17 @@ class DensityMatrix(State):
         """Left multiply the density matrix by another object."""
         match other:
             case StateVector():  # 𝜌|𝜓> -> |𝜙>
-                result = jnp.einsum("...ab,...b->...a", self.matrix, other.matrix)
-                return StateVector.from_matrix(result, other.dims)
+                from ._promotion import promote_hilbert_space
+
+                self_p, other_p = promote_hilbert_space(self, other)
+                result = jnp.einsum("...ab,...b->...a", self_p.matrix, other_p.matrix)
+                return StateVector.from_matrix(result, other_p.dims)
             case DensityMatrix():  # 𝜌𝜎 -> 𝜏
-                result = jnp.einsum("...ab,...bc->...ac", self.matrix, other.matrix)
-                return DensityMatrix.from_matrix(result, self.dims)
+                from ._promotion import promote_hilbert_space
+
+                self_p, other_p = promote_hilbert_space(self, other)
+                result = jnp.einsum("...ab,...bc->...ac", self_p.matrix, other_p.matrix)
+                return DensityMatrix.from_matrix(result, self_p.dims)
             case _:
                 return NotImplemented
 
@@ -691,13 +735,13 @@ class DensityMatrix(State):
         match other:
             case StateVector():
                 # Promote other to density matrix and compare
-                from ._distance_metrics import fidelity
+                from ._metrics import fidelity
                 from ._promotion import promote_state_vector_to_density_matrix
 
                 return bool(jnp.allclose(fidelity(self, promote_state_vector_to_density_matrix(other)), 1.0))
             case DensityMatrix():
                 # Compare two density matrices using fidelity
-                from ._distance_metrics import fidelity
+                from ._metrics import fidelity
 
                 return bool(jnp.allclose(fidelity(self, other), 1.0))
             case Unitary() | SuperOp() | Choi() | PauliLiouville() | KrausMap():
@@ -736,8 +780,8 @@ class DensityMatrix(State):
 @jax.tree_util.register_pytree_node_class
 @dataclass(frozen=True)
 class Unitary(Operator):
-    """Unitary operator U, shape (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...) in tensor form
-    or (*ensemble, d, d) in matrix form."""
+    """Unitary operator U, shape ``(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`` in tensor form
+    or ``(*ensemble, d, d)`` in matrix form."""
 
     @property
     def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
@@ -888,12 +932,12 @@ class Unitary(Operator):
         match other:
             case Unitary():
                 # Compare two unitaries using entanglement fidelity
-                from ._distance_metrics import unitary_entanglement_fidelity
+                from ._metrics import unitary_entanglement_fidelity
 
                 return bool(jnp.allclose(unitary_entanglement_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | PauliLiouville() | KrausMap():
                 # Promote self to superoperator and compare using process fidelity
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
                 from ._superoperator_transformations import unitary_to_superop
 
                 return bool(jnp.allclose(process_fidelity(unitary_to_superop(self), other), 1.0))
@@ -918,8 +962,8 @@ class Observable(Operator):
     Complex scalar multiplication and composition with non-Hermitian operators can break
     Hermiticity, so those operations return the more general ``Operator`` type.
 
-    Tensor shape: (*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)
-    Matrix shape: (*ensemble, d, d)
+    Tensor shape: ``(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)``
+    Matrix shape: ``(*ensemble, d, d)``
     """
 
     @property
@@ -1198,9 +1242,9 @@ class Involution(Observable, Unitary):
 class SuperOp(SuperOperator):
     """SuperOp matrix (also known as Superoperator) S.
 
-    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
-                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
-    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    Tensor shape: ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)``
     """
 
     @property
@@ -1342,17 +1386,17 @@ class SuperOp(SuperOperator):
         match other:
             case SuperOp():
                 # Compare two superoperators using process fidelity
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case Choi() | PauliLiouville() | KrausMap():
                 # Convert other to SuperOp and compare
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to SuperOp and compare
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
                 from ._superoperator_transformations import unitary_to_superop
 
                 return bool(jnp.allclose(process_fidelity(self, unitary_to_superop(other)), 1.0))
@@ -1368,8 +1412,9 @@ class SuperOp(SuperOperator):
 class KrausMap(SuperOperator):
     """Kraus channel.
 
-    Tensor shape: (*ensemble, n_kraus, d0_out, d1_out, ..., d0_in, d1_in, ...)
-    Matrix shape: (*ensemble, n_kraus, d_out, d_in)
+    Tensor shape: ``(*ensemble, n_kraus, d0_out, d1_out, ..., d0_in, d1_in, ...)``
+
+    Matrix shape: ``(*ensemble, n_kraus, d_out, d_in)``
     """
 
     @property
@@ -1392,7 +1437,7 @@ class KrausMap(SuperOperator):
 
     @property
     def matrix(self) -> Array:
-        """Returns the matrix representation (*ensemble, n_kraus, d_out, d_in) of the Kraus map."""
+        """Returns the matrix representation ``(*ensemble, n_kraus, d_out, d_in)`` of the Kraus map."""
         ensemble_shape = self.data.shape[: self.num_ensemble_dims]
         n_kraus = self.data.shape[self.num_ensemble_dims]
         qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
@@ -1405,7 +1450,7 @@ class KrausMap(SuperOperator):
     def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> "KrausMap":
         """Construct from matrix representation.
 
-        :param matrix: Array with shape (*ensemble, n_kraus, d_out, d_in)
+        :param matrix: Array with shape ``(*ensemble, n_kraus, d_out, d_in)``
         :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
         :return: KrausMap with tensor data
         """
@@ -1522,17 +1567,17 @@ class KrausMap(SuperOperator):
         match other:
             case KrausMap():
                 # Compare two KrausMaps using process fidelity
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | PauliLiouville():
                 # Compare using process fidelity (handles conversions internally)
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to KrausMap and compare
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
                 from ._superoperator_transformations import unitary_to_kraus_map
 
                 return bool(jnp.allclose(process_fidelity(self, unitary_to_kraus_map(other)), 1.0))
@@ -1548,9 +1593,9 @@ class KrausMap(SuperOperator):
 class Choi(SuperOperator):
     """Choi matrix C.
 
-    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
-                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
-    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    Tensor shape: ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)``
     """
 
     @property
@@ -1687,17 +1732,17 @@ class Choi(SuperOperator):
         match other:
             case Choi():
                 # Compare two Choi matrices using process fidelity
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case SuperOp() | PauliLiouville() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to Choi and compare
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
                 from ._superoperator_transformations import unitary_to_choi
 
                 return bool(jnp.allclose(process_fidelity(self, unitary_to_choi(other)), 1.0))
@@ -1713,9 +1758,9 @@ class Choi(SuperOperator):
 class Chi(SuperOperator):
     """Chi matrix Χ.
 
-    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
-                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
-    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    Tensor shape: ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)``
     """
 
     @property
@@ -1827,9 +1872,9 @@ class Chi(SuperOperator):
 class PauliLiouville(SuperOperator):
     """Pauli-Liouville matrix P.
 
-    Tensor shape: (*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ...,
-                          d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)
-    Matrix shape: (*ensemble, d_out^2, d_in^2)
+    Tensor shape: ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)``
     """
 
     @property
@@ -1944,17 +1989,17 @@ class PauliLiouville(SuperOperator):
         match other:
             case PauliLiouville():
                 # Compare two PauliLiouville matrices using process fidelity
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
 
                 return bool(jnp.allclose(process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to PauliLiouville and compare
-                from ._distance_metrics import process_fidelity
+                from ._metrics import process_fidelity
                 from ._superoperator_transformations import unitary_to_pauli_liouville
 
                 return bool(jnp.allclose(process_fidelity(self, unitary_to_pauli_liouville(other)), 1.0))

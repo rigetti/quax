@@ -47,7 +47,7 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
     Compute the tensor product of two Choi matrices.
 
     Choi tensor product for product channel E0 ⊗ E1 in the convention
-      J[(a,i),(b,j)] = <a| E(|i><j|) |b>
+    ``J[(a,i),(b,j)] = <a| E(|i><j|) |b>``,
     i.e. J reshapes as (a, i, b, j).
 
     Returns the two-qubit Choi with grouped indices:

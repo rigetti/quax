@@ -15,7 +15,7 @@ Basic Example
    state = qx.zero_state_vector(dims=(2,))
    
    # Apply a unitary operation
-   U = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(0))
+   U = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(0))
    final_state = qx.apply_unitary_to_state_vector(U, state)
 
 Creating Quantum States
@@ -47,7 +47,7 @@ Density Matrices
    mixed = qx.mixed_state_matrix(dims=(2,))
    
    # Random density matrix
-   random_rho = qx.random_density_matrix(dims=(2,), key=jax.random.PRNGKey(0))
+   random_rho = qx.random_density_matrix(rank=2, dims=(2,), key=jax.random.PRNGKey(0))
 
 Working with Gates
 ------------------
@@ -86,7 +86,7 @@ Superoperator Conversions
    import jax
    
    # Start with a unitary
-   U = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(0))
+   U = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(0))
    
    # Convert to different representations
    choi = qx.unitary_to_choi(U)
@@ -103,13 +103,13 @@ Composing Operations
    import jax
    
    # Compose unitaries
-   U1 = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(0))
-   U2 = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(1))
+   U1 = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(0))
+   U2 = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(1))
    U_composed = qx.compose_unitary(U1, U2)
    
    # Compose Kraus maps
-   K1 = qx.to_kraus(qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(0)))
-   K2 = qx.to_kraus(qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(1)))
+   K1 = qx.to_kraus(qx.random_choi(dims=((2,), (2,)), rank=2, key=jax.random.PRNGKey(0)))
+   K2 = qx.to_kraus(qx.random_choi(dims=((2,), (2,)), rank=2, key=jax.random.PRNGKey(1)))
    K_composed = qx.compose_kraus_map(K1, K2)
 
 Fidelity Calculations
@@ -126,8 +126,8 @@ Fidelity Calculations
    fid = qx.fidelity(state1, state2)
    
    # Process fidelity
-   choi1 = qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(0))
-   choi2 = qx.random_choi_BCSZ(dims=(2,), key=jax.random.PRNGKey(1))
+   choi1 = qx.random_choi(dims=((2,), (2,)), rank=2, key=jax.random.PRNGKey(0))
+   choi2 = qx.random_choi(dims=((2,), (2,)), rank=2, key=jax.random.PRNGKey(1))
    proc_fid = qx.process_fidelity(choi1, choi2)
 
 Quantum Channels
@@ -135,6 +135,7 @@ Quantum Channels
 
 .. code-block:: python
 
+   import jax.numpy as jnp
    import quax as qx
    
    # Depolarizing channel
@@ -142,10 +143,10 @@ Quantum Channels
    depol = qx.depolarizing_channel_superoperator(p, dims=(2,))
    
    # Thermal relaxation
-   t1 = 50e-6
-   t2 = 30e-6  
+   t1s = jnp.array([50e-6])
+   tphis = jnp.array([30e-6])
    gate_time = 20e-9
-   thermal = qx.thermal_relaxation_choi(t1, t2, gate_time, dims=(2,))
+   thermal = qx.thermal_relaxation_choi(t1s, tphis, gate_time)
 
 Multi-Qubit Systems
 -------------------
@@ -159,8 +160,8 @@ Multi-Qubit Systems
    two_qubit_state = qx.zero_state_vector(dims=(2, 2))
    
    # Tensor product of operators
-   U1 = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(0))
-   U2 = qx.random_unitary(dims=(2,), key=jax.random.PRNGKey(1))
+   U1 = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(0))
+   U2 = qx.random_unitary(dims=((2,), (2,)), key=jax.random.PRNGKey(1))
    U_tensor = qx.tensor_unitary(U1, U2)
 
 Next Steps

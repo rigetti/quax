@@ -5,6 +5,8 @@ import sys
 
 sys.path.insert(0, os.path.abspath("../src"))
 
+os.environ["JAX_ENABLE_X64"] = "1"
+
 # -- Project information -----------------------------------------------------
 project = "Quax"
 copyright = "2026, Rigetti Computing"
@@ -21,10 +23,16 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
     "sphinx_design",
+    "nbsphinx",
 ]
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
+
+# -- nbsphinx configuration --------------------------------------------------
+nbsphinx_execute = "auto"
+nbsphinx_allow_errors = False
+nbsphinx_kernel_name = "python3"
 
 # -- Options for HTML output -------------------------------------------------
 html_theme = "furo"
@@ -50,7 +58,6 @@ html_theme_options = {
 autodoc_default_options = {
     "members": True,
     "member-order": "bysource",
-    "special-members": "__init__",
     "undoc-members": True,
     "exclude-members": "__weakref__",
 }

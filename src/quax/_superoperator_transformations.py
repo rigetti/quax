@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import lru_cache, partial, reduce, singledispatch
+from functools import lru_cache, reduce, singledispatch
 from operator import mul
-from typing import List, Tuple
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
 
 # ============================================================================
@@ -77,63 +78,29 @@ def superop_to_choi(superop: SuperOp) -> Choi:
 # ============================================================================
 
 
-@lru_cache(maxsize=10)
-def _n_qubit_pauli_basis_jax(n_qubits: int) -> List[Array]:
+@lru_cache(maxsize=32)
+def _pauli2computational_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
     """
-    Generate n-qubit Pauli basis matrices.
+    Produce basis transform matrix from Hermitian operator basis to computational basis.
 
-    Returns list of 4^n Pauli matrices in tensor product order.
+    For qubits this is the Pauli-to-computational transform.
+    For general qudits this is the Hermitian-Weyl-to-computational transform.
+
+    Returns a d^2 by d^2 matrix where column i is vec(B_i).
     """
-    # Single qubit Paulis
-    Identity = jnp.array([[1, 0], [0, 1]], dtype=jnp.complex128)
-    X = jnp.array([[0, 1], [1, 0]], dtype=jnp.complex128)
-    Y = jnp.array([[0, -1j], [1j, 0]], dtype=jnp.complex128)
-    Z = jnp.array([[1, 0], [0, -1]], dtype=jnp.complex128)
-
-    single_paulis = [Identity, X, Y, Z]
-
-    if n_qubits == 1:
-        return single_paulis
-
-    # Build n-qubit Paulis recursively
-    result = single_paulis
-    for _ in range(n_qubits - 1):
-        new_result = []
-        for pauli in result:
-            for single_pauli in single_paulis:
-                new_result.append(jnp.kron(pauli, single_pauli))
-        result = new_result
-
-    return result
+    basis_mats = n_qudit_herm_basis(dims[0]).matrix
+    return jnp.stack([op.T.ravel() for op in basis_mats], axis=1)
 
 
-@partial(jax.jit, static_argnames=["dims"])
-def _pauli2computational_basis_matrix_jax(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
+@lru_cache(maxsize=32)
+def _computational2pauli_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
     """
-    Produce basis transform matrix from unnormalized Pauli basis to computational basis.
+    Produce basis transform matrix from computational basis to Hermitian operator basis.
 
-    Returns a dim**2 by dim**2 matrix where column i is vec(sigma_i).
-    """
-    # Compute n_qubits from dims[0] directly (must be a power of 2)
-    n_qubits = len(dims[0])  # dims[0] is a tuple of qubit dimensions, each should be 2
-
-    paulis = _n_qubit_pauli_basis_jax(n_qubits)
-
-    # Stack vectorized Paulis as columns
-    conversion_mat = jnp.stack([pauli.T.ravel() for pauli in paulis], axis=1)
-
-    return conversion_mat
-
-
-@partial(jax.jit, static_argnames=["dims"])
-def _computational2pauli_basis_matrix_jax(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
-    """
-    Produce basis transform matrix from computational basis to unnormalized Pauli basis.
-
-    This is (1/dim) * conjugate transpose of pauli2computational_basis_matrix.
+    This is (1/dim) * conjugate transpose of _pauli2computational_basis_matrix.
     """
     d = int(reduce(mul, dims[0]))
-    p2c = _pauli2computational_basis_matrix_jax(dims)
+    p2c = _pauli2computational_basis_matrix(dims)
     return jnp.conj(p2c).T / d
 
 
@@ -146,11 +113,16 @@ def superop_to_pauli_liouville(superop: SuperOp) -> PauliLiouville:
     """
     d_out, d_in = superop.d
     assert d_in == d_out, "Superoperator to Pauli-Liouville conversion only supports square operators"
-    d = d_in
 
-    c2p = _computational2pauli_basis_matrix_jax(superop.dims)
-    data = c2p @ superop.matrix @ jnp.conj(c2p).T * d
-    return PauliLiouville.from_matrix(jnp.real(data), superop.dims)
+    # ensure_compile_time_eval forces eager evaluation so that the @lru_cache
+    # in _operator_basis stores concrete arrays, not JIT tracers that would
+    # leak across compilation scopes.
+    with jax.ensure_compile_time_eval():
+        c2p = _computational2pauli_basis_matrix(superop.dims)
+    data = c2p @ superop.matrix @ jnp.conj(c2p).T * d_in
+    # The Hermitian operator basis guarantees real PL matrices for CP maps.
+    data = data.real
+    return PauliLiouville.from_matrix(data, superop.dims)
 
 
 @jax.jit
@@ -162,10 +134,13 @@ def pauli_liouville_to_superop(pauli_liouville: PauliLiouville) -> SuperOp:
     """
     d_out, d_in = pauli_liouville.d
     assert d_in == d_out, "Pauli-Liouville to Superoperator conversion only supports square operators"
-    d = d_in
 
-    p2c = _pauli2computational_basis_matrix_jax(pauli_liouville.dims)
-    data = p2c @ pauli_liouville.matrix @ jnp.conj(p2c).T / d
+    # ensure_compile_time_eval forces eager evaluation so that the @lru_cache
+    # in _operator_basis stores concrete arrays, not JIT tracers that would
+    # leak across compilation scopes.
+    with jax.ensure_compile_time_eval():
+        p2c = _pauli2computational_basis_matrix(pauli_liouville.dims)
+    data = p2c @ pauli_liouville.matrix @ jnp.conj(p2c).T / d_in
     return SuperOp.from_matrix(data, pauli_liouville.dims)
 
 

@@ -33,6 +33,7 @@ from ._quantum_objects import (
     Unitary,
 )
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
+from ._promotion import promote, promote_hilbert_space
 
 CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
 
@@ -48,7 +49,7 @@ def apply_superop_to_density_matrix(superop: SuperOp, rho: DensityMatrix) -> Den
     :param rho: Density matrix with shape ensemble_size + (d, d)
     :return: Transformed density matrix with broadcasted ensemble_size + (d, d)
     """
-    assert superop.dims[0] == rho.dims, "Superoperator and density matrix must have the same dims."
+    superop, rho = promote_hilbert_space(superop, rho)
 
     # Get dimension
     d = rho.d  # Linear dimension
@@ -105,7 +106,7 @@ def apply_kraus_to_density_matrix(kraus_map: KrausMap, rho: DensityMatrix) -> De
     :param rho: Density matrix with shape ensemble_size + (d, d)
     :return: Transformed density matrix with broadcasted ensemble_size + (d, d)
     """
-    assert kraus_map.dims[0] == rho.dims, "Kraus map and density matrix must have the same dims."
+    kraus_map, rho = promote_hilbert_space(kraus_map, rho)
 
     # Get matrix representations
     kraus_mat = kraus_map.matrix
@@ -140,9 +141,9 @@ def apply_pauli_liouville_to_density_matrix(pl: PauliLiouville, rho: DensityMatr
 
 @jax.jit
 def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> StateVector:
-    """Apply a unitary operator to a state vector.
+    r"""Apply a unitary operator to a state vector.
 
-    Computes |ψ_out⟩ = U |ψ_in⟩
+    Computes \|ψ_out⟩ = U \|ψ_in⟩
 
     Supports ensemble broadcasting: unitary and state can have different ensemble sizes,
     and standard NumPy broadcasting rules apply.
@@ -151,7 +152,7 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
     :param state: State vector with shape ensemble_size + (d,)
     :return: Transformed state vector with broadcasted ensemble_size + (d,)
     """
-    assert unitary.dims[0] == state.dims, "Unitary and state vector must have the same dims."
+    unitary, state = promote_hilbert_space(unitary, state)
 
     # Get matrix representations
     unitary_mat = unitary.matrix
@@ -263,7 +264,7 @@ def compute_kraus_observables_from_states(
     :param kraus_ops: A Kraus Channel.
     :param input_states: A (num_states, d, d) array of density matrices.
     :param observables: A (num_observables, d, d) array of observables.
-    :return (num_states, num_observables) array of expectation values.
+    :return: ``(num_states, num_observables)`` array of expectation values.
     """
     # Get matrix representations
     input_mat = input_states.matrix
@@ -475,6 +476,9 @@ def targeted_apply_superop(superoperator: SuperOp, rho: DensityMatrix, subsystem
     :param subsystem: The qubit indices of the operator.
     :return: A density matrix.
     """
+    target_dims = tuple(rho.dims[i] for i in subsystem)
+    if superoperator.dims[0] != target_dims:
+        superoperator = promote(superoperator, target_dims)
     n = len(rho.dims)
     einsum_str = _generate_superop_contraction(subsystem, n)
     super_tensor = superoperator.data
@@ -497,6 +501,9 @@ def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem:
     :param subsystem: The qubit indices of the operator.
     :return: A density matrix.
     """
+    target_dims = tuple(rho.dims[i] for i in subsystem)
+    if kraus_map.dims[0] != target_dims:
+        kraus_map = promote(kraus_map, target_dims)
     n = len(rho.dims)
     einsum_str = _generate_kraus_map_contraction(subsystem, n)
     kraus_tensor = kraus_map.data
@@ -520,6 +527,9 @@ def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: Tuple[
     :param subsystem: The qubit indices of the operator.
     :return: A state vector.
     """
+    target_dims = tuple(psi.dims[i] for i in subsystem)
+    if unitary.dims[0] != target_dims:
+        unitary = promote(unitary, target_dims)
     n = len(psi.dims)
     einsum_str = _generate_unitary_contraction(subsystem, n)
     output_state_vector = jnp.einsum(
@@ -586,6 +596,9 @@ def targeted_apply_kraus_map_trajectory(
     :param subsystem: The qubit indices the operator acts on.
     :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
     """
+    target_dims = tuple(psi.dims[i] for i in subsystem)
+    if kraus_map.dims[0] != target_dims:
+        kraus_map = promote(kraus_map, target_dims)
     n = len(psi.dims)
     n_kraus = kraus_map.data.shape[kraus_map.num_ensemble_dims]
 

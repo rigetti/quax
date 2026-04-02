@@ -42,17 +42,18 @@ from quax import (
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_compose_superoperators(seed, num_qubits, size_a, size_b):
+def test_compose_superoperators(seed, num_qudits, qudit_dim, size_a, size_b):
     """Test composition for all representations."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     kraus_rank = d
 
     # Generate two random channels
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     choi_a = random_choi(dims=dims, rank=kraus_rank, key=key1, size=size_a)
     choi_b = random_choi(dims=dims, rank=kraus_rank, key=key2, size=size_b)
 
@@ -104,25 +105,30 @@ def test_compose_superoperators(seed, num_qubits, size_a, size_b):
     assert jnp.allclose(fid_pauli, 1.0, atol=1e-6), "Composed PauliLiouville operators don't match"
 
     # Compose KrausMaps
-    kraus_a = choi_to_kraus(choi_a)
-    kraus_b = choi_to_kraus(choi_b)
-    kraus_composed = compose_kraus_map(kraus_a, kraus_b)
-    assert kraus_composed.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
-    choi_from_kraus = kraus_to_choi(kraus_composed)
-    fid_kraus = process_fidelity(choi_from_kraus, qobj_composed_ref)
-    assert jnp.allclose(fid_kraus, 1.0, atol=1e-6), "Composed KrausMap operators don't match"
+    # Skip for large d: choi_to_kraus produces d*d Kraus operators and
+    # compose_kraus_map builds all d^2*d^2 pairwise products, requiring
+    # O(d^4 * d^2) memory which exceeds available RAM for d >= 16.
+    if d <= 16:
+        kraus_a = choi_to_kraus(choi_a)
+        kraus_b = choi_to_kraus(choi_b)
+        kraus_composed = compose_kraus_map(kraus_a, kraus_b)
+        assert kraus_composed.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
+        choi_from_kraus = kraus_to_choi(kraus_composed)
+        fid_kraus = process_fidelity(choi_from_kraus, qobj_composed_ref)
+        assert jnp.allclose(fid_kraus, 1.0, atol=1e-6), "Composed KrausMap operators don't match"
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_compose_unitaries(seed, num_qubits, size_a, size_b):
+def test_compose_unitaries(seed, num_qudits, qudit_dim, size_a, size_b):
     """Test unitary and kraus composition."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
 
     # Generate two random channels
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     unitary_a = random_unitary(dims=dims, key=key1, size=size_a)
     unitary_b = random_unitary(dims=dims, key=key2, size=size_b)
 
@@ -155,15 +161,16 @@ def test_compose_unitaries(seed, num_qubits, size_a, size_b):
 
 
 @pytest.mark.parametrize("seed", [58, 3854, 2047, 475])
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("size_a, size_b", [((), ()), ((3,), ()), ((3,), (3,)), ((3, 4), ()), ((3, 4), (3, 4))])
-def test_compose_operators(seed, num_qubits, size_a, size_b):
+def test_compose_operators(seed, num_qudits, qudit_dim, size_a, size_b):
     """Test operator composition."""
     key = jax.random.key(seed)
     key1, key2 = jax.random.split(key)
 
     # Generate two random channels
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     unitary_a = random_unitary(dims=dims, key=key1, size=size_a)
     unitary_b = random_unitary(dims=dims, key=key2, size=size_b)
 

@@ -306,6 +306,7 @@ def test_example():
 3. **Verify JAX compatibility** (no NumPy-specific operations)
 4. **Update docstrings** for public API changes
 5. **Check exports** in `__init__.py` for new public functions
+6. Use `complex` rather than `jnp.complex128` or `jnp.complex64`.
 
 ### When Adding Features
 

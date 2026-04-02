@@ -87,3 +87,49 @@ def test_tensor_density_matrices(num_qubits_a, num_qubits_b):
         tensor_state.matrix[1:, 1:],
         jnp.zeros((2 ** (num_qubits_a + num_qubits_b) - 1, 2 ** (num_qubits_a + num_qubits_b) - 1)),
     )
+
+
+# ============================================================================
+# Qudit state creation tests
+# ============================================================================
+
+
+@pytest.mark.parametrize("dims", [(3,), (3, 3), (2, 3), (4,)])
+def test_zero_state_vector_qudit(dims):
+    """Check the zero state vector for qudit systems."""
+    from functools import reduce
+    from operator import mul
+
+    psi = zero_state_vector(dims=dims)
+    d = reduce(mul, dims, 1)
+    assert psi.matrix.shape == (d,)
+    assert psi.dims == dims
+    assert jnp.isclose(psi.matrix[0], 1.0)
+    assert jnp.allclose(psi.matrix[1:], 0.0)
+
+
+@pytest.mark.parametrize("dims", [(3,), (3, 3), (2, 3)])
+def test_zero_state_matrix_qudit(dims):
+    """Check the zero state matrix for qudit systems."""
+    from functools import reduce
+    from operator import mul
+
+    rho = zero_state_matrix(dims=dims)
+    d = reduce(mul, dims, 1)
+    assert rho.matrix.shape == (d, d)
+    assert rho.dims == dims
+    assert jnp.isclose(rho.matrix[0, 0], 1.0)
+    assert jnp.allclose(rho.matrix[0, 1:], 0.0)
+
+
+@pytest.mark.parametrize("dims", [(3,), (3, 3), (2, 3)])
+def test_mixed_state_matrix_qudit(dims):
+    """Check the maximally mixed state for qudit systems."""
+    from functools import reduce
+    from operator import mul
+
+    rho = mixed_state_matrix(dims=dims)
+    d = reduce(mul, dims, 1)
+    assert rho.matrix.shape == (d, d)
+    assert rho.dims == dims
+    assert jnp.allclose(rho.matrix, jnp.eye(d, dtype=complex) / d)

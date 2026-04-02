@@ -11,52 +11,129 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import itertools
+
 import jax
 import jax.numpy as jnp
-from typing import Tuple
+from functools import reduce
+from jax import Array
+from operator import mul
+from typing import Optional, Tuple
 from ._quantum_objects import DensityMatrix, StateVector
 
 
-@jax.jit(static_argnames=("n_qubits", "ensemble_size"))
-def zero_state_vector(n_qubits: int, ensemble_size: Tuple[int, ...] = ()) -> StateVector:
+def _format_state_vector_str(vec: Array, dims: Tuple[int, ...], decimals: int, atol: float) -> str:
+    """Format a single (non-ensembled) state vector as a Unicode Dirac-notation string."""
+
+    def _fmt(x: float) -> str:
+        rounded = round(x, decimals)
+        if rounded == 0.0:
+            return "0"
+        return f"{rounded:.{decimals}f}".rstrip("0").rstrip(".")
+
+    def _fmt_coeff(amp: complex) -> str | None:
+        r_str = _fmt(amp.real)
+        im_str = _fmt(amp.imag)
+        if r_str == "0" and im_str == "0":
+            return None
+        elif im_str == "0":
+            return r_str
+        elif r_str == "0":
+            return f"{im_str}i"
+        else:
+            sign = "+" if amp.imag > 0 else "-"
+            return f"({r_str}{sign}{_fmt(abs(amp.imag))}i)"
+
+    terms = []
+    for idx, amp in zip(itertools.product(*[range(d) for d in dims]), vec.ravel()):
+        if abs(amp) < atol:
+            continue
+        coeff = _fmt_coeff(complex(amp))
+        if coeff is None:
+            continue
+        ket = "|" + "".join(str(i) for i in idx) + "\u27e9"
+        terms.append((coeff, ket))
+
+    if not terms:
+        return "0"
+
+    parts = []
+    for i, (coeff, ket) in enumerate(terms):
+        if i == 0:
+            parts.append(f"{coeff}{ket}")
+        else:
+            if coeff.startswith("-"):
+                parts.append(f" - {coeff[1:]}{ket}")
+            else:
+                parts.append(f" + {coeff}{ket}")
+
+    return "".join(parts)
+
+
+@jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
+def zero_state_vector(
+    n_qubits: int = 0,
+    ensemble_size: Tuple[int, ...] = (),
+    dims: Optional[Tuple[int, ...]] = None,
+) -> StateVector:
     """
     Construct a vector corresponding to ``|0>``.
 
-    :param n_qubits: The number of qubits.
+    :param n_qubits: The number of qubits (ignored when *dims* is given).
     :param ensemble_size: The shape of the ensemble dimensions (default: no ensemble).
-    :return: The state vector ``|000...0>`` for `n_qubits`.
+    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
+        When supplied, *n_qubits* is ignored.
+    :return: The state vector ``|000...0>`` for the given system.
     """
-    d = 2**n_qubits
+    if dims is None:
+        dims = (2,) * n_qubits
+    d = reduce(mul, dims, 1)
     state_matrix = jnp.zeros(ensemble_size + (d,), complex)
     state_matrix = state_matrix.at[..., 0].set(complex(1.0, 0))
-    return StateVector.from_matrix(state_matrix, (2,) * n_qubits)
+    return StateVector.from_matrix(state_matrix, dims)
 
 
-@jax.jit(static_argnames=("n_qubits", "ensemble_size"))
-def zero_state_matrix(n_qubits: int, ensemble_size: Tuple[int, ...] = ()) -> DensityMatrix:
+@jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
+def zero_state_matrix(
+    n_qubits: int = 0,
+    ensemble_size: Tuple[int, ...] = (),
+    dims: Optional[Tuple[int, ...]] = None,
+) -> DensityMatrix:
     """
     Construct a matrix corresponding to ``|0><0|``.
 
-    :param n_qubits: The number of qubits.
+    :param n_qubits: The number of qubits (ignored when *dims* is given).
     :param ensemble_size: The shape of the ensemble dimensions (default: no ensemble).
-    :return: The state matrix ``|000...0><000...0|`` for `n_qubits`.
+    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
+        When supplied, *n_qubits* is ignored.
+    :return: The state matrix ``|000...0><000...0|`` for the given system.
     """
-    state_matrix = jnp.zeros(ensemble_size + (2**n_qubits, 2**n_qubits), complex)
+    if dims is None:
+        dims = (2,) * n_qubits
+    d = reduce(mul, dims, 1)
+    state_matrix = jnp.zeros(ensemble_size + (d, d), complex)
     state_matrix = state_matrix.at[..., 0, 0].set(complex(1.0, 0))
-    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
+    return DensityMatrix.from_matrix(state_matrix, dims)
 
 
-@jax.jit(static_argnames=("n_qubits",))
-def mixed_state_matrix(n_qubits: int) -> DensityMatrix:
+@jax.jit(static_argnames=("n_qubits", "dims"))
+def mixed_state_matrix(
+    n_qubits: int = 0,
+    dims: Optional[Tuple[int, ...]] = None,
+) -> DensityMatrix:
     """
     Construct a matrix corresponding to the maximally mixed state.
 
-    :param n_qubits: The number of qubits.
-    :return: The state matrix  ``I / d`` where ``d = 2**n_qubits``.
+    :param n_qubits: The number of qubits (ignored when *dims* is given).
+    :param dims: Per-subsystem dimensions, e.g. ``(3,)`` for a single qutrit.
+        When supplied, *n_qubits* is ignored.
+    :return: The state matrix  ``I / d`` where ``d`` is the total dimension.
     """
-    d = 2**n_qubits
+    if dims is None:
+        dims = (2,) * n_qubits
+    d = reduce(mul, dims, 1)
     state_matrix = jnp.eye(d, dtype=complex) / d
-    return DensityMatrix.from_matrix(state_matrix, (2,) * n_qubits)
+    return DensityMatrix.from_matrix(state_matrix, dims)
 
 
 @jax.jit
