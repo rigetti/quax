@@ -124,14 +124,14 @@ def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, si
 
 @jax.jit(static_argnames=("dims", "size"))
 def random_state_vector(dims: Tuple[int, ...], key: Array, size: Tuple[int, ...] = ()) -> "StateVector":
-    """
-    Given a Hilbert space dimension dim, returns a state vector |ψ⟩ ∈ C^dim
+    r"""
+    Given a Hilbert space dimension dim, returns a state vector \|ψ⟩ ∈ C^dim
     drawn uniformly from the unit sphere in C^dim.
 
     :param dims: The Qudit dimensions.
     :param key: The random number generator.
     :param size: The number of state vectors to generate.
-    :return: Returns a state vector |ψ⟩ drawn uniformly from the unit sphere in C^dim.
+    :return: Returns a state vector \|ψ⟩ drawn uniformly from the unit sphere in C^dim.
     """
     dim = reduce(mul, dims)
 

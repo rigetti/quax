@@ -146,7 +146,7 @@ Random Generators
    random_state_vector
    random_density_matrix
    random_unitary
-   random_choi_BCSZ
+   random_choi
    ginibre_matrix_complex
 
 Common Channels

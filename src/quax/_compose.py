@@ -18,6 +18,7 @@ import jax
 import jax.numpy as jnp
 
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator
+from ._promotion import promote_hilbert_space
 from ._superoperator_transformations import (
     choi_to_superop,
     superop_to_choi,
@@ -34,7 +35,7 @@ def compose_kraus_map(k1: KrausMap, k2: KrausMap) -> KrausMap:
     :param k2: KrausMap for channel E2 (applied first).
     :return: A KrausMap containing the composed Kraus decomposition.
     """
-    assert k1.dims == k2.dims, "Kraus operators must act on the same space to be composed."
+    k1, k2 = promote_hilbert_space(k1, k2)
     dims = k1.dims
     d_out, d_in = k1.d
     n1 = k1.matrix.shape[-3]
@@ -64,7 +65,7 @@ def compose_operator(O1: Operator, O2: Operator) -> Operator:
     :param O2: Operator matrix for the second system
     :returns: Operator matrix for the composed system
     """
-    assert O1.dims == O2.dims, "Operators must act on the same space to be composed."
+    O1, O2 = promote_hilbert_space(O1, O2)
 
     # Use einsum with ellipsis to handle arbitrary ensemble dimensions
     data = jnp.einsum("...ab,...bc->...ac", O1.matrix, O2.matrix)
@@ -104,7 +105,7 @@ def compose_superop(S1: SuperOp, S2: SuperOp) -> SuperOp:
     :param S2: Superoperator matrix for the second channel (applied first)
     :returns: Superoperator matrix for the composed channel
     """
-    assert S1.dims == S2.dims, "Superoperators must act on the same space to be composed."
+    S1, S2 = promote_hilbert_space(S1, S2)
 
     # Use matmul which automatically broadcasts ensemble dimensions
     data = S1.matrix @ S2.matrix
@@ -135,7 +136,7 @@ def compose_choi(J1: Choi, J2: Choi) -> Choi:
     :param J2: Choi matrix for the second channel (applied first).
     :return: Choi matrix for the composed channel.
     """
-    assert J1.dims == J2.dims, "Choi matrices must act on the same space to be composed."
+    J1, J2 = promote_hilbert_space(J1, J2)
 
     # Convert to superoperators, compose, and convert back
     # This avoids the complexity of handling column-stacking index conventions
@@ -165,7 +166,7 @@ def compose_pauli_liouville(P1: PauliLiouville, P2: PauliLiouville) -> PauliLiou
     :param P2: Pauli-Liouville matrix for the second channel (applied first)
     :returns: Pauli-Liouville matrix for the composed channel
     """
-    assert P1.dims == P2.dims, "Pauli-Liouville matrices must act on the same space to be composed."
+    P1, P2 = promote_hilbert_space(P1, P2)
 
     # Use matmul which automatically broadcasts ensemble dimensions
     data = P1.matrix @ P2.matrix

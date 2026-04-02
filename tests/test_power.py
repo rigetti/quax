@@ -42,7 +42,7 @@ import quax as qx
 # making fractional powers invalid. Instead, we generate
 # random CPTP maps via Lindbladian exponentiation, which guarantees infinite divisibility.
 def _random_lindbladian(
-    num_qubits: int,
+    dims: Tuple[int, ...],
     n_jumps: int = 2,
     h_scale: float = 1.0,
     gamma_scale: float = 1.0,
@@ -55,7 +55,7 @@ def _random_lindbladian(
     else:
         num_superops = reduce(mul, size)
     chois = []
-    d = 2**num_qubits
+    d = reduce(mul, dims)
     d2 = d * d
     for _ in range(num_superops):
         # Random Hamiltonian
@@ -76,18 +76,20 @@ def _random_lindbladian(
         chois.append(choi)
 
     data = jnp.asarray(chois).reshape(size + (d2, d2))
-    return qx.Choi.from_matrix(data, ((2,) * num_qubits, (2,) * num_qubits))
+    return qx.Choi.from_matrix(data, (dims, dims))
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("power", [1, 2, 3, 0.5, 1.5])
 @pytest.mark.parametrize("seed", [583, 3357])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (3, 4)])
-def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
+def test_superoperator_powers(num_qudits, qudit_dim, power, seed, ensemble_size):
     """Test superoperator power functions."""
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
-    # random_choi = random_choi_BCSZ(dims=dims, rank=rank, key=key, size=ensemble_size)
-    random_choi = _random_lindbladian(num_qubits, size=ensemble_size)
+    if num_qudits == 3 and qudit_dim == 3:
+        pytest.skip("3-qutrit superoperators (729x729 matrices) with ensembles cause OOM")
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    random_choi = _random_lindbladian((qudit_dim,) * num_qudits, size=ensemble_size)
     random_superop = qx.choi_to_superop(random_choi)
     random_kraus = qx.choi_to_kraus(random_choi)
     random_pauli_liouville = qx.choi_to_pauli_liouville(random_choi)
@@ -126,14 +128,16 @@ def test_superoperator_powers(num_qubits, power, seed, ensemble_size):
     )
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("power", [1, 2, 3, 0.5, 1.5])
 @pytest.mark.parametrize("seed", [583, 3357])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (3, 4)])
-def test_power_unitarys(num_qubits, power, seed, ensemble_size):
+def test_power_unitarys(num_qudits, qudit_dim, power, seed, ensemble_size):
     """Test that unitary matrices are correctly powered."""
     key = jax.random.key(seed)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    d = qudit_dim**num_qudits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
 
     # Generate random unitary
     random_U = qx.random_unitary(dims=dims, key=key, size=ensemble_size)
@@ -151,29 +155,30 @@ def test_power_unitarys(num_qubits, power, seed, ensemble_size):
 
     # Check unitarity is preserved (U^† @ U = I)
     result = powered_U.h @ powered_U
-    identity_shape = (2**num_qubits, 2**num_qubits)
+    identity_shape = (d, d)
     if ensemble_size:
-        identity = jnp.eye(identity_shape[0])
+        identity = jnp.eye(d)
         # Expand identity to match ensemble dimensions
         for _ in range(len(ensemble_size)):
             identity = identity[None, ...]
         identity = jnp.broadcast_to(identity, ensemble_size + identity_shape)
     else:
-        identity = jnp.eye(identity_shape[0])
+        identity = jnp.eye(d)
 
     assert jnp.allclose(result.matrix, identity, atol=1e-6)
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("power", [1, 2, 3, 0.5, 1.5])
 @pytest.mark.parametrize("seed", [583, 3357])
 @pytest.mark.parametrize("ensemble_size", [(), (3,), (3, 4)])
-def test_density_matrix_powers(num_qubits, power, seed, ensemble_size):
+def test_density_matrix_powers(num_qudits, qudit_dim, power, seed, ensemble_size):
     """Test that density matrices are correctly powered."""
     key = jax.random.key(seed)
     # For DensityMatrix, dims is a single tuple of subsystem dimensions
-    dims = (2,) * num_qubits
-    rank = 2**num_qubits
+    dims = (qudit_dim,) * num_qudits
+    rank = qudit_dim**num_qudits
 
     # Generate random density matrix
     random_rho = qx.random_density_matrix(rank=rank, dims=dims, key=key, size=ensemble_size)

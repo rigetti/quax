@@ -37,12 +37,13 @@ from quax import (
 # ============================================================================
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_fidelity_pure_states(seed, num_qubits):
+def test_fidelity_pure_states(seed, qudit_dim, num_qudits):
     """Test fidelity between pure states against reference implementation."""
     key = jax.random.key(seed)
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     key1, key2, key3, key4 = jax.random.split(key, 4)
     psi = jax.random.normal(key1, (d,)) + 1j * jax.random.normal(key2, (d,))
     psi = psi / jnp.linalg.norm(psi)
@@ -50,8 +51,8 @@ def test_fidelity_pure_states(seed, num_qubits):
     phi = phi / jnp.linalg.norm(phi)
 
     # Convert to JAX arrays
-    psi_jax = StateVector.from_matrix(jnp.array(psi), (2,) * num_qubits)
-    phi_jax = StateVector.from_matrix(jnp.array(phi), (2,) * num_qubits)
+    psi_jax = StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
+    phi_jax = StateVector.from_matrix(jnp.array(phi), (qudit_dim,) * num_qudits)
 
     # Our fidelity is the square of the standard definition used in qutip
     fid_qutip = qutip.fidelity(qutip.Qobj(psi[:, jnp.newaxis]), qutip.Qobj(phi[:, jnp.newaxis])) ** 2
@@ -60,12 +61,13 @@ def test_fidelity_pure_states(seed, num_qubits):
     assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_fidelity_density_matrices(seed, num_qubits):
+def test_fidelity_density_matrices(seed, qudit_dim, num_qudits):
     """Test fidelity between density matrices against reference implementation."""
     key = jax.random.key(seed)
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     # Create random density matrices
     key1, key2, key3, key4 = jax.random.split(key, 4)
     A = jax.random.normal(key1, (d, d)) + 1j * jax.random.normal(key2, (d, d))
@@ -77,8 +79,8 @@ def test_fidelity_density_matrices(seed, num_qubits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (2,) * num_qubits)
-    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (2,) * num_qubits)
+    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
+    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
 
     # Compute fidelities
     # Our fidelity is the square of the standard definition used in qutip
@@ -88,12 +90,13 @@ def test_fidelity_density_matrices(seed, num_qubits):
     assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_fidelity_mixed_pure_density(seed, num_qubits):
+def test_fidelity_mixed_pure_density(seed, qudit_dim, num_qudits):
     """Test fidelity between pure state and density matrix."""
     key = jax.random.key(seed)
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     key1, key2, key3, key4 = jax.random.split(key, 4)
     psi = jax.random.normal(key1, (d,)) + 1j * jax.random.normal(key2, (d,))
     psi = psi / jnp.linalg.norm(psi)
@@ -103,8 +106,8 @@ def test_fidelity_mixed_pure_density(seed, num_qubits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    psi_jax = StateVector.from_matrix(jnp.array(psi), (2,) * num_qubits)
-    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (2,) * num_qubits)
+    psi_jax = StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
+    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
 
     # Compute fidelities
     # Our fidelity is the square of the standard definition used in qutip
@@ -114,18 +117,19 @@ def test_fidelity_mixed_pure_density(seed, num_qubits):
     assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_fidelity_self_is_one(seed, num_qubits):
+def test_fidelity_self_is_one(seed, qudit_dim, num_qudits):
     """Test that fidelity of a state with itself is 1."""
     key = jax.random.key(seed)
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     key1, key2 = jax.random.split(key, 2)
     A = jax.random.normal(key1, (d, d)) + 1j * jax.random.normal(key2, (d, d))
     rho = A @ A.conj().T
     rho = rho / jnp.trace(rho)
 
-    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (2,) * num_qubits)
+    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
     fid_jax = float(fidelity(rho_jax, rho_jax))
 
     assert jnp.isclose(fid_jax, 1.0, atol=1e-6)
@@ -136,13 +140,15 @@ def test_fidelity_self_is_one(seed, num_qubits):
 # ============================================================================
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_unitary_entanglement_fidelity(seed, num_qubits):
+def test_unitary_entanglement_fidelity(seed, qudit_dim, num_qudits):
     """Test unitary entanglement fidelity."""
     key = jax.random.key(seed)
     _, subkey = jax.random.split(key)
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    d = qudit_dim**num_qudits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     U = random_unitary(dims=dims, key=key)
     V = random_unitary(dims=dims, key=subkey)
 
@@ -151,7 +157,7 @@ def test_unitary_entanglement_fidelity(seed, num_qubits):
             U._to_qobj(),
             V._to_qobj(),
         ),
-        num_sys=num_qubits,
+        dim=d,
     )
     fid_jax = float(unitary_entanglement_fidelity(U, V))
 
@@ -175,14 +181,15 @@ def test_unitary_entanglement_fidelity(seed, num_qubits):
 # ============================================================================
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_process_fidelity_unitaries(seed, num_qubits):
+def test_process_fidelity_unitaries(seed, qudit_dim, num_qudits):
     """Test process fidelity for unitary channels."""
     key = jax.random.key(seed)
     _, subkey = jax.random.split(key)
-    d = 2**num_qubits
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    d = qudit_dim**num_qudits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
     U = random_unitary(dims=dims, key=key)
     V = random_unitary(dims=dims, key=subkey)
 
@@ -219,14 +226,15 @@ def test_process_fidelity_unitaries(seed, num_qubits):
     )
 
 
-@pytest.mark.parametrize("num_qubits", [1, 2, 3])
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
-def test_process_fidelity_random_maps(seed, num_qubits):
+def test_process_fidelity_random_maps(seed, qudit_dim, num_qudits):
     """Test process fidelity for random channels."""
-    d = 2**num_qubits
+    d = qudit_dim**num_qudits
     kraus_rank = d
     key, subkey = jax.random.split(jax.random.key(seed))
-    dims = ((2,) * num_qubits, (2,) * num_qubits)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
 
     choi_U_jax = random_choi(dims=dims, rank=kraus_rank, key=key)
     choi_V_jax = random_choi(dims=dims, rank=kraus_rank, key=subkey)

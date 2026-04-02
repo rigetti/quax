@@ -16,7 +16,9 @@ operator_tools.common_channels module
 A module containing common channels.
 """
 
-from functools import partial
+from functools import partial, reduce
+from operator import mul
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -29,7 +31,7 @@ from ._superoperator_transformations import (
     unitary_to_superop,
 )
 from ._tensor import tensor_choi
-from .gates import X, Y, Z, I
+from .gates import X, Y, Z, I, GELLMANN4, GELLMANN5, GELLMANN6, GELLMANN7, TP0, TP1, TP2
 
 
 @partial(jit, static_argnums=())
@@ -84,24 +86,31 @@ def thermal_relaxation_choi(t1s: Array, tphis: Array, duration: float) -> Choi:
     return result
 
 
-def depolarizing_channel_superoperator(depolarizing_prob: float, num_qubits: int) -> SuperOp:
+@jax.jit(static_argnames=("dims",))
+def depolarizing_channel_superoperator(
+    depolarizing_prob: Array,
+    dims: Tuple[int, ...],
+) -> SuperOp:
     """
-    Construct the superoperator for a multi-qubit depolarizing channel.
+    Construct the superoperator for a multi-qudit depolarizing channel.
 
     :param depolarizing_prob: The depolarizing probability (between 0 and 1).
-    :param num_qubits: The number of qubits.
+        Can be a scalar or an array for batched construction, e.g. an array
+        of shape ``(n,)`` produces an ensemble of *n* superoperators.
+    :param dims: Per-subsystem dimensions, e.g. ``(2,)`` for a single qubit
+        or ``(2, 2)`` for two qubits.
     :return: The superoperator matrix for the depolarizing channel.
     """
-    d = 2**num_qubits
+    depolarizing_prob = jnp.asarray(depolarizing_prob)
+    d = reduce(mul, dims, 1)
     identity_super = jnp.eye(d * d, dtype=complex)
-    # The channel is defined as rho -> (1-p) rho + p * Tr(rho) * I / d
-    # The superoperator for rho -> Tr(rho) * I / d is |I>> <<I| / d
     vec_identity = jnp.ravel(jnp.eye(d, dtype=complex))
     max_mixed_super = jnp.outer(vec_identity, vec_identity.conj()) / d
 
-    depolarizing_super_data = (1 - depolarizing_prob) * identity_super + depolarizing_prob * max_mixed_super
-    dims = (tuple([2] * num_qubits), tuple([2] * num_qubits))
-    return SuperOp.from_matrix(depolarizing_super_data, dims)
+    p = depolarizing_prob[..., None, None]
+    depolarizing_super_data = (1 - p) * identity_super + p * max_mixed_super
+    full_dims = (dims, dims)
+    return SuperOp.from_matrix(depolarizing_super_data, full_dims)
 
 
 @jax.custom_vjp
@@ -336,3 +345,65 @@ KRAUS_OPS = {
     "depolarizing": depolarizing_operators,
     "relaxation": relaxation_operators,
 }
+
+
+def stochastic_leakage_operators(gamma: float) -> KrausMap:
+    """
+    Generate the KrausMap for a leakage channel on a single qutrit.
+
+    Models population transfer from both computational states (|0⟩ and
+    |1⟩) to the leaked |2⟩ state with probability gamma per gate.
+    This matches the standard leakage RB definition where gamma is the
+    probability of leaving the computational subspace, independent of
+    the input state.
+
+    :param gamma: Leakage probability per gate (0 <= gamma <= 1)
+    :return: KrausMap with three 3x3 operator terms
+    """
+    # Transition operators from Gell-Mann raising/lowering:
+    # |2⟩⟨0| = (λ₄ - iλ₅)/2,  |2⟩⟨1| = (λ₆ - iλ₇)/2
+    raise_20 = (GELLMANN4.matrix - 1j * GELLMANN5.matrix) / 2
+    raise_21 = (GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2
+
+    k0_data = jnp.sqrt(1.0 - gamma) * (TP0.matrix + TP1.matrix) + TP2.matrix
+    k1_data = jnp.sqrt(gamma) * raise_20
+    k2_data = jnp.sqrt(gamma) * raise_21
+    data = jnp.stack([k0_data, k1_data, k2_data], axis=0)
+    return KrausMap.from_matrix(data, ((3,), (3,)))
+
+
+def leakage_operators(gamma: float) -> KrausMap:
+    """Generate the KrausMap for a |1⟩ → |2⟩ leakage channel on a single qutrit.
+
+    Models population transfer from the computational |1⟩ state only to
+    the leaked |2⟩ state with probability gamma. The |0⟩ state is
+    unaffected.
+
+    :param gamma: Leakage probability per gate (0 <= gamma <= 1)
+    :return: KrausMap with two 3x3 operator terms
+    """
+    # |2⟩⟨1| = (λ₆ - iλ₇)/2
+    raise_21 = (GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2
+
+    k0_data = TP0.matrix + jnp.sqrt(1.0 - gamma) * TP1.matrix + TP2.matrix
+    k1_data = jnp.sqrt(gamma) * raise_21
+    data = jnp.stack([k0_data, k1_data], axis=0)
+    return KrausMap.from_matrix(data, ((3,), (3,)))
+
+
+def seepage_operators(gamma: float) -> KrausMap:
+    """Generate the KrausMap for a seepage channel on a single qutrit.
+
+    Models population transfer from the leaked |2⟩ state back into the
+    computational |1⟩ state with probability gamma.
+
+    :param gamma: Seepage probability per gate (0 <= gamma <= 1)
+    :return: KrausMap with two 3x3 operator terms
+    """
+    # |1⟩⟨2| = (λ₆ + iλ₇)/2
+    lower_12 = (GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2
+
+    k0_data = TP0.matrix + TP1.matrix + jnp.sqrt(1.0 - gamma) * TP2.matrix
+    k1_data = jnp.sqrt(gamma) * lower_12
+    data = jnp.stack([k0_data, k1_data], axis=0)
+    return KrausMap.from_matrix(data, ((3,), (3,)))

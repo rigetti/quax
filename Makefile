@@ -32,7 +32,7 @@ INCLUDE = ${PACKAGE//-/_}
 
 # ... the following are evaluated greedily, and form the targets for some rules related to testing
 PROJECT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
-EXAMPLES_DIR := $(PROJECT_DIR)/examples
+EXAMPLES_DIR := $(PROJECT_DIR)/docs/examples
 EXAMPLE_NOTEBOOKS := $(wildcard $(EXAMPLES_DIR)/*.ipynb)
 
 .PHONY: FORCE  # special target you can use to force rebuild of any file; e.g. for testing the examples
@@ -50,7 +50,7 @@ help:
 .PHONY: build-docs
 build-docs: ## Build the project documentation.
 	cd ${PROJECT_DIR}
-	LC_ALL=C.UTF-8 poetry run sphinx-build -b html -D project=${PACKAGE} -D version=${VERSION} ./docs ./docs/_build
+	JAX_ENABLE_X64=1 LC_ALL=C.UTF-8 poetry run sphinx-build -b html -D project=${PACKAGE} -D version=${VERSION} ./docs ./docs/_build
 
 .PHONY: check-all
 check-all: check-format check-types  ## Check conformance to code format and typing rules.
@@ -58,26 +58,26 @@ check-all: check-format check-types  ## Check conformance to code format and typ
 .PHONY: check-format
 check-format:  ## Check conformance to code format rules.
 	cd ${PROJECT_DIR}
-	poetry run ruff format src tests examples --diff
-	poetry run ruff check src tests examples --no-fix
+	poetry run ruff format src tests --diff
+	poetry run ruff check src tests --no-fix
 
 .PHONY: check-types
 check-types: ## Check conformance to code typing rules.
 	cd ${PROJECT_DIR}
-	poetry run pyright src tests examples
+	poetry run pyright src tests
 
 .PHONY: format
 format: ## Make automatic updates to code format and style.
 	cd ${PROJECT_DIR}
-	poetry run ruff format src tests examples
-	poetry run ruff check src tests examples --fix-only
+	poetry run ruff format src tests
+	poetry run ruff check src tests --fix-only
 
 .PHONY: test-examples
-test-examples: ## Test all Jupyter notebooks in "examples" run via papermill.
+test-examples: ## Test all Jupyter notebooks in "docs/examples" run via papermill.
 	cd ${PROJECT_DIR}
 	@for notebook in $(EXAMPLE_NOTEBOOKS); do \
 		echo "Running $$notebook..."; \
-		poetry run papermill "$$notebook" /dev/null --cwd $(EXAMPLES_DIR) || exit 1; \
+		JAX_ENABLE_X64=1 poetry run papermill "$$notebook" /dev/null --cwd $(EXAMPLES_DIR) || exit 1; \
 	done
 	@echo "✅ All example notebooks ran successfully."
 

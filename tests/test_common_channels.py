@@ -14,6 +14,7 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 import quax as qx
 
 # Fractional unitary power is grad-able which unitary_power is not
@@ -23,27 +24,35 @@ from quax._common_channels import fractional_unitary_power
 class TestFractionalUnitaryPower:
     """Test the fractional_unitary_power function."""
 
-    def test_fractional_power_identity(self):
+    @pytest.mark.parametrize("qudit_dim", [2, 3])
+    def test_fractional_power_identity(self, qudit_dim):
         """Test that identity^(1/n) = identity."""
-        identity = qx.Unitary.from_matrix(jnp.eye(2, dtype=jnp.complex128), ((2,), (2,)))
+        d = qudit_dim
+        dims = ((d,), (d,))
+        identity = qx.Unitary.from_matrix(jnp.eye(d, dtype=jnp.complex128), dims)
 
         for n in [2, 3, 5, 10]:
             result = fractional_unitary_power(identity, 1.0 / n)
             fid = qx.unitary_entanglement_fidelity(result, identity)
             assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for n={n}"
 
-    def test_fractional_power_composition(self):
+    @pytest.mark.parametrize("qudit_dim", [2, 3])
+    def test_fractional_power_composition(self, qudit_dim):
         """Test that (U^(1/n))^n = U."""
-        # Test with Pauli X
+        key = jax.random.PRNGKey(42)
+        d = qudit_dim
+        dims = ((d,), (d,))
+        U = qx.random_unitary(dims=dims, key=key)
+
         n = 4
-        U_frac = fractional_unitary_power(qx.gates.X, 1.0 / n)
+        U_frac = fractional_unitary_power(U, 1.0 / n)
 
         # Compose n times
         result = U_frac
         for _ in range(n - 1):
             result = result @ U_frac
 
-        fid = qx.unitary_entanglement_fidelity(result, qx.gates.X)
+        fid = qx.unitary_entanglement_fidelity(result, U)
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for n={n}"
 
     def test_fractional_power_pauli_gates(self):
@@ -99,37 +108,34 @@ class TestFractionalUnitaryPower:
         fid = qx.unitary_entanglement_fidelity(result, qx.gates.CZ)
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for CZ^(1/2)"
 
-    def test_fractional_power_unitarity_preserved(self):
+    @pytest.mark.parametrize("qudit_dim", [2, 3, 4])
+    def test_fractional_power_unitarity_preserved(self, qudit_dim):
         """Test that fractional powers preserve unitarity."""
-        # Create a random unitary via QR decomposition
         key = jax.random.PRNGKey(42)
-        A = jax.random.normal(key, (4, 4)) + 1j * jax.random.normal(key, (4, 4))
-        U, _ = jnp.linalg.qr(A)
+        d = qudit_dim
+        dims = ((d,), (d,))
+        U = qx.random_unitary(dims=dims, key=key)
 
         # Compute fractional power
-        U_frac = fractional_unitary_power(qx.Unitary.from_matrix(U, ((2, 2), (2, 2))), 0.3)
+        U_frac = fractional_unitary_power(U, 0.3)
 
         # Check unitarity: U^† U = I
         result = U_frac.h @ U_frac
+        identity = qx.Unitary.from_matrix(jnp.eye(d, dtype=jnp.complex128), dims)
 
-        fid = qx.unitary_entanglement_fidelity(
-            result, qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
-        )
-        assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(1/3)"
+        fid = qx.unitary_entanglement_fidelity(result, identity)
+        assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(0.3)"
 
-    def test_fractional_power_determinant(self):
-        """Test that det(U^(1/n)) = det(U)^(1/n)."""
-        # For unitary matrices, |det(U)| = 1
-        # det(U^(1/n)) should also have magnitude 1
-        theta = jnp.pi / 4
-        U = qx.Unitary.from_matrix(
-            jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
-            ((2,), (2,)),
-        )
+    @pytest.mark.parametrize("qudit_dim", [2, 3])
+    def test_fractional_power_determinant(self, qudit_dim):
+        """Test that det(U^(1/n)) has magnitude 1."""
+        key = jax.random.PRNGKey(42)
+        d = qudit_dim
+        dims = ((d,), (d,))
+        U = qx.random_unitary(dims=dims, key=key)
 
         n = 5
         U_frac = fractional_unitary_power(U, 1.0 / n)
-        # Both should have magnitude 1
 
         det_U = jnp.linalg.det(U.matrix)
         det_U_frac = jnp.linalg.det(U_frac.matrix)
@@ -140,25 +146,20 @@ class TestFractionalUnitaryPower:
         assert jnp.isclose(jnp.abs(det_U), 1.0, atol=1e-5)
         assert jnp.isclose(jnp.abs(det_U_frac), 1.0, atol=1e-5)
 
-    def test_fractional_power_negative_exponent(self):
+    @pytest.mark.parametrize("qudit_dim", [2, 3])
+    def test_fractional_power_negative_exponent(self, qudit_dim):
         """Test fractional power with negative exponent (inverse)."""
-        # X^(-1) = X (since X^2 = I)
-        X_inv = fractional_unitary_power(qx.gates.X, -1.0)
-
-        fid = qx.unitary_entanglement_fidelity(X_inv, qx.gates.X)
-        assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for X^(-1)"
+        key = jax.random.PRNGKey(42)
+        d = qudit_dim
+        dims = ((d,), (d,))
+        U = qx.random_unitary(dims=dims, key=key)
+        identity = qx.Unitary.from_matrix(jnp.eye(d, dtype=jnp.complex128), dims)
 
         # Test that U @ U^(-1) = I
-        theta = jnp.pi / 6
-
-        U = qx.Unitary.from_matrix(
-            jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]], dtype=jnp.complex128),
-            ((2,), (2,)),
-        )
         U_inv = fractional_unitary_power(U, -1.0)
         result = U @ U_inv
 
-        fid = qx.unitary_entanglement_fidelity(result, qx.gates.I)
+        fid = qx.unitary_entanglement_fidelity(result, identity)
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for U^(-1)"
 
     def test_fractional_power_jit_compatible(self):
@@ -506,20 +507,20 @@ class TestDepolarizingChannelSuperoperator:
     def test_depolarizing_shape(self):
         """Test that depolarizing channel has correct shape."""
         # Single qubit
-        superop_1q = qx.depolarizing_channel_superoperator(0.1, num_qubits=1)
+        superop_1q = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2,))
         assert superop_1q.matrix.shape == (4, 4)
 
         # Two qubits
-        superop_2q = qx.depolarizing_channel_superoperator(0.1, num_qubits=2)
+        superop_2q = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2, 2))
         assert superop_2q.matrix.shape == (16, 16)
 
         # Three qubits
-        superop_3q = qx.depolarizing_channel_superoperator(0.1, num_qubits=3)
+        superop_3q = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2, 2, 2))
         assert superop_3q.matrix.shape == (64, 64)
 
     def test_depolarizing_zero_probability(self):
         """Test that zero depolarizing probability gives identity channel."""
-        superop = qx.depolarizing_channel_superoperator(0.0, num_qubits=2)
+        superop = qx.depolarizing_channel_superoperator(jnp.array(0.0), dims=(2, 2))
 
         # Should be identity superoperator
         expected = qx.SuperOp.from_matrix(jnp.eye(16, dtype=jnp.complex128), ((2, 2), (2, 2)))
@@ -529,29 +530,24 @@ class TestDepolarizingChannelSuperoperator:
 
     def test_depolarizing_jit_compatible(self):
         """Test that depolarizing_channel_superoperator is JIT-compatible."""
-        # JIT compile with static num_qubits
-        jitted_fn = jax.jit(qx.depolarizing_channel_superoperator, static_argnums=(1,))
-
-        # Test execution
-        superop = jitted_fn(0.2, 2)
+        # The function is already JIT-compiled with static_argnames=("dims",)
+        superop = qx.depolarizing_channel_superoperator(jnp.array(0.2), dims=(2, 2))
 
         # Verify shape
         assert superop.matrix.shape == (16, 16)
 
-        # Verify it gives same result as non-jitted version
-        superop_nojit = qx.depolarizing_channel_superoperator(0.2, 2)
+        # Verify a second call gives the same result
+        superop2 = qx.depolarizing_channel_superoperator(jnp.array(0.2), dims=(2, 2))
 
-        fid = qx.process_fidelity(qx.superop_to_choi(superop), qx.superop_to_choi(superop_nojit))
+        fid = qx.process_fidelity(qx.superop_to_choi(superop), qx.superop_to_choi(superop2))
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for JIT depolarizing channel"
 
     def test_depolarizing_multiple_jit_calls(self):
         """Test that JIT-compiled function works with multiple calls and different probabilities."""
-        jitted_fn = jax.jit(qx.depolarizing_channel_superoperator, static_argnums=(1,))
-
-        # Multiple calls with different probabilities (same num_qubits)
-        superop1 = jitted_fn(0.1, 2)
-        superop2 = jitted_fn(0.5, 2)
-        superop3 = jitted_fn(0.9, 2)
+        # Multiple calls with different probabilities (same dims)
+        superop1 = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2, 2))
+        superop2 = qx.depolarizing_channel_superoperator(jnp.array(0.5), dims=(2, 2))
+        superop3 = qx.depolarizing_channel_superoperator(jnp.array(0.9), dims=(2, 2))
 
         # All should have correct shape
         assert superop1.matrix.shape == (16, 16)
@@ -567,13 +563,13 @@ class TestDepolarizingChannelSuperoperator:
     def test_depolarizing_physical_bounds(self):
         """Test that depolarizing channel handles probability bounds correctly."""
         # Test at boundaries
-        superop_min = qx.depolarizing_channel_superoperator(0.0, num_qubits=1)
-        superop_max = qx.depolarizing_channel_superoperator(1.0, num_qubits=1)
+        superop_min = qx.depolarizing_channel_superoperator(jnp.array(0.0), dims=(2,))
+        superop_max = qx.depolarizing_channel_superoperator(jnp.array(1.0), dims=(2,))
 
         # Both should be valid superoperators
         assert superop_min.matrix.shape == (4, 4)
         assert superop_max.matrix.shape == (4, 4)
 
         # Test intermediate value
-        superop_mid = qx.depolarizing_channel_superoperator(0.5, num_qubits=1)
+        superop_mid = qx.depolarizing_channel_superoperator(jnp.array(0.5), dims=(2,))
         assert superop_mid.matrix.shape == (4, 4)

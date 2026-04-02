@@ -64,6 +64,37 @@ pauli_label_ops = [
 PAULI_BASIS = OperatorBasis(pauli_label_ops)
 
 
+def qudit_operator_basis_np(qudit_dim: int) -> OperatorBasis:
+    """Generate the Gell-Mann operator basis for a single qudit of dimension d (numpy version)."""
+    d = qudit_dim
+    ops = [("I", np.eye(d))]
+
+    for i, j in itertools.combinations(range(d), r=2):
+        xij = np.zeros((d, d), dtype=complex)
+        xij[i, j] = np.sqrt(d / 2)
+        xij[j, i] = np.sqrt(d / 2)
+        ops.append((f"X({i}{j})", xij))
+
+        yij = np.zeros((d, d), dtype=complex)
+        yij[i, j] = -1j * np.sqrt(d / 2)
+        yij[j, i] = 1j * np.sqrt(d / 2)
+        ops.append((f"Y({i}{j})", yij))
+
+    for k in range(1, d):
+        diag = np.array([1] * k + [-k] + [0] * (d - 1 - k), dtype=complex)
+        diag = diag * np.sqrt(d) / np.sqrt(k * (k + 1))
+        ops.append((f"Z{k}", np.diag(diag)))
+
+    return OperatorBasis(ops)
+
+
+def n_qudit_basis_np(dims) -> OperatorBasis:
+    """Construct the tensor-product operator basis for a composite qudit system (numpy version)."""
+    if len(dims) == 1:
+        return qudit_operator_basis_np(dims[0])
+    return qudit_operator_basis_np(dims[0]).product(n_qudit_basis_np(dims[1:]))
+
+
 def vec(matrix: np.ndarray) -> np.ndarray:
     return np.asarray(matrix).T.reshape((-1, 1))
 
@@ -72,20 +103,32 @@ def n_qubit_pauli_basis(n) -> OperatorBasis:
     return PAULI_BASIS**n
 
 
-def pauli2computational_basis_matrix(dim) -> np.ndarray:
-    n_qubits = int(np.log2(dim))
+def n_qudit_pauli_basis(dims) -> OperatorBasis:
+    """Return the operator basis for a composite system of qudits with given dims.
+
+    For all-qubit systems (all dims == 2), returns the standard Pauli basis.
+    Otherwise returns the generalized Gell-Mann basis.
+    """
+    if all(d == 2 for d in dims):
+        return PAULI_BASIS ** len(dims)
+    return n_qudit_basis_np(dims)
+
+
+def pauli2computational_basis_matrix(dim, dims=None) -> np.ndarray:
+    if dims is not None:
+        basis = n_qudit_pauli_basis(dims)
+    else:
+        n_qubits = int(np.log2(dim))
+        basis = n_qubit_pauli_basis(n_qubits)
 
     conversion_mat = np.zeros((dim**2, dim**2), dtype=complex)
-
-    for i, pauli in enumerate(n_qubit_pauli_basis(n_qubits)):
-        pauli_mat = pauli[1]
-        conversion_mat[:, i] = vec(pauli_mat).reshape((-1,))
-
+    for i, (_, op) in enumerate(basis):
+        conversion_mat[:, i] = vec(op).reshape((-1,))
     return conversion_mat
 
 
-def computational2pauli_basis_matrix(dim) -> np.ndarray:
-    return pauli2computational_basis_matrix(dim).conj().T / dim
+def computational2pauli_basis_matrix(dim, dims=None) -> np.ndarray:
+    return pauli2computational_basis_matrix(dim, dims=dims).conj().T / dim
 
 
 def choi2superop(choi: np.ndarray) -> np.ndarray:

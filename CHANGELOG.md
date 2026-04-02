@@ -14,6 +14,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.5.0] - 2026-04-02
+
+### Added
+
+- **Qudit support**: All core operations (state creation, channel application, superoperator transformations, composition, targeted apply, promotion, distance metrics) now support arbitrary qudit dimensions, not just qubits.
+- Qutrit gates: `TX` (shift), `TY`, `TZ` (clock), `TH` (Hadamard/QFT), `TSHIFT`, `TSWAP`.
+- Gell-Mann matrices: `GELLMANN1`–`GELLMANN8` and `GELLMANN_MATRICES` ensemble as `Observable` instances.
+- Weyl operators: `W00`–`W22` and `WEYLS3` ensemble.
+- `qudit_operator_basis` and `n_qudit_basis` for constructing Weyl-Heisenberg operator bases for arbitrary qudit dimensions.
+- `bitstring_probability` and `probabilities` for computing measurement outcome probabilities from state vectors and density matrices.
+- `promote` (singledispatch) for embedding quantum objects into larger Hilbert spaces, supporting `StateVector`, `DensityMatrix`, `Unitary`, `Operator`, `SuperOp`, `Choi`, `KrausMap`, and `PauliLiouville`.
+- `broadcast_qudits` utility for computing the target dims when composing objects of different sizes.
+- Leakage channel operators: `leakage_operators`, `stochastic_leakage_operators`, `seepage_operators`.
+- `depolarizing_channel_superoperator` now accepts a `dims` keyword argument for arbitrary qudit dimensions.
+- Leakage randomized benchmarking example notebook.
+
+### Changed
+
+- Distance metric functions (`depolarizing_constant_to_average_fidelity`, `average_fidelity_to_process_fidelity`, `process_fidelity_to_average_fidelity`, `process_fidelity_to_depolarizing_constant`, `average_fidelity_to_depolarizing_constant`, `unitarity_to_stochastic_infidelity`, `depolarizing_constant_to_process_fidelity`) now accept an optional `dim` parameter for non-qubit systems.
+- Test fixtures consolidated from separate `num_qubits`/`qudit_dim` parameters to a unified `dims` tuple covering qubit, qutrit, ququint, and mixed-dimension systems.
+- Test suite expanded with qutrit and mixed qubit-qutrit test cases throughout.
+
 ## [0.4.4] - 2026-03-11
 
 ## Added

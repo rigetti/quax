@@ -35,6 +35,7 @@ RUN apt-get update -qq \
     sudo \
     nodejs \
     npm \
+    pandoc \
     # python
     python3.12-dev \
     python3.12-venv \

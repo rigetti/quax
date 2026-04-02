@@ -42,6 +42,9 @@ from ._common_channels import (
     dephasing_operators,
     depolarizing_operators,
     relaxation_operators,
+    leakage_operators,
+    stochastic_leakage_operators,
+    seepage_operators,
     KRAUS_OPS,
 )
 from ._compose import (
@@ -52,7 +55,7 @@ from ._compose import (
     compose_unitary,
     compose_operator,
 )
-from ._distance_metrics import (
+from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
     depolarizing_constant_to_average_fidelity,
@@ -64,8 +67,17 @@ from ._distance_metrics import (
     unitarity_to_stochastic_infidelity,
     unitary_entanglement_fidelity,
 )
+from ._operator_basis import (
+    hermitian_weyl_basis,
+    hermitian_weyl_basis_labels,
+    n_qudit_basis,
+    n_qudit_herm_basis,
+    weyl_basis,
+    weyl_basis_labels,
+)
+from ._observables import bitstring_probability, probabilities
 from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
-from ._promotion import promote_state_vector_to_density_matrix
+from ._promotion import promote, promote_state_vector_to_density_matrix
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -178,6 +190,9 @@ __all__ = [
     "dephasing_operators",
     "depolarizing_operators",
     "relaxation_operators",
+    "leakage_operators",
+    "stochastic_leakage_operators",
+    "seepage_operators",
     "KRAUS_OPS",
     # Compose quantum objects
     "compose_kraus_map",
@@ -271,7 +286,18 @@ __all__ = [
     "is_completely_positive",
     "is_trace_preserving",
     # Promotion functions
+    "promote",
     "promote_state_vector_to_density_matrix",
+    # Operator basis functions
+    "weyl_basis",
+    "weyl_basis_labels",
+    "hermitian_weyl_basis",
+    "hermitian_weyl_basis_labels",
+    "n_qudit_basis",
+    "n_qudit_herm_basis",
+    # Observables
+    "bitstring_probability",
+    "probabilities",
     # Power functions
     "power_choi",
     "power_kraus",
