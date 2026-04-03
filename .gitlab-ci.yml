@@ -83,7 +83,7 @@ test-package:
     - flexible
   variables:
     KUBERNETES_CPU_REQUEST: 12
-    KUBERNETES_MEMORY_LIMIT: 20Gi
+    KUBERNETES_MEMORY_LIMIT: 30Gi
     KUBERNETES_NODE_SELECTOR_INSTANCE_CATEGORY: karpenter.k8s.aws/instance-category=c
   script:
     - make test-package
