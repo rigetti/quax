@@ -39,6 +39,10 @@ choi = qx.unitary_to_choi(U)
 pauli_liouville = qx.to_pauli_liouville(choi)
 ```
 
+## Acknowledgements
+
+Quax draws inspiration, educational material, and some code from [forest-benchmarking](https://github.com/rigetti/forest-benchmarking), Rigetti's open-source library for quantum characterization, verification, and validation. We gratefully acknowledge the forest-benchmarking contributors for their foundational work on superoperator representations, quantum channel conventions, and distance metrics.
+
 ## License
 
 Copyright 2026 Rigetti & Co, LLC. Licensed under Apache License 2.0.
