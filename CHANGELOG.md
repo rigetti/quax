@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.5.1] - 2026-04-06
+
+### Fixed
+
+- Re-added and improved the example notebook.
+
 ## [0.5.0] - 2026-04-02
 
 ### Added

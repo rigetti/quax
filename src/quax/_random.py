@@ -27,7 +27,7 @@ from ._quantum_objects import Choi, DensityMatrix, StateVector, Unitary, Operato
 def ginibre_matrix_complex(dim: int, k: int, key: Array, size: Tuple[int, ...] = ()) -> Array:
     r"""
     Given a scalars dim and k, returns a dim by k matrix, drawn from the complex Ginibre
-    ensemble [IM]_.
+    ensemble :cite:`IM`.
 
     Each element is distributed
 
@@ -35,12 +35,6 @@ def ginibre_matrix_complex(dim: int, k: int, key: Array, size: Tuple[int, ...] =
         \sim [N(0, 1) + i · N(0, 1)]
 
     Here :math:`X \sim N(0,1)` denotes a normally distributed random variable.
-
-    .. [IM] Induced measures in the space of mixed quantum states.
-         Zyczkowski et al.
-         J. Phys A: Math. and Gen. 34, 7111 (2001).
-         https://doi.org/10.1088/0305-4470/34/35/335
-         https://arxiv.org/abs/quant-ph/0012101
 
     :param dim: Hilbert space dimension.
     :param k: Ultimately becomes the rank of a state.
@@ -95,13 +89,7 @@ def random_observable(
 def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()) -> Unitary:
     """
     Given a Hilbert space dimension dim this function returns a unitary operator
-    U ∈ C^(dim by dim) drawn from the Haar measure [MEZ]_.
-
-    .. [MEZ] How to generate random matrices from the classical compact groups.
-          Mezzadri.
-          Notices of the American Mathematical Society 54, 592 (2007).
-          http://www.ams.org/notices/200705/fea-mezzadri-web.pdf
-          https://arxiv.org/abs/math-ph/0609050
+    U ∈ C^(dim by dim) drawn from the Haar measure :cite:`MEZ`.
 
     :param dims: The Qudit dimensions.
     :param key: The random number generator key.
@@ -153,13 +141,7 @@ def random_choi(
 ) -> Choi:
     """
     Given a Hilbert space dimension dim and a Kraus rank K, returns a (d², d²) Choi
-    matrix J(Λ) of a channel drawn from the BCSZ distribution with Kraus rank K [RQO]_.
-
-    .. [RQO] Random quantum operations.
-          Bruzda et al.
-          Physics Letters A 373, 320 (2009).
-          https://doi.org/10.1016/j.physleta.2008.11.043
-          https://arxiv.org/abs/0804.2361
+    matrix J(Λ) of a channel drawn from the BCSZ distribution with Kraus rank K :cite:`RQO`.
 
     :param dim: Hilbert space dimension.
     :param rank: The number of Kraus operators in the operator sum description of the channel.

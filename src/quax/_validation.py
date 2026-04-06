@@ -386,7 +386,7 @@ def is_completely_positive(superoperator: SuperOperator, atol: float = 1e-8):
     """
     Check if a quantum process is completely positive (CP).
 
-    See equation 3.35 of [GRAPTN]_
+    See equation 3.35 of :cite:`GRAPTN`.
 
     :param superoperator: A superoperator (Choi, SuperOp, KrausMap, or PauliLiouville).
     :param atol: Absolute tolerance for numerical comparisons.

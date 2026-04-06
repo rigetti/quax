@@ -24,7 +24,12 @@ extensions = [
     "sphinx_copybutton",
     "sphinx_design",
     "nbsphinx",
+    "sphinxcontrib.bibtex",
 ]
+
+# -- BibTeX configuration ----------------------------------------------------
+bibtex_bibfiles = ["citations.bib"]
+bibtex_default_style = "unsrt"
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

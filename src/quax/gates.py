@@ -358,13 +358,13 @@ TX = Unitary.from_matrix(
     jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=complex),
     ((3,), (3,)),
 )
-"""Generalized qutrit X gate (cyclic shift) [ASYQT]_."""
+"""Generalized qutrit X gate (cyclic shift) :cite:`ASYQT`."""
 
 TY = Unitary.from_matrix(
     jnp.array([[0, -1j, 0], [0, 0, -1j], [1j, 0, 0]], dtype=complex),
     ((3,), (3,)),
 )
-"""Generalized qutrit Y gate [ASYQT]_."""
+"""Generalized qutrit Y gate :cite:`ASYQT`."""
 
 TZ = Unitary.from_matrix(
     jnp.array(
@@ -373,7 +373,7 @@ TZ = Unitary.from_matrix(
     ),
     ((3,), (3,)),
 )
-"""Generalized qutrit Z gate (clock matrix) [ASYQT]_."""
+"""Generalized qutrit Z gate (clock matrix) :cite:`ASYQT`."""
 
 TH = Unitary.from_matrix(
     (1.0 / jnp.sqrt(3.0))

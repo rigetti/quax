@@ -68,9 +68,12 @@ Automatic Promotion
    installation
    quickstart
    quantum-objects
-   examples/quax
+   examples/quantum-objects
    examples/hamiltonians
    examples/quantum-volume
    examples/leakage-randomized-benchmarking
-   examples/qudits
+   examples/superoperator-representations
+   examples/observables
+   examples/random-operators
    api/index
+   references

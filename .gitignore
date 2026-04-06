@@ -170,6 +170,3 @@ pyrightconfig.json
 
 # GitLab pages
 public/
-
-# Generated example notebook outputs (built by papermill before docs build)
-docs/examples/*.ipynb

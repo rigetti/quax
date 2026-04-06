@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.5.0"
+version = "0.5.1"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -49,6 +49,7 @@ dev = [
     "optax (>=0.2.7)",
     "nbsphinx (>=0.9.8,<0.10.0)",
     "pytest-memray (>=1.8.0,<2.0.0)",
+    "sphinxcontrib-bibtex (>=2.6.5,<3.0.0)",
 ]
 
 [build-system]
