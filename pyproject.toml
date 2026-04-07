@@ -26,6 +26,9 @@ dependencies = [
     "jax (>=0.8.2)"
 ]
 
+[project.optional-dependencies]
+plot = ["plotly (>=5.20)"]
+
 [project.urls]
 Documentation = "https://rigetti.gitlab.io/application_benchmarking/quax"
 
@@ -50,6 +53,7 @@ dev = [
     "nbsphinx (>=0.9.8,<0.10.0)",
     "pytest-memray (>=1.8.0,<2.0.0)",
     "sphinxcontrib-bibtex (>=2.6.5,<3.0.0)",
+    "nbstripout (>=0.9.1,<0.10.0)",
 ]
 
 [build-system]

@@ -156,6 +156,7 @@ from ._validation import (
     is_two_design,
     is_unitary,
 )
+from ._visualization import plot
 
 # Import gates, states and ensembles as submodules
 from . import gates
@@ -306,6 +307,8 @@ __all__ = [
     "power_unitary",
     "exp",
     "cis",
+    # Visualization
+    "plot",
     # Submodules
     "gates",
     "states",

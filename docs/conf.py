@@ -38,6 +38,10 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 nbsphinx_execute = "auto"
 nbsphinx_allow_errors = False
 nbsphinx_kernel_name = "python3"
+nbsphinx_execute_arguments = [
+    "--InteractiveShellApp.exec_lines="
+    """['import plotly.io as pio', 'pio.renderers.default = "sphinx_gallery"']""",
+]
 
 # -- Options for HTML output -------------------------------------------------
 html_theme = "furo"
@@ -45,6 +49,13 @@ html_static_path = ["_static"]
 html_title = "Quax"
 html_logo = "_static/logo.png"
 html_favicon = "_static/favicon.ico"
+
+# Include Plotly JS so interactive plots from notebooks render in the docs
+html_js_files = [
+    # Adding the 'defer' attribute helps it play nicely with Furo's DOM loading
+    ('https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js', {'defer': 'defer'}),
+    ('https://cdn.plot.ly/plotly-2.35.2.min.js', {'defer': 'defer'}),
+]
 
 html_theme_options = {
     "light_css_variables": {
