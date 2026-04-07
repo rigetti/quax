@@ -14,6 +14,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+
+## [0.5.2] - 2026-04-07
+
+### Added
+
+- `plot` function for `DensityMatrix`, `StateVector`, `Superoperator`, `Operator`.
+
+### Changed
+
+- Update example notebooks and documentation.
+
 ## [0.5.1] - 2026-04-06
 
 ### Fixed
