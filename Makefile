@@ -58,8 +58,8 @@ check-all: check-format check-types  ## Check conformance to code format and typ
 .PHONY: check-format
 check-format:  ## Check conformance to code format rules.
 	cd ${PROJECT_DIR}
-	poetry run ruff format src tests --diff
-	poetry run ruff check src tests --no-fix
+	poetry run ruff format src tests examples --diff
+	poetry run ruff check src tests examples --no-fix
 
 .PHONY: check-types
 check-types: ## Check conformance to code typing rules.
@@ -71,6 +71,7 @@ format: ## Make automatic updates to code format and style.
 	cd ${PROJECT_DIR}
 	poetry run ruff format src tests examples
 	poetry run ruff check src tests examples --fix-only
+	poetry run nbstripout docs/examples/*.ipynb
 
 .PHONY: test-examples
 test-examples: ## Test all Jupyter notebooks in "docs/examples" run via papermill.
