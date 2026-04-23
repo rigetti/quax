@@ -311,7 +311,7 @@ class Operator(QuantumObject):
         return type(self).from_matrix(matrix_h, (self.dims[1], self.dims[0]))
 
     @property
-    def d(self) -> Tuple[int, int]:
+    def d(self) -> Tuple[int, ...]:
         return tuple(reduce(mul, dim) for dim in self.dims)
 
     @property
@@ -419,7 +419,7 @@ class SuperOperator(QuantumObject):
         return (dims_out, dims_in)
 
     @property
-    def d(self) -> Tuple[int, int]:
+    def d(self) -> Tuple[int, ...]:
         return tuple(reduce(mul, dim) for dim in self.dims)
 
     @property

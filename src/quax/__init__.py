@@ -64,6 +64,8 @@ from ._metrics import (
     process_fidelity,
     process_fidelity_to_average_fidelity,
     process_fidelity_to_depolarizing_constant,
+    stochastic_infidelity,
+    unitarity,
     unitarity_to_stochastic_infidelity,
     unitary_entanglement_fidelity,
 )
@@ -246,6 +248,8 @@ __all__ = [
     "average_fidelity_to_process_fidelity",
     "process_fidelity_to_average_fidelity",
     "unitarity_to_stochastic_infidelity",
+    "unitarity",
+    "stochastic_infidelity",
     # Types
     "QuantumObject",
     "Choi",

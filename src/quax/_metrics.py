@@ -17,15 +17,20 @@ This module provides JIT-compiled implementations of quantum fidelity measures
 for use in differentiable quantum algorithms and high-performance computing.
 """
 
-from typing import Optional
-
 import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
-from ._quantum_objects import Choi, DensityMatrix, KrausMap, PauliLiouville, State, StateVector, SuperOp, Unitary
-from ._superoperator_transformations import to_choi
+from ._quantum_objects import (
+    Choi,
+    DensityMatrix,
+    State,
+    StateVector,
+    SuperOperator,
+    Unitary,
+)
+from ._superoperator_transformations import to_choi, to_pauli_liouville, to_superop
 
 
 @jax.jit
@@ -106,8 +111,8 @@ def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Arr
 
 
 def process_fidelity(
-    superoperator_0: Choi | SuperOp | PauliLiouville | KrausMap | Unitary,
-    superoperator_1: Choi | SuperOp | PauliLiouville | KrausMap | Unitary | None = None,
+    superoperator_0: SuperOperator | Unitary,
+    superoperator_1: SuperOperator | Unitary | None = None,
 ) -> Array:
     r"""
     Return the process fidelity between two superoperators.
@@ -127,8 +132,8 @@ def process_fidelity(
     It is the square of the one implemented in Nielsen & Chuang,
     "Quantum Computation and Quantum Information"
 
-    :param choi_0: Any superoperator type (Choi, SuperOp, PauliLiouville, KrausMap, Unitary).
-    :param choi_1: Optional second operator. If None, identity channel is assumed.
+    :param superoperator_0: Any superoperator type (SuperOperator, Unitary).
+    :param superoperator_1: Optional second operator. If None, identity channel is assumed.
     :return: Process fidelity in [0, 1]
     """
 
@@ -171,108 +176,151 @@ def process_fidelity(
 
 
 @jax.jit
-def depolarizing_constant_to_average_fidelity(p: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def depolarizing_constant_to_average_fidelity(p: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the depolarizing constant to the average fidelity.
 
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Average fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     F = ((d - 1) * p + 1) / d
     return jnp.asarray(F)
 
 
 @jax.jit
-def depolarizing_constant_to_process_fidelity(p: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def depolarizing_constant_to_process_fidelity(p: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the depolarizing constant to the process fidelity.
 
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Process fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     chi_00 = ((d**2 - 1) * p + 1) / (d**2)
     return jnp.asarray(chi_00)
 
 
 @jax.jit
-def average_fidelity_to_process_fidelity(F: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def average_fidelity_to_process_fidelity(F: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the average gate fidelity to the process fidelity.
 
     :param F: The average fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Process fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     chi_00 = (F * (d + 1) - 1) / d
     return jnp.asarray(chi_00)
 
 
 @jax.jit
-def process_fidelity_to_average_fidelity(chi_00: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def process_fidelity_to_average_fidelity(chi_00: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the process fidelity to the average fidelity.
 
     :param chi_00: The process fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Average fidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     F = (d * chi_00 + 1) / (d + 1)
     return jnp.asarray(F)
 
 
 @jax.jit
-def process_fidelity_to_depolarizing_constant(chi_00: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def process_fidelity_to_depolarizing_constant(chi_00: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the process fidelity to a depolarizing constant.
     Defined so that a 1% depolarizing error corresponds to p=0.99.
 
     :param chi_00: The process fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Depolarizing constant
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     p = (d**2 * chi_00 - 1) / (d**2 - 1)
     return jnp.asarray(p)
 
 
 @jax.jit
-def average_fidelity_to_depolarizing_constant(F: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def average_fidelity_to_depolarizing_constant(F: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert the average fidelity to a depolarizing constant.
     Defined so that a 1% depolarizing error corresponds to p=0.99.
 
     :param F: The average fidelity.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Depolarizing constant
     """
-    d = dim if dim is not None else 2**num_sys
+    d = jnp.prod(jnp.array(dims))
     p = (d * F - 1) / (d - 1)
     return jnp.asarray(p)
 
 
 @jax.jit
-def unitarity_to_stochastic_infidelity(unitarity: ArrayLike, num_sys: int = 1, dim: Optional[int] = None) -> Array:
+def unitarity_to_stochastic_infidelity(u: ArrayLike, dims: tuple[int, ...] = (2,)) -> Array:
     """
     Convert a unitarity to a stochastic infidelity.
 
     Valid for unital trace-preserving maps.
 
-    :param unitarity: The unitarity of the channel.
-    :param num_sys: The number of qubits (ignored when *dim* is given).
-    :param dim: Total Hilbert space dimension. When supplied, *num_sys* is ignored.
+    :param u: The unitarity of the channel.
+    :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Stochastic infidelity in [0, 1]
     """
-    d = dim if dim is not None else 2**num_sys
-    return 1 - jnp.sqrt(unitarity * (1 - 1 / d**2) + (1 / d**2))
+    d = jnp.prod(jnp.array(dims))
+    return 1 - jnp.sqrt(u * (1 - 1 / d**2) + (1 / d**2))
+
+
+def unitarity(
+    superoperator: SuperOperator,
+) -> Array:
+    r"""
+    Compute the unitarity of a quantum channel.
+
+    The unitarity is defined as:
+
+    .. math::
+
+        u(\mathcal{E}) = \frac{1}{d^2 - 1} \| M_{1:,1:} \|_F^2
+
+    where *M* is the Pauli-Liouville representation of the channel and the
+    subscript :math:`1:` indicates that the first row and column (corresponding
+    to the identity component) are removed.
+
+    :param superoperator: Any superoperator type.
+    :return: Unitarity in [0, 1], scalar or array for ensembles.
+    """
+    pl = to_pauli_liouville(superoperator)
+    mat = pl.matrix  # (*ensemble, d^2, d^2)
+    unitary_block = mat[..., 1:, 1:]
+    return jnp.real(jnp.sum(jnp.abs(unitary_block) ** 2, axis=(-2, -1)) / unitary_block.shape[-1])
+
+
+def stochastic_infidelity(
+    superoperator: SuperOperator,
+) -> Array:
+    r"""
+    Compute the stochastic infidelity :math:`e_S` of a quantum channel.
+
+    The stochastic infidelity is defined via the superoperator (standard form)
+    representation *S*:
+
+    .. math::
+
+        e_S = 1 - \frac{\operatorname{Re}\!\sqrt{\operatorname{Tr}(S S^\dagger)}}{d}
+
+
+    :param superoperator: Any superoperator type.
+    :return: Stochastic infidelity, scalar or array for ensembles.
+    """
+    sop = to_superop(superoperator)
+    mat = sop.matrix  # (*ensemble, d^2, d^2)
+    d = sop.d[0]
+    # Tr(S @ S†) = sum of |S_ij|^2
+    tr_sst = jnp.sum(jnp.abs(mat) ** 2, axis=(-2, -1))
+    return 1 - jnp.real(jnp.sqrt(tr_sst)) / d
