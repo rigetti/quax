@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.5.3] - 2026-04-23
+
+### Added
+
+- `unitary` and `stochastic_infidelity` functions.
 
 ## [0.5.2] - 2026-04-07
 

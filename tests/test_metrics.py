@@ -18,22 +18,11 @@ import jax
 import jax.numpy as jnp
 import pytest
 import qutip
+import quax as qx
 
-from quax import (
-    DensityMatrix,
-    StateVector,
-    Unitary,
-    average_fidelity_to_process_fidelity,
-    fidelity,
-    process_fidelity,
-    random_choi,
-    random_unitary,
-    unitary_entanglement_fidelity,
-    unitary_to_choi,
-)
 
 # ============================================================================
-# Tests for fidelity
+# Tests for qx.fidelity
 # ============================================================================
 
 
@@ -41,7 +30,7 @@ from quax import (
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_fidelity_pure_states(seed, qudit_dim, num_qudits):
-    """Test fidelity between pure states against reference implementation."""
+    """Test qx.fidelity between pure states against reference implementation."""
     key = jax.random.key(seed)
     d = qudit_dim**num_qudits
     key1, key2, key3, key4 = jax.random.split(key, 4)
@@ -51,21 +40,21 @@ def test_fidelity_pure_states(seed, qudit_dim, num_qudits):
     phi = phi / jnp.linalg.norm(phi)
 
     # Convert to JAX arrays
-    psi_jax = StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
-    phi_jax = StateVector.from_matrix(jnp.array(phi), (qudit_dim,) * num_qudits)
+    psi_jax = qx.StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
+    phi_jax = qx.StateVector.from_matrix(jnp.array(phi), (qudit_dim,) * num_qudits)
 
-    # Our fidelity is the square of the standard definition used in qutip
+    # Our qx.fidelity is the square of the standard definition used in qutip
     fid_qutip = qutip.fidelity(qutip.Qobj(psi[:, jnp.newaxis]), qutip.Qobj(phi[:, jnp.newaxis])) ** 2
-    fid_jax = float(fidelity(psi_jax, phi_jax))
+    fid_jax = float(qx.fidelity(psi_jax, phi_jax))
 
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX qx.fidelity does not match the square of qutip qx.fidelity."
 
 
 @pytest.mark.parametrize("num_qudits", [1, 2, 3])
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_fidelity_density_matrices(seed, qudit_dim, num_qudits):
-    """Test fidelity between density matrices against reference implementation."""
+    """Test qx.fidelity between density matrices against reference implementation."""
     key = jax.random.key(seed)
     d = qudit_dim**num_qudits
     # Create random density matrices
@@ -79,22 +68,22 @@ def test_fidelity_density_matrices(seed, qudit_dim, num_qudits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
-    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
+    rho_jax = qx.DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
+    sigma_jax = qx.DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
 
     # Compute fidelities
-    # Our fidelity is the square of the standard definition used in qutip
+    # Our qx.fidelity is the square of the standard definition used in qutip
     fid_qutip = qutip.fidelity(qutip.Qobj(rho), qutip.Qobj(sigma)) ** 2
-    fid_jax = float(fidelity(rho_jax, sigma_jax))
+    fid_jax = float(qx.fidelity(rho_jax, sigma_jax))
 
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX qx.fidelity does not match the square of qutip qx.fidelity."
 
 
 @pytest.mark.parametrize("num_qudits", [1, 2, 3])
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_fidelity_mixed_pure_density(seed, qudit_dim, num_qudits):
-    """Test fidelity between pure state and density matrix."""
+    """Test qx.fidelity between pure state and density matrix."""
     key = jax.random.key(seed)
     d = qudit_dim**num_qudits
     key1, key2, key3, key4 = jax.random.split(key, 4)
@@ -106,22 +95,22 @@ def test_fidelity_mixed_pure_density(seed, qudit_dim, num_qudits):
     sigma = sigma / jnp.trace(sigma)
 
     # Convert to JAX arrays
-    psi_jax = StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
-    sigma_jax = DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
+    psi_jax = qx.StateVector.from_matrix(jnp.array(psi), (qudit_dim,) * num_qudits)
+    sigma_jax = qx.DensityMatrix.from_matrix(jnp.array(sigma), (qudit_dim,) * num_qudits)
 
     # Compute fidelities
-    # Our fidelity is the square of the standard definition used in qutip
+    # Our qx.fidelity is the square of the standard definition used in qutip
     fid_qutip = qutip.fidelity(qutip.Qobj(psi[:, jnp.newaxis]), qutip.Qobj(sigma)) ** 2
-    fid_jax = float(fidelity(psi_jax, sigma_jax))
+    fid_jax = float(qx.fidelity(psi_jax, sigma_jax))
 
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX fidelity does not match the square of qutip fidelity."
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX qx.fidelity does not match the square of qutip qx.fidelity."
 
 
 @pytest.mark.parametrize("num_qudits", [1, 2, 3])
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_fidelity_self_is_one(seed, qudit_dim, num_qudits):
-    """Test that fidelity of a state with itself is 1."""
+    """Test that qx.fidelity of a state with itself is 1."""
     key = jax.random.key(seed)
     d = qudit_dim**num_qudits
     key1, key2 = jax.random.split(key, 2)
@@ -129,14 +118,14 @@ def test_fidelity_self_is_one(seed, qudit_dim, num_qudits):
     rho = A @ A.conj().T
     rho = rho / jnp.trace(rho)
 
-    rho_jax = DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
-    fid_jax = float(fidelity(rho_jax, rho_jax))
+    rho_jax = qx.DensityMatrix.from_matrix(jnp.array(rho), (qudit_dim,) * num_qudits)
+    fid_jax = float(qx.fidelity(rho_jax, rho_jax))
 
     assert jnp.isclose(fid_jax, 1.0, atol=1e-6)
 
 
 # ============================================================================
-# Tests for unitary_entanglement_fidelity
+# Tests for qx.unitary_entanglement_fidelity
 # ============================================================================
 
 
@@ -144,40 +133,41 @@ def test_fidelity_self_is_one(seed, qudit_dim, num_qudits):
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_unitary_entanglement_fidelity(seed, qudit_dim, num_qudits):
-    """Test unitary entanglement fidelity."""
+    """Test unitary entanglement qx.fidelity."""
     key = jax.random.key(seed)
     _, subkey = jax.random.split(key)
-    d = qudit_dim**num_qudits
     dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
-    U = random_unitary(dims=dims, key=key)
-    V = random_unitary(dims=dims, key=subkey)
+    U = qx.random_unitary(dims=dims, key=key)
+    V = qx.random_unitary(dims=dims, key=subkey)
 
-    fid_qutip = average_fidelity_to_process_fidelity(
+    fid_qutip = qx.average_fidelity_to_process_fidelity(
         qutip.average_gate_fidelity(
             U._to_qobj(),
             V._to_qobj(),
         ),
-        dim=d,
+        dims=(qudit_dim,) * num_qudits,
     )
-    fid_jax = float(unitary_entanglement_fidelity(U, V))
+    fid_jax = float(qx.unitary_entanglement_fidelity(U, V))
 
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX unitary entanglement fidelity does not match qutip result."
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), (
+        "JAX unitary entanglement qx.fidelity does not match qutip result."
+    )
 
-    # Check the self-fidelity
-    fid_self_jax = float(unitary_entanglement_fidelity(U, U))
-    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX unitary entanglement self-fidelity is not 1."
+    # Check the self-qx.fidelity
+    fid_self_jax = float(qx.unitary_entanglement_fidelity(U, U))
+    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX unitary entanglement self-qx.fidelity is not 1."
 
     # Check the phase invariance
     phase = jnp.exp(1j * jax.random.uniform(jax.random.key(seed), (), minval=0, maxval=2 * jnp.pi))
     V_phase = phase * V
-    fid_phase_jax = float(unitary_entanglement_fidelity(U, V_phase))
+    fid_phase_jax = float(qx.unitary_entanglement_fidelity(U, V_phase))
     assert jnp.isclose(fid_phase_jax, fid_jax, atol=1e-6), (
-        "JAX unitary entanglement fidelity is not invariant under global phase."
+        "JAX unitary entanglement qx.fidelity is not invariant under global phase."
     )
 
 
 # ============================================================================
-# Tests for process_fidelity
+# Tests for qx.process_fidelity
 # ============================================================================
 
 
@@ -185,44 +175,44 @@ def test_unitary_entanglement_fidelity(seed, qudit_dim, num_qudits):
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_process_fidelity_unitaries(seed, qudit_dim, num_qudits):
-    """Test process fidelity for unitary channels."""
+    """Test process qx.fidelity for unitary channels."""
     key = jax.random.key(seed)
     _, subkey = jax.random.split(key)
     d = qudit_dim**num_qudits
     dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
-    U = random_unitary(dims=dims, key=key)
-    V = random_unitary(dims=dims, key=subkey)
+    U = qx.random_unitary(dims=dims, key=key)
+    V = qx.random_unitary(dims=dims, key=subkey)
 
-    # Convert to Choi matrices
-    choi_U = unitary_to_choi(U)
-    choi_V = unitary_to_choi(V)
+    # Convert to qx.Choi matrices
+    choi_U = qx.unitary_to_choi(U)
+    choi_V = qx.unitary_to_choi(V)
     fid_qutip = qutip.process_fidelity(
         choi_U._to_qobj(),
         choi_V._to_qobj(),
     )
-    fid_jax = float(process_fidelity(choi_U, choi_V))
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX process fidelity does not match qutip result."  # type: ignore[arg-type]
+    fid_jax = float(qx.process_fidelity(choi_U, choi_V))
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX process qx.fidelity does not match qutip result."  # type: ignore[arg-type]
 
-    # Check the self-fidelity
-    fid_self_jax = float(process_fidelity(choi_U, choi_U))
-    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX process self-fidelity is not 1."
+    # Check the self-qx.fidelity
+    fid_self_jax = float(qx.process_fidelity(choi_U, choi_U))
+    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX process self-qx.fidelity is not 1."
 
-    # Check process fidelity against identity channel
+    # Check process qx.fidelity against identity channel
     Identity_mat = jnp.eye(d)
-    choi_I = unitary_to_choi(Unitary.from_matrix(Identity_mat, dims))
-    fid_identity_jax = float(process_fidelity(choi_U, choi_I))
+    choi_I = qx.unitary_to_choi(qx.Unitary.from_matrix(Identity_mat, dims))
+    fid_identity_jax = float(qx.process_fidelity(choi_U, choi_I))
     fid_identity_qutip = qutip.process_fidelity(
         U._to_qobj(),
         choi_I._to_qobj(),
     )
     assert jnp.isclose(fid_identity_jax, fid_identity_qutip, atol=1e-6), (  # type: ignore[arg-type]
-        "JAX process fidelity against identity channel does not match qutip result."
+        "JAX process qx.fidelity against identity channel does not match qutip result."
     )
 
-    # Check that process fidelity defaults to comparison against the identity channel when second argument is None
-    fid_none_jax = float(process_fidelity(choi_U, None))
+    # Check that process qx.fidelity defaults to comparison against the identity channel when second argument is None
+    fid_none_jax = float(qx.process_fidelity(choi_U, None))
     assert jnp.isclose(fid_none_jax, fid_identity_jax, atol=1e-6), (
-        "JAX process fidelity with None does not match fidelity against identity channel."
+        "JAX process qx.fidelity with None does not match qx.fidelity against identity channel."
     )
 
 
@@ -230,41 +220,215 @@ def test_process_fidelity_unitaries(seed, qudit_dim, num_qudits):
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 @pytest.mark.parametrize("seed", [4865, 3574, 323])
 def test_process_fidelity_random_maps(seed, qudit_dim, num_qudits):
-    """Test process fidelity for random channels."""
+    """Test process qx.fidelity for random channels."""
     d = qudit_dim**num_qudits
     kraus_rank = d
     key, subkey = jax.random.split(jax.random.key(seed))
     dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
 
-    choi_U_jax = random_choi(dims=dims, rank=kraus_rank, key=key)
-    choi_V_jax = random_choi(dims=dims, rank=kraus_rank, key=subkey)
+    choi_U_jax = qx.random_choi(dims=dims, rank=kraus_rank, key=key)
+    choi_V_jax = qx.random_choi(dims=dims, rank=kraus_rank, key=subkey)
 
     fid_qutip = qutip.process_fidelity(
         choi_U_jax._to_qobj(),
         choi_V_jax._to_qobj(),
     )
-    fid_jax = float(process_fidelity(choi_U_jax, choi_V_jax))
+    fid_jax = float(qx.process_fidelity(choi_U_jax, choi_V_jax))
 
-    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX process fidelity does not match qutip result."  # type: ignore[arg-type]
+    assert jnp.isclose(fid_jax, fid_qutip, atol=1e-6), "JAX process qx.fidelity does not match qutip result."  # type: ignore[arg-type]
 
-    # Check the self-fidelity
-    fid_self_jax = float(process_fidelity(choi_U_jax, choi_U_jax))
-    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX process self-fidelity is not 1."
+    # Check the self-qx.fidelity
+    fid_self_jax = float(qx.process_fidelity(choi_U_jax, choi_U_jax))
+    assert jnp.isclose(fid_self_jax, 1.0, atol=1e-6), "JAX process self-qx.fidelity is not 1."
 
-    # Check process fidelity against identity channel
+    # Check process qx.fidelity against identity channel
     Identity_mat = jnp.eye(d)
-    choi_I = unitary_to_choi(Unitary.from_matrix(Identity_mat, dims))
-    fid_identity_jax = float(process_fidelity(choi_U_jax, choi_I))
+    choi_I = qx.unitary_to_choi(qx.Unitary.from_matrix(Identity_mat, dims))
+    fid_identity_jax = float(qx.process_fidelity(choi_U_jax, choi_I))
     fid_identity_qutip = qutip.process_fidelity(
         choi_U_jax._to_qobj(),
         choi_I._to_qobj(),
     )
     assert jnp.isclose(fid_identity_jax, fid_identity_qutip, atol=1e-6), (  # type: ignore[arg-type]
-        "JAX process fidelity against identity channel does not match qutip result."
+        "JAX process qx.fidelity against identity channel does not match qutip result."
     )
 
-    # Check that process fidelity defaults to comparison against the identity channel when second argument is None
-    fid_none_jax = float(process_fidelity(choi_U_jax, None))
+    # Check that process qx.fidelity defaults to comparison against the identity channel when second argument is None
+    fid_none_jax = float(qx.process_fidelity(choi_U_jax, None))
     assert jnp.isclose(fid_none_jax, fid_identity_jax, atol=1e-6), (
-        "JAX process fidelity with None does not match fidelity against identity channel."
+        "JAX process qx.fidelity with None does not match qx.fidelity against identity channel."
     )
+
+
+# ============================================================================
+# Tests for metric conversion functions (dims parameter)
+# ============================================================================
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2, 3])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+def test_metric_conversion_roundtrips(qudit_dim, num_qudits):
+    """Test that metric conversions are consistent round-trips using the dims parameter."""
+    dims = (qudit_dim,) * num_qudits
+    p = 0.95
+
+    # p -> F_avg -> p round-trip
+    F_avg = qx.depolarizing_constant_to_average_fidelity(p, dims=dims)
+    p_back = qx.average_fidelity_to_depolarizing_constant(F_avg, dims=dims)
+    assert jnp.isclose(p, p_back, atol=1e-10)
+
+    # p -> F_proc -> p round-trip
+    F_proc = qx.depolarizing_constant_to_process_fidelity(p, dims=dims)
+    p_back2 = qx.process_fidelity_to_depolarizing_constant(F_proc, dims=dims)
+    assert jnp.isclose(p, p_back2, atol=1e-10)
+
+    # F_avg -> F_proc -> F_avg round-trip
+    F_proc2 = qx.average_fidelity_to_process_fidelity(F_avg, dims=dims)
+    F_avg_back = qx.process_fidelity_to_average_fidelity(F_proc2, dims=dims)
+    assert jnp.isclose(F_avg, F_avg_back, atol=1e-10)
+
+    # F_proc from p and from F_avg should agree
+    assert jnp.isclose(F_proc, F_proc2, atol=1e-10)
+
+
+# ============================================================================
+# Tests for qx.unitarity
+# ============================================================================
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+@pytest.mark.parametrize("ensemble_size", [(), (3,), (3, 4)])
+def test_unitarity_unitary(seed, qudit_dim, num_qudits, ensemble_size):
+    """Test that a unitary channel has qx.unitarity 1."""
+    key = jax.random.key(seed)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    U = qx.random_unitary(dims=dims, key=key, size=ensemble_size)
+    u = qx.unitarity(U)
+    assert jnp.allclose(u, 1.0, atol=1e-7), f"Unitary channel should have unitarity 1, got {u}"
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+@pytest.mark.parametrize("rank", [1, 2, 3])
+def test_unitarity_random_channel(seed, qudit_dim, num_qudits, rank):
+    """Test qx.unitarity of a random channel has the expected value."""
+    ensemble_size = (100, 4)
+    key = jax.random.key(seed)
+    d = qudit_dim**num_qudits
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    choi = qx.random_choi(dims=dims, rank=rank, key=key, size=ensemble_size)
+    u = qx.unitarity(choi)
+
+    # Expected qx.unitarity for the BCSZ distribution with Kraus rank K and
+    # Hilbert space dimension d is: E[u] = (d^2 - 1) * K / (d^2 * K^2 - 1)
+    expected = (d**2 - 1) * rank / (d**2 * rank**2 - 1)
+    assert jnp.isclose(jnp.mean(u), expected, atol=0.05), (
+        f"Expected average unitarity of {expected:.4f}, got {jnp.mean(u):.4f}"
+    )
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+def test_unitarity_accepts_all_representations(seed, qudit_dim, num_qudits):
+    """Test that qx.unitarity accepts all superoperator representations."""
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    U = qx.random_unitary(dims=dims, key=jax.random.key(seed))
+
+    u_unitary = float(qx.unitarity(U))
+    u_choi = float(qx.unitarity(qx.to_choi(U)))
+    u_superop = float(qx.unitarity(qx.to_superop(U)))
+    u_pl = float(qx.unitarity(qx.to_pauli_liouville(U)))
+    u_kraus = float(qx.unitarity(qx.to_kraus(U)))
+
+    assert jnp.isclose(u_unitary, u_choi, atol=1e-6)
+    assert jnp.isclose(u_unitary, u_superop, atol=1e-6)
+    assert jnp.isclose(u_unitary, u_pl, atol=1e-6)
+    assert jnp.isclose(u_unitary, u_kraus, atol=1e-6)
+
+
+# ============================================================================
+# Tests for qx.stochastic_infidelity
+# ============================================================================
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+@pytest.mark.parametrize("ensemble_size", [(), (3,), (3, 4)])
+def test_stochastic_infidelity_unitary_channel(seed, qudit_dim, num_qudits, ensemble_size):
+    """Test that a unitary channel has stochastic infidelity 0."""
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    key = jax.random.key(seed)
+    U = qx.random_unitary(dims=dims, key=key, size=ensemble_size)
+    e_s = qx.stochastic_infidelity(U)
+    assert jnp.allclose(e_s, 0.0, atol=1e-6), f"Unitary channel should have stochastic infidelity 0, got {e_s}"
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+@pytest.mark.parametrize("rank", [1, 2, 3])
+def test_stochastic_infidelity_random_channel(seed, qudit_dim, num_qudits, rank):
+    """Test stochastic infidelity of random channels satisfies the unitarity bound.
+
+    For any trace-preserving map the stochastic infidelity satisfies:
+
+        e_S <= 1 - sqrt(u * (1 - 1/d^2) + 1/d^2)
+
+    with equality if and only if the map is unital.  This follows from the
+    Pauli-Liouville decomposition: ||S||_F^2 = 1 + ||P[1:,0]||^2 + (d^2-1)*u
+    where the non-unital contribution ||P[1:,0]||^2 >= 0.
+    """
+    ensemble_size = (100, 4)
+    key = jax.random.key(seed)
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    choi = qx.random_choi(dims=dims, rank=rank, key=key, size=ensemble_size)
+    e_s = qx.stochastic_infidelity(choi)
+    u = qx.unitarity(choi)
+
+    # Stochastic infidelity must be non-negative
+    assert jnp.all(e_s >= -1e-7), f"Stochastic infidelity should be non-negative, got min {jnp.min(e_s):.6f}"
+
+    # Per-channel upper bound from unitarity (equality iff unital)
+    e_s_bound = qx.unitarity_to_stochastic_infidelity(u, dims=(qudit_dim,) * num_qudits)
+    assert jnp.all(e_s <= e_s_bound + 1e-7), (
+        f"Stochastic infidelity should be <= unitarity bound, max violation {float(jnp.max(e_s - e_s_bound)):.6f}"
+    )
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+def test_stochastic_infidelity_accepts_all_representations(seed, qudit_dim, num_qudits):
+    """Test that qx.stochastic_infidelity accepts all superoperator representations."""
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    U = qx.random_unitary(dims=dims, key=jax.random.key(seed))
+
+    e_unitary = float(qx.stochastic_infidelity(U))
+    e_choi = float(qx.stochastic_infidelity(qx.to_choi(U)))
+    e_superop = float(qx.stochastic_infidelity(qx.to_superop(U)))
+    e_pl = float(qx.stochastic_infidelity(qx.to_pauli_liouville(U)))
+    e_kraus = float(qx.stochastic_infidelity(qx.to_kraus(U)))
+
+    assert jnp.isclose(e_unitary, e_choi, atol=1e-6)
+    assert jnp.isclose(e_unitary, e_superop, atol=1e-6)
+    assert jnp.isclose(e_unitary, e_pl, atol=1e-6)
+    assert jnp.isclose(e_unitary, e_kraus, atol=1e-6)
+
+
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+@pytest.mark.parametrize("seed", [4865, 3574])
+def test_unitarity_stochastic_infidelity_relation(seed, qudit_dim, num_qudits):
+    """Test that qx.unitarity_to_stochastic_infidelity agrees with qx.stochastic_infidelity for unital TP maps."""
+    dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+    U = qx.random_unitary(dims=dims, key=jax.random.key(seed))
+
+    u = qx.unitarity(U)
+    e_s_from_u = float(qx.unitarity_to_stochastic_infidelity(u, dims=(qudit_dim,) * num_qudits))
+    e_s_direct = float(qx.stochastic_infidelity(U))
+    assert jnp.isclose(e_s_from_u, e_s_direct, atol=1e-6)

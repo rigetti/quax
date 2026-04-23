@@ -137,6 +137,7 @@ make html
 1. **Line Length**: 120 characters max
 2. **Type Hints**: Required for all public functions
 3. **Imports**: JAX imports should use `import jax` and `import jax.numpy as jnp`. In-package imports should be relative ex. `from ._quantum_objects import Unitary`
+In tests or example notebooks, always use `import quax as qx` and then acccess functions using `qx.function`.
 4. **Private Modules**: Internal implementation files use `_` prefix
 5. **Docstrings**: Required for all public functions, use ReST format
 
