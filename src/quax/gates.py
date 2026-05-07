@@ -118,9 +118,7 @@ Specialized gates / internal utility gates:
 """  # noqa: E501
 
 import jax.numpy as jnp
-from typing import cast
-
-from ._quantum_objects import Involution, Observable, Operator, Unitary
+from ._quantum_objects import Involution, Observable, Operator, SuperOp, Unitary, QuantumInstrument
 from ._power import cis
 
 I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
@@ -151,16 +149,18 @@ def RY(phi: float) -> Unitary:
 
 
 def RZ(phi: float) -> Unitary:
-    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
-    return cast(Unitary, PHASE(phi) * jnp.exp(-1j * phi / 2.0))
+    result = PHASE(phi) * jnp.exp(-1j * phi / 2.0)
+    return Unitary(result.data, result.num_qubits)
 
 
 def PHASEDRX(theta: float, phi: float) -> Unitary:
-    return jnp.exp(1j * theta / 2.0) * (RZ(phi) @ RX(theta) @ RZ(-phi))
+    result = jnp.exp(1j * theta / 2.0) * (RZ(phi) @ RX(theta) @ RZ(-phi))
+    return Unitary(result.data, result.num_qubits)
 
 
 def U(theta: float, phi: float, lam: float) -> Unitary:
-    return jnp.exp(1j * (phi + lam) / 2.0) * (RZ(phi) @ RY(theta) @ RZ(lam))
+    result = jnp.exp(1j * (phi + lam) / 2.0) * (RZ(phi) @ RY(theta) @ RZ(lam))
+    return Unitary(result.data, result.num_qubits)
 
 
 CZ = Involution.from_matrix(
@@ -189,8 +189,8 @@ CCNOT = Involution.from_matrix(
 
 
 def CPHASE00(phi: float) -> Unitary:
-    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
-    return cast(Unitary, jnp.exp(1j * phi) * cis((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi)))
+    result = jnp.exp(1j * phi) * cis((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi))
+    return Unitary(result.data, result.num_qubits)
 
 
 def CPHASE01(phi: float) -> Unitary:
@@ -256,8 +256,8 @@ def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) 
 
 
 def RZZ(phi: float) -> Unitary:
-    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
-    return cast(Unitary, jnp.exp(-1j * phi / 2.0) * cis((Z | Z) * (-0.5 * phi)))
+    result = jnp.exp(-1j * phi / 2.0) * cis((Z | Z) * (-0.5 * phi))
+    return Unitary(result.data, result.num_qubits)
 
 
 def RXX(phi: float) -> Unitary:
@@ -321,10 +321,8 @@ def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
 
 def CAN(tx: float, ty: float, tz: float) -> Unitary:
     """Canonical gate."""
-    # Multiplication by a unit-modulus phase preserves unitarity; cast narrows static type.
-    return cast(
-        Unitary, jnp.exp(1j * tz / 2.0) * cis((X | X) * (0.5 * tx) + (Y | Y) * (0.5 * ty) + (Z | Z) * (0.5 * tz))
-    )
+    result = jnp.exp(1j * tz / 2.0) * cis((X | X) * (0.5 * tx) + (Y | Y) * (0.5 * ty) + (Z | Z) * (0.5 * tz))
+    return Unitary(result.data, result.num_qubits)
 
 
 B = CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
@@ -593,6 +591,55 @@ RY12 = TRY12
 RZ12 = TRZ12
 
 
+# ---- Measurement instruments ----
+
+
+def MEASURE(
+    dim: int = 2,
+    ensemble_size: int | None = None,
+) -> QuantumInstrument:
+    """
+    Ideal projective measurement of a single qudit in the computational basis.
+
+    :param dim: Dimension of the qudit, e.g. ``2`` for a qubit, ``3`` for a qutrit.
+    :param ensemble_size: If provided, returns an ensemble of identical instruments.
+    :return: A :class:`QuantumInstrument` with ``dim`` outcomes.
+    """
+    # Each outcome k has a single Kraus operator P_k = |k⟩⟨k|.
+    # SuperOp_k = conj(P_k) ⊗ P_k, computed via S_k[ab,cd] = conj(P_k[a,c]) * P_k[b,d].
+    eye = jnp.eye(dim, dtype=complex)  # rows are basis vectors e_k
+    # P_k = |k⟩⟨k| as matrix: P_k[a,c] = e_k[a] * e_k[c]
+    # S_k[ab,cd] = conj(e_k[a]*e_k[c]) * e_k[b]*e_k[d] = e_k[a]*e_k[b]*e_k[c]*e_k[d]
+    projectors = eye[:, :, None] * eye[:, None, :]  # (dim, dim, dim) = P_k[a,c]
+    # S_k as rank-4: S_k[a,b,c,d] = conj(P_k[a,c]) * P_k[b,d]
+    S4 = projectors[:, :, None, :, None] * projectors[:, None, :, None, :]  # (dim, dim, dim, dim, dim)
+    matrices = S4.reshape(dim, dim * dim, dim * dim)  # (dim, dim², dim²)
+    if ensemble_size is not None:
+        matrices = jnp.broadcast_to(matrices, (ensemble_size,) + matrices.shape)
+    return QuantumInstrument.from_matrix(matrices, ((dim,), (dim,)), (0,))
+
+
+def RESET(dim: int = 2) -> SuperOp:
+    """
+    Ideal reset channel that maps every state to the ground state |0⟩⟨0|.
+
+    The channel has Kraus operators :math:`K_k = |0\\rangle\\langle k|` for
+    :math:`k = 0, \\ldots, d-1`, giving the superoperator
+    :math:`S = \\sum_k \\bar{K}_k \\otimes K_k`.
+
+    :param dim: Dimension of the qudit, e.g. ``2`` for a qubit, ``3`` for a qutrit.
+    :return: A :class:`SuperOp` representing the ideal reset channel.
+    """
+    # K_k = |0⟩⟨k|  →  K_k[a,b] = delta_{a,0} * delta_{b,k}
+    # S = sum_k conj(K_k) ⊗ K_k  via einsum
+    eye = jnp.eye(dim, dtype=complex)
+    kraus = eye[0:1, :, None] * eye[None, :, :]  # (dim, dim, dim): K_k[a,b] = e_0[a]*e_k[b]
+    # kraus shape: (dim, dim, dim) but we need (dim, dim, dim) = (k, a, b)
+    kraus = jnp.zeros((dim, dim, dim), dtype=complex).at[:, 0, :].set(eye)
+    S = jnp.einsum("kab,kcd->acbd", jnp.conj(kraus), kraus).reshape(dim * dim, dim * dim)
+    return SuperOp.from_matrix(S, ((dim,), (dim,)))
+
+
 QUANTUM_GATES = {
     "RZ": RZ,
     "RX": RX,
@@ -659,4 +706,7 @@ QUANTUM_GATES = {
     "W20": W20,
     "W21": W21,
     "W22": W22,
+    # MEASURE and RESET
+    "MEASURE": MEASURE,
+    "RESET": RESET,
 }

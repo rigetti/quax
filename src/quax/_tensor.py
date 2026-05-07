@@ -32,6 +32,7 @@ from ._quantum_objects import (
     StateVector,
     SuperOp,
     Unitary,
+    QuantumInstrument,
 )
 from ._superoperator_transformations import (
     choi_to_pauli_liouville,
@@ -332,3 +333,41 @@ def tensor_involution(I1: Involution, I2: Involution) -> Involution:
     """
     op = tensor_operator(I1, I2)
     return Involution(data=op.data, num_qubits=op.num_qubits)
+
+
+def tensor_instrument(
+    i1: QuantumInstrument,
+    i2: QuantumInstrument,
+) -> QuantumInstrument:
+    """Tensor product of two quantum instruments on independent subsystems.
+
+    The result has ``n1 * n2`` outcomes encoding the joint pair ``(i, j)``.
+    Outcome ordering: ``flat_index = i * n2 + j``.
+
+    :param i1: Instrument for the first subsystem.
+    :param i2: Instrument for the second subsystem.
+    :return: Tensor-product instrument.
+    """
+    from ._quantum_objects import QuantumInstrument
+
+    n1 = i1.num_outcomes
+    n2 = i2.num_outcomes
+
+    mat1 = i1.matrix  # (*ens1, n1, d1², d1²)
+    mat2 = i2.matrix  # (*ens2, n2, d2², d2²)
+
+    # For each pair (i, j), compute the SuperOp tensor product using tensor_superop
+    superop_list = []
+    for i in range(n1):
+        s1 = SuperOp.from_matrix(mat1[..., i, :, :], i1.dims)
+        for j in range(n2):
+            s2 = SuperOp.from_matrix(mat2[..., j, :, :], i2.dims)
+            s_tensor = tensor_superop(s1, s2)
+            superop_list.append(s_tensor.matrix)
+
+    result_mat = jnp.stack(superop_list, axis=-3)
+
+    new_dims = (i1.dims[0] + i2.dims[0], i1.dims[1] + i2.dims[1])
+    new_measured = i1.measured_qudits + tuple(m + i1.num_qubits for m in i2.measured_qudits)
+
+    return QuantumInstrument.from_matrix(result_mat, new_dims, new_measured)

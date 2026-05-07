@@ -16,6 +16,8 @@
 
 from ._apply import (
     apply_choi_to_density_matrix,
+    apply_instrument_to_density_matrix,
+    apply_instrument_to_state_vector,
     apply_kraus_to_density_matrix,
     apply_kraus_to_state_vector,
     apply_pauli_liouville_to_density_matrix,
@@ -27,6 +29,9 @@ from ._apply import (
     compute_superop_observables_from_states,
     estimate,
     partial_trace,
+    select_outcome,
+    targeted_apply_instrument_to_density_matrix,
+    targeted_apply_instrument_to_state_vector,
     targeted_apply_kraus_map,
     targeted_apply_kraus_map_trajectory,
     targeted_apply_superop,
@@ -34,6 +39,8 @@ from ._apply import (
 )
 from ._common_channels import (
     depolarizing_channel_superoperator,
+    instrument_from_axis,
+    instrument_from_confusion_and_transition,
     integrated_thermal_superoperator,
     thermal_relaxation_choi,
     bit_flip_operators,
@@ -49,6 +56,7 @@ from ._common_channels import (
 )
 from ._compose import (
     compose_choi,
+    compose_instrument,
     compose_kraus_map,
     compose_pauli_liouville,
     compose_superop,
@@ -58,9 +66,12 @@ from ._compose import (
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
+    classification_fidelity,
     depolarizing_constant_to_average_fidelity,
     depolarizing_constant_to_process_fidelity,
     fidelity,
+    instrument_fidelity,
+    non_demolition_fidelity,
     process_fidelity,
     process_fidelity_to_average_fidelity,
     process_fidelity_to_depolarizing_constant,
@@ -79,7 +90,8 @@ from ._operator_basis import (
 )
 from ._observables import bitstring_probability, probabilities
 from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
-from ._promotion import promote, promote_state_vector_to_density_matrix
+from ._promotion import promote, promote_state_vector_to_density_matrix, promote_hilbert_space
+from ._quantum_objects import QuantumInstrument
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -136,6 +148,7 @@ from ._superoperator_transformations import (
 from ._tensor import (
     tensor_choi,
     tensor_density_matrix,
+    tensor_instrument,
     tensor_involution,
     tensor_kraus,
     tensor_observable,
@@ -179,6 +192,11 @@ __all__ = [
     "apply_superop_to_density_matrix",
     "apply_unitary_to_state_vector",
     "apply_kraus_to_state_vector",
+    "apply_instrument_to_density_matrix",
+    "apply_instrument_to_state_vector",
+    "select_outcome",
+    "targeted_apply_instrument_to_density_matrix",
+    "targeted_apply_instrument_to_state_vector",
     "targeted_apply_kraus_map",
     "targeted_apply_kraus_map_trajectory",
     "targeted_apply_superop",
@@ -196,6 +214,8 @@ __all__ = [
     "leakage_operators",
     "stochastic_leakage_operators",
     "seepage_operators",
+    "instrument_from_confusion_and_transition",
+    "instrument_from_axis",
     "KRAUS_OPS",
     # Compose quantum objects
     "compose_kraus_map",
@@ -203,6 +223,7 @@ __all__ = [
     "compose_pauli_liouville",
     "compose_superop",
     "compose_unitary",
+    "compose_instrument",
     "compose_operator",
     # Tensor quantum objects
     "tensor_kraus",
@@ -212,6 +233,7 @@ __all__ = [
     "tensor_unitary",
     "tensor_observable",
     "tensor_involution",
+    "tensor_instrument",
     "tensor_operator",
     "tensor_state_vector",
     "tensor_density_matrix",
@@ -263,7 +285,12 @@ __all__ = [
     "DensityMatrix",
     "StateVector",
     "State",
+    "QuantumInstrument",
     "Operator",
+    # Instrument fidelity functions
+    "classification_fidelity",
+    "instrument_fidelity",
+    "non_demolition_fidelity",
     # State functions
     "zero_state_matrix",
     "zero_state_vector",
@@ -293,6 +320,7 @@ __all__ = [
     # Promotion functions
     "promote",
     "promote_state_vector_to_density_matrix",
+    "promote_hilbert_space",
     # Operator basis functions
     "weyl_basis",
     "weyl_basis_labels",
@@ -317,4 +345,6 @@ __all__ = [
     "gates",
     "states",
     "ensembles",
+    # Visualization
+    "plot",
 ]

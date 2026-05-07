@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
-from typing import TYPE_CHECKING, Any, Iterator, Self, Tuple, overload
+from typing import TYPE_CHECKING, Any, Iterator, Self, Sequence, Tuple, overload
 
 import jax
 import jax.numpy as jnp
@@ -750,6 +750,39 @@ class DensityMatrix(State):
             case _:
                 return NotImplemented
 
+    def pretty_print(self, decimals: int = 3, atol: float = 1e-6) -> str:
+        """Return a human-readable Unicode string in the ``|i⟩⟨j|`` operator basis.
+
+        Matrix elements whose magnitude is below *atol* are omitted.
+        Values are rounded to *decimals* decimal places with trailing zeros stripped.
+        For ensembled density matrices each element is printed on its own labelled line.
+
+        :param decimals: Number of decimal places for each element (default: 3).
+        :param atol: Magnitude threshold below which terms are dropped (default: 1e-6).
+        :return: A Unicode string, e.g. ``0.5|0⟩⟨0| + 0.5|1⟩⟨1|``.
+
+        Example::
+
+            >>> rho = DensityMatrix.from_matrix(jnp.array([[0.5, 0.5], [0.5, 0.5]], dtype=complex), dims=(2,))
+            >>> rho.pretty_print()
+            '0.5|0⟩⟨0| + 0.5|0⟩⟨1| + 0.5|1⟩⟨0| + 0.5|1⟩⟨1|'
+        """
+        from ._state import _format_density_matrix_str
+        import itertools
+
+        matrix = self.matrix
+        dims = self.dims
+
+        if self.ensemble_size == ():
+            return _format_density_matrix_str(matrix, dims, decimals, atol)
+
+        lines = []
+        for idx in itertools.product(*[range(s) for s in self.ensemble_size]):
+            label = "[" + ", ".join(str(i) for i in idx) + "]"
+            mat = matrix[idx]
+            lines.append(f"{label}: {_format_density_matrix_str(mat, dims, decimals, atol)}")
+        return "\n".join(lines)
+
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
         """Convert to a QuTiP Qobj (or array of Qobjs for ensembles) for interoperability testing."""
         import numpy as np
@@ -865,11 +898,11 @@ class Unitary(Operator):
 
                 return compose_superop(other, unitary_to_superop(self))
             case KrausMap():
-                # K @ U -> KrausMap (promotion)
+                # U @ K -> KrausMap: compose U (applied second) with each Kraus operator
                 from ._compose import compose_kraus_map
                 from ._superoperator_transformations import unitary_to_kraus_map
 
-                return compose_kraus_map(other, unitary_to_kraus_map(self))
+                return compose_kraus_map(unitary_to_kraus_map(self), other)
             case StateVector():
                 # <psi|U = <phi| -> StateVector (apply unitary to state vector)
                 from ._apply import apply_unitary_to_state_vector
@@ -1505,7 +1538,7 @@ class KrausMap(SuperOperator):
 
                 return compose_pauli_liouville(kraus_to_pauli_liouville(self), other)
             case Unitary():
-                # K @ U -> KrausMap (promotion)
+                # K @ U -> KrausMap: compose each Kraus operator with U (applied first)
                 from ._compose import compose_kraus_map
                 from ._superoperator_transformations import unitary_to_kraus_map
 
@@ -2008,3 +2041,370 @@ class PauliLiouville(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+
+# ======================================================================
+# QuantumInstrument
+# ======================================================================
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class QuantumInstrument(QuantumObject):
+    """A quantum instrument modeling mid-circuit measurement.
+
+    Stores per-outcome superoperator matrices (CP but not TP) whose sum is CPTP,
+    plus metadata about which qudits produce classical output.
+
+    Data tensor shape:
+        ``(*ensemble, num_outcomes, d_out_0, …, d_out_{n-1},
+           d_out_0, …, d_out_{n-1}, d_in_0, …, d_in_{n-1},
+           d_in_0, …, d_in_{n-1})``
+
+    The first qudit axis after ``num_outcomes`` is the outcome axis.
+    """
+
+    measured_qudits: Tuple[int, ...]
+    """Indices of the qudits that produce a classical outcome."""
+
+    # ---- pytree support ----
+
+    def tree_flatten(self):
+        return (self.data,), (self.num_qubits, self.measured_qudits)
+
+    @classmethod
+    def tree_unflatten(cls, aux, children):
+        (data,) = children
+        num_qubits, measured_qudits = aux
+        return cls(data=data, num_qubits=num_qubits, measured_qudits=measured_qudits)
+
+    # ---- core properties ----
+
+    @property
+    def num_outcomes(self) -> int:
+        """Number of classical measurement outcomes."""
+        return self.data.shape[self.num_ensemble_dims]
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """Number of leading ensemble / batch dimensions."""
+        n_qudit = self.num_qubits
+        qudit_dims = 4 * n_qudit  # bra/ket for output & input
+        return self.data.ndim - 1 - qudit_dims  # subtract 1 for outcome axis
+
+    @property
+    def ensemble_size(self) -> Tuple[int, ...]:
+        return self.data.shape[: self.num_ensemble_dims]
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
+        n = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n]
+        dims_in = qudit_shape[2 * n : 3 * n]
+        return (dims_out, dims_in)
+
+    @property
+    def measured_dims(self) -> Tuple[int, ...]:
+        """Per-qudit dimensions of the measured subsystems."""
+        return tuple(self.dims[0][i] for i in self.measured_qudits)
+
+    @property
+    def d_measured(self) -> int:
+        """Total Hilbert-space dimension of the measured subsystems."""
+        return reduce(mul, self.measured_dims, 1)
+
+    @property
+    def d(self) -> Tuple[int, int]:
+        """Total (output, input) Hilbert-space dimensions."""
+        return tuple(reduce(mul, dim) for dim in self.dims)  # type: ignore[return-value]
+
+    @property
+    def d2(self) -> Tuple[int, int]:
+        """Squared (output, input) dimensions."""
+        return self.d[0] ** 2, self.d[1] ** 2
+
+    @property
+    def matrix(self) -> Array:
+        """Flattened superoperator matrices: ``(*ensemble, num_outcomes, d_out², d_in²)``."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        n_outcomes = self.num_outcomes
+        qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
+        n = len(qudit_shape) // 4
+        d_out_bra = reduce(mul, qudit_shape[:n], 1)
+        d_out_ket = reduce(mul, qudit_shape[n : 2 * n], 1)
+        d_in_bra = reduce(mul, qudit_shape[2 * n : 3 * n], 1)
+        d_in_ket = reduce(mul, qudit_shape[3 * n :], 1)
+        d_out = d_out_bra * d_out_ket
+        d_in = d_in_bra * d_in_ket
+        return self.data.reshape(ensemble_shape + (n_outcomes, d_out, d_in))
+
+    @classmethod
+    def from_matrix(
+        cls,
+        matrix: Array,
+        dims: Tuple[Tuple[int, ...], Tuple[int, ...]],
+        measured_qudits: Tuple[int, ...],
+    ) -> "QuantumInstrument":
+        """Construct from flattened superoperator matrices.
+
+        :param matrix: ``(*ensemble, num_outcomes, d_out², d_in²)``
+        :param dims: ``(dims_out, dims_in)`` per-qudit dimensions.
+        :param measured_qudits: Indices of measured qudits.
+        """
+        num_qubits = len(dims[0])
+        ensemble_shape = matrix.shape[:-3]
+        n_outcomes = matrix.shape[-3]
+        tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
+        tensor = matrix.reshape(ensemble_shape + (n_outcomes,) + tensor_shape)
+        return cls(data=tensor, num_qubits=num_qubits, measured_qudits=measured_qudits)
+
+    # ------------------------------------------------------------------
+    # Indexing helpers
+    # ------------------------------------------------------------------
+
+    def outcome_superop(self, i: int) -> Tuple["SuperOp", Array]:
+        """Return the superoperator for outcome *i* and its normalization coefficient.
+
+        Per-outcome maps are CP but *not* TP, so the trace of
+        ``E_i(ρ)`` gives the probability of outcome *i*.  The returned
+        coefficient is that probability for a maximally mixed input,
+        i.e. ``Tr[S_i] / d_in``.
+
+        :returns: ``(superop, coeff)`` where *superop* is the (un-normalised)
+            superoperator and *coeff* is the scalar normalization factor.
+        """
+        mat = self.matrix[..., i, :, :]
+        superop = SuperOp.from_matrix(mat, self.dims)
+        coeff = jnp.real(jnp.trace(mat, axis1=-2, axis2=-1)) / self.d[1]
+        return superop, coeff
+
+    def total_channel(self) -> "SuperOp":
+        """Return the CPTP channel obtained by summing over all outcomes."""
+        total = jnp.sum(self.matrix, axis=-3)
+        return SuperOp.from_matrix(total, self.dims)
+
+    # ------------------------------------------------------------------
+    # Ensemble indexing
+    # ------------------------------------------------------------------
+
+    def __getitem__(self, key: Any) -> "QuantumInstrument":
+        if self.num_ensemble_dims == 0:
+            raise IndexError("This QuantumInstrument has no ensemble dimensions.")
+        new_data = self.data[key]
+        obj = QuantumInstrument(data=new_data, num_qubits=self.num_qubits, measured_qudits=self.measured_qudits)
+        qubit_dims = self.data.shape[self.num_ensemble_dims :]
+        if obj.data.shape[obj.num_ensemble_dims :] != qubit_dims:
+            raise IndexError("Indexing removed quantum dimensions.")
+        return obj
+
+    # ------------------------------------------------------------------
+    # Constructors
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_superop(
+        cls,
+        superop_matrices: Sequence["SuperOp"],
+        measured_qudits: Tuple[int, ...],
+    ) -> "QuantumInstrument":
+        """Construct from a sequence of superoperator matrices (one per outcome).
+
+        :param superop_matrices: CP maps, one per measurement outcome.  Their
+            sum must be trace-preserving.
+        :param measured_qudits: Indices of the qudits that are measured.
+        """
+        if len(superop_matrices) == 0:
+            raise ValueError("At least one superoperator matrix is required.")
+
+        dims = superop_matrices[0].dims
+        for j, s in enumerate(superop_matrices):
+            if s.dims != dims:
+                raise ValueError(f"Superoperator {j} has dims {s.dims}, expected {dims}.")
+
+        matrices = jnp.stack([s.matrix for s in superop_matrices], axis=-3)
+        return cls.from_matrix(matrices, dims, measured_qudits)
+
+    # ------------------------------------------------------------------
+    # Properties: confusion matrix, transition matrix
+    # ------------------------------------------------------------------
+
+    @property
+    def confusion_matrix(self) -> Array:
+        r"""
+        Extract the confusion matrix.
+
+        Shape ``(*ensemble, num_outcomes, d_measured)``.  Entry ``[i, j]`` is the
+        probability of reporting outcome *i* when the measured subsystem is in
+        computational basis state *j*.
+
+        In the Liouville representation, applying superoperator :math:`S_i` to a
+        computational basis state :math:`|j\\rangle\\langle j|` reduces to selecting
+        column :math:`j(d+1)` of :math:`S_i`, because
+        :math:`\\operatorname{vec}(|j\\rangle\\langle j|)` is a unit vector at that
+        position.  Taking the trace then sums over the diagonal rows:
+
+        .. math::
+
+            C[i, j] = \\operatorname{Tr}[\\mathcal{E}_i(|j\\rangle\\langle j|)]
+                     = \\sum_k S_i[k(d+1),\\, j(d+1)]
+
+        When not all qudits are measured, entries are averaged over the unmeasured subsystem
+        states that share the same measured-subsystem index.
+        """
+        d_total = self.d[0]
+        d_measured = self.d_measured
+        dims = self.dims[0]
+
+        # Diagonal positions in the d_total^2-dimensional Liouville space.
+        # vec(|j><j|) is non-zero only at index j*(d_total+1).
+        diag_idx = jnp.arange(d_total) * (d_total + 1)  # (d_total,)
+
+        # raw_probs[..., i, j_full] = Tr[E_i(|j_full><j_full|)]
+        # self.matrix: (*ensemble, n_outcomes, d^2, d^2)
+        # submatrix at diagonal rows and cols: (*ensemble, n_outcomes, d_total, d_total)
+        # sum over k (output diagonal): (*ensemble, n_outcomes, d_total)
+        raw_probs = jnp.real(self.matrix[..., diag_idx[:, None], diag_idx[None, :]].sum(axis=-2))
+
+        # Map each full-space index j_full to its measured-subsystem index j_meas.
+        j_meas_array = jnp.array(
+            [_extract_measured_index(j, dims, self.measured_qudits) for j in range(d_total)]
+        )  # (d_total,)
+
+        # Sum contributions into measured-subsystem columns, then normalize.
+        # one_hot: (d_total, d_measured); matmul broadcasts over leading ensemble/outcome dims.
+        n_per_meas = d_total // d_measured
+        one_hot = jax.nn.one_hot(j_meas_array, d_measured)  # (d_total, d_measured)
+        return raw_probs @ one_hot / n_per_meas  # (*ensemble, n_outcomes, d_measured)
+
+    @property
+    def transition_matrix(self) -> Array:
+        """Extract the transition matrix over the full Hilbert space.
+
+        Shape ``(d_total, d_total)``.  Entry ``[k, j]`` is the probability of
+        ending in computational basis state *k* given input *j*, marginalised
+        over all measurement outcomes.
+        """
+        from ._apply import apply_superop_to_density_matrix
+
+        d = self.d[0]
+        dims = self.dims[0]
+        total_superop = SuperOp.from_matrix(jnp.sum(self.matrix, axis=-3), self.dims)
+
+        transition = jnp.zeros((d, d))
+        for j in range(d):
+            rho_j = DensityMatrix.from_matrix(jnp.zeros((d, d), dtype=jnp.complex128).at[j, j].set(1.0), dims)
+            rho_out = apply_superop_to_density_matrix(total_superop, rho_j)
+            for k in range(d):
+                transition = transition.at[k, j].set(jnp.real(rho_out.matrix[k, k]))
+
+        return transition
+
+    # ------------------------------------------------------------------
+    # Composition and tensor product operators
+    # ------------------------------------------------------------------
+
+    def __matmul__(self, other: Any) -> Any:
+        """Compose two instruments (or apply to a state)."""
+        match other:
+            case QuantumInstrument():
+                from ._compose import compose_instrument
+
+                return compose_instrument(self, other)
+            case DensityMatrix():
+                raise TypeError(
+                    "Use select_outcome(*apply_instrument_to_density_matrix(instrument, rho), key) "
+                    "to apply a QuantumInstrument to a DensityMatrix."
+                )
+            case _:
+                return NotImplemented
+
+    def __or__(self, other: Any) -> Any:
+        """Tensor product of two instruments."""
+        match other:
+            case QuantumInstrument():
+                from ._tensor import tensor_instrument
+
+                return tensor_instrument(self, other)
+            case _:
+                return NotImplemented
+
+    def __ror__(self, other: Any) -> Any:
+        match other:
+            case QuantumInstrument():
+                from ._tensor import tensor_instrument
+
+                return tensor_instrument(other, self)
+            case _:
+                return NotImplemented
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
+
+    def __repr__(self) -> str:
+        mq = ",".join(str(q) for q in self.measured_qudits)
+        return f"QuantumInstrument(dims={self.dims}, num_outcomes={self.num_outcomes}, measured_qudits=({mq}))"
+
+
+# ======================================================================
+# QuantumInstrument private helpers
+# ======================================================================
+
+
+def _decode_index(flat: int, shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    """Decode a flat index into a multi-dimensional index (row-major)."""
+    indices: list[int] = []
+    for s in reversed(shape):
+        indices.append(flat % s)
+        flat //= s
+    return tuple(reversed(indices))
+
+
+def _encode_index(indices: Tuple[int, ...], shape: Tuple[int, ...]) -> int:
+    """Encode a multi-dimensional index into a flat index (row-major)."""
+    flat = 0
+    for idx, s in zip(indices, shape):
+        flat = flat * s + idx
+    return flat
+
+
+def _build_partial_projector(
+    dims: Tuple[int, ...],
+    measured_qudits: Tuple[int, ...],
+    measured_values: Tuple[int, ...],
+) -> Array:
+    """Build a projector that fixes measured qudits to given values and acts
+    as identity on unmeasured qudits.
+    """
+    d_total = reduce(mul, dims, 1)
+    projector = jnp.zeros((d_total, d_total), dtype=jnp.complex128)
+    for idx in range(d_total):
+        qudit_indices = _decode_index(idx, dims)
+        match = all(qudit_indices[mq] == mv for mq, mv in zip(measured_qudits, measured_values))
+        if match:
+            projector = projector.at[idx, idx].set(1.0)
+    return projector
+
+
+def _extract_measured_index(
+    full_index: int,
+    dims: Tuple[int, ...],
+    measured_qudits: Tuple[int, ...],
+) -> int:
+    """Given a full computational-basis index, extract the measured subsystem index."""
+    qudit_indices = _decode_index(full_index, dims)
+    measured_indices = tuple(qudit_indices[mq] for mq in measured_qudits)
+    measured_dims = tuple(dims[mq] for mq in measured_qudits)
+    return _encode_index(measured_indices, measured_dims)
+
+
+def _count_full_states_per_measured(
+    j_meas: int,
+    dims: Tuple[int, ...],
+    measured_qudits: Tuple[int, ...],
+) -> int:
+    """Count how many full-space basis states map to a given measured-subsystem index."""
+    d_total = reduce(mul, dims, 1)
+    d_measured = reduce(mul, (dims[mq] for mq in measured_qudits), 1)
+    return d_total // d_measured

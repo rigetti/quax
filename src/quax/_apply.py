@@ -27,12 +27,13 @@ from ._quantum_objects import (
     Observable,
     Operator,
     PauliLiouville,
+    QuantumInstrument,
     State,
     StateVector,
     SuperOp,
     Unitary,
 )
-from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop
+from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop, superop_to_kraus
 from ._promotion import promote, promote_hilbert_space
 
 CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
@@ -727,3 +728,191 @@ def _generate_kraus_trajectory_contraction(qubits: Tuple[int, ...], n: int) -> s
         + CHARS[0]
         + "".join(CHARS[1 + qubits.index(i)] if i in qubits else CHARS[1 + operator_support + i] for i in range(n))
     )
+
+
+# ======================================================================
+# Quantum instrument application
+# ======================================================================
+
+
+def apply_instrument_to_density_matrix(
+    instrument: QuantumInstrument,
+    rho: DensityMatrix,
+) -> tuple[DensityMatrix, Array]:
+    r"""Apply a quantum instrument to a density matrix.
+
+    Computes :math:`\mathcal{E}_i(\rho)` for every outcome and returns
+    the un-normalised outcome density matrices together with their
+    probabilities.
+
+    Supports broadcasting between ensembled states and instruments
+    following standard NumPy broadcasting rules.
+
+    :param instrument: The quantum instrument.
+    :param rho: Input density matrix, possibly ensembled.
+    :return: ``(rho_outs, probs)`` where *rho_outs* has an outcome axis
+        in its ensemble dimensions and *probs* has shape
+        ``(*ens, n_outcomes)``.
+    """
+    subsystem = tuple(range(len(rho.dims)))
+    return targeted_apply_instrument_to_density_matrix(instrument, rho, subsystem)
+
+
+def apply_instrument_to_state_vector(
+    instrument: QuantumInstrument,
+    psi: StateVector,
+    key: Array,
+) -> tuple[StateVector, Array]:
+    r"""Apply a quantum instrument to a state vector (Monte Carlo trajectory).
+
+    Converts per-outcome superoperators to Kraus operators, applies all
+    operators to :math:`|\psi\rangle`, computes Born-rule probabilities,
+    samples one Kraus operator, and returns the normalised post-measurement
+    state vector together with the corresponding outcome index.
+
+    Supports broadcasting between ensembled states and keys.
+
+    :param instrument: The quantum instrument.
+    :param psi: Input state vector, possibly ensembled.
+    :param key: JAX PRNG key (scalar or ensemble of keys).
+    :return: ``(psi_out, outcome)``
+    """
+    subsystem = tuple(range(len(psi.dims)))
+    return targeted_apply_instrument_to_state_vector(instrument, psi, key, subsystem)
+
+
+def targeted_apply_instrument_to_density_matrix(
+    instrument: QuantumInstrument,
+    rho: DensityMatrix,
+    subsystem: Tuple[int, ...],
+) -> tuple[DensityMatrix, Array]:
+    """Apply a quantum instrument to specific qudits of a density matrix.
+
+    The instrument acts on the qudits specified by *subsystem*; the remaining
+    qudits are left unchanged (identity channel on the complement).
+
+    Returns the un-normalised outcome density matrices and their probabilities.
+
+    Supports broadcasting between ensembled states and instruments.
+
+    :param instrument: The quantum instrument.
+    :param rho: Input density matrix.
+    :param subsystem: The qudit indices the instrument acts on.
+    :return: ``(rho_outs, probs)`` where *rho_outs* has an outcome axis
+        in its ensemble dimensions and *probs* has shape
+        ``(*ens, n_outcomes)``.
+    """
+    # Instrument data is already in SuperOp form (outcome axis sits in the ensemble)
+    superop = SuperOp(instrument.data, instrument.num_qubits)
+
+    # Expand rho so the outcome axis broadcasts independently of rho's batch axes
+    rho_expanded = DensityMatrix(jnp.expand_dims(rho.data, axis=rho.num_ensemble_dims), rho.num_qubits)
+
+    # Apply superoperator on the target subsystem for all outcomes at once
+    rho_outs = targeted_apply_superop(superop, rho_expanded, subsystem)
+
+    # Probabilities: Tr[ρ_out] for each outcome
+    rho_outs_mat = rho_outs.matrix  # (*ens, n_outcomes, d_total, d_total)
+    probs = jnp.real(jnp.trace(rho_outs_mat, axis1=-2, axis2=-1))
+
+    return rho_outs, probs
+
+
+def select_outcome(
+    rho_outs: DensityMatrix,
+    probs: Array,
+    key: Array,
+) -> tuple[DensityMatrix, Array]:
+    """Select an outcome from instrument results using a random key.
+
+    Samples an outcome index from the probability distribution and returns
+    the normalised post-measurement density matrix.
+
+    :param rho_outs: Un-normalised outcome density matrices (with outcome
+        axis in the ensemble dimensions), as returned by
+        :func:`apply_instrument_to_density_matrix` or
+        :func:`targeted_apply_instrument_to_density_matrix`.
+    :param probs: Outcome probabilities, shape ``(*ens, n_outcomes)``.
+    :param key: JAX PRNG key (scalar or ensemble of keys).
+    :return: ``(rho_out, outcome)`` — the normalised post-measurement
+        state and the sampled outcome index.
+    """
+    n_outcomes = probs.shape[-1]
+    rho_outs_mat = rho_outs.matrix  # (*ens, n_outcomes, d_total, d_total)
+
+    logits = jnp.log(jnp.clip(probs, min=1e-30))
+    sampled_idx = _batched_categorical(key, logits)
+
+    one_hot = jax.nn.one_hot(sampled_idx, n_outcomes)[..., :, jnp.newaxis, jnp.newaxis]
+    selected = jnp.sum(rho_outs_mat * one_hot, axis=-3)
+
+    p_selected = jnp.sum(probs * jax.nn.one_hot(sampled_idx, n_outcomes), axis=-1)
+    selected = selected / jnp.clip(p_selected, min=1e-30)[..., jnp.newaxis, jnp.newaxis]
+
+    return DensityMatrix.from_matrix(selected, rho_outs.dims), sampled_idx
+
+
+def targeted_apply_instrument_to_state_vector(
+    instrument: QuantumInstrument,
+    psi: StateVector,
+    key: Array,
+    subsystem: Tuple[int, ...],
+) -> tuple[StateVector, Array]:
+    """Apply a quantum instrument to specific qudits of a state vector (trajectory).
+
+    The instrument acts on the qudits specified by *subsystem*; the remaining
+    qudits are left unchanged.
+
+    Supports broadcasting between ensembled states, instruments, and keys.
+
+    :param instrument: The quantum instrument.
+    :param psi: Input state vector.
+    :param key: JAX PRNG key for sampling.
+    :param subsystem: The qudit indices the instrument acts on.
+    :return: ``(psi_out, outcome)``.
+    """
+    n = len(psi.dims)
+    n_outcomes = instrument.num_outcomes
+    d_out, d_in = instrument.d
+    n_kraus_per_outcome = d_out * d_in
+    n_total_kraus = n_outcomes * n_kraus_per_outcome
+
+    # Convert instrument SuperOp data → KrausMap (outcome axis sits in the ensemble)
+    kraus_map = superop_to_kraus(SuperOp(instrument.data, instrument.num_qubits))
+
+    # Promote if needed
+    target_dims = tuple(psi.dims[i] for i in subsystem)
+    if kraus_map.dims[0] != target_dims:
+        kraus_map = promote(kraus_map, target_dims)
+
+    # Merge the outcome axis (last instrument ensemble dim) with the Kraus axis
+    # kraus_map.data: (*ens_i, n_outcomes, n_kraus_per_outcome, d_out..., d_in...)
+    # → (*ens_i, n_total_kraus, d_out..., d_in...)
+    kraus_data = kraus_map.data
+    n_ens_i = len(instrument.ensemble_size)
+    shape = kraus_data.shape
+    kraus_data = kraus_data.reshape(shape[:n_ens_i] + (n_total_kraus,) + shape[n_ens_i + 2 :])
+
+    einsum_str = _generate_kraus_trajectory_contraction(subsystem, n)
+    all_outcomes = jnp.einsum(einsum_str, kraus_data, psi.data, optimize="optimal")
+
+    # Born-rule probabilities
+    qubit_axes = tuple(range(-n, 0))
+    per_kraus_probs = jnp.sum(jnp.abs(all_outcomes) ** 2, axis=qubit_axes)
+
+    # Sample, select, normalize
+    logits = jnp.log(jnp.clip(per_kraus_probs, min=1e-30))
+    sampled_kraus_idx = _batched_categorical(key, logits)
+
+    one_hot = jax.nn.one_hot(sampled_kraus_idx, n_total_kraus).reshape(
+        jax.nn.one_hot(sampled_kraus_idx, n_total_kraus).shape + (1,) * n
+    )
+    selected = jnp.sum(all_outcomes * one_hot, axis=-(n + 1))
+
+    p_selected = jnp.sum(per_kraus_probs * jax.nn.one_hot(sampled_kraus_idx, n_total_kraus), axis=-1)
+    norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
+    selected = selected / norm.reshape(norm.shape + (1,) * n)
+
+    sampled_outcome = sampled_kraus_idx // n_kraus_per_outcome
+
+    return StateVector(data=selected, num_qubits=psi.num_qubits), sampled_outcome

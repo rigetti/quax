@@ -9,6 +9,7 @@ try:
     import plotly.express as px
     import plotly.graph_objects as go
     from plotly.graph_objs import Figure
+    from plotly.subplots import make_subplots
 except ImportError as e:
     raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]") from e
 
@@ -17,6 +18,7 @@ from ._quantum_objects import (
     DensityMatrix,
     Operator,
     PauliLiouville,
+    QuantumInstrument,
     QuantumObject,
     StateVector,
     SuperOperator,
@@ -53,14 +55,141 @@ def _weyl_labels(dims: Tuple[int, ...]) -> List[str]:
     return ["".join(combo) for combo in product(*single_labels)]
 
 
+_COLORSCALE = [(0.0, "#ef476f"), (0.5, "#f8f8f8"), (1.0, "#00b5ad")]
+
+# https://hihayk.github.io/scale/#3/3/80/80/0/0/20/20/00b5ad/0/181/173/white
+# https://hihayk.github.io/scale/#3/3/80/80/0/0/20/20/ef476f/239/71/111/white
+_CYCLIC_COLORSCALE = [
+    "#00B5AD",
+    "#008983",
+    "#005A56",
+    "#002826",
+    "#330B14",
+    "#751C31",
+    "#B3304F",
+    "#EF476F",
+    "#F77493",
+    "#FDA4B9",
+    "#FFD7E0",
+    "#f8f8f8",
+    "#CCF4F2",
+    "#88E2DE",
+    "#44CDC7",
+    "#00B5AD",
+]
+
+
+def _superoperator_computational_labels(dims: Tuple[int, ...]) -> List[str]:
+    """Generate ``|i⟩⟨j|`` labels for the vectorised operator basis.
+
+    :param dims: Per-qudit dimensions (output or input).
+    :returns: Labels such as ``["|0⟩⟨0|", "|0⟩⟨1|", "|1⟩⟨0|", "|1⟩⟨1|"]``.
+    """
+    state_labels = _computational_basis_labels(dims)
+    return [f"{bra}⟨{ket[1:-1]}|" for bra in state_labels for ket in state_labels]
+
+
+def _add_complex_heatmap(
+    fig: Figure,
+    matrix: jnp.ndarray,
+    labels: List[str],
+    row: int,
+    col: int,
+    abs_max: Optional[float] = None,
+    show_text: bool = True,
+) -> None:
+    """
+    Add a complex-valued heatmap to a subplot using phase → colour, magnitude → opacity.
+
+    Uses a single ``go.Image`` trace for performance instead of per-cell shapes.
+    """
+    abs_mat = jnp.abs(matrix)
+    if abs_max is None:
+        abs_max = float(jnp.max(abs_mat))
+    if abs_max == 0:
+        abs_max = 1.0
+
+    n = len(labels)
+
+    # Phase → colour index into cyclic colorscale
+    phases = jnp.angle(matrix)
+    phase_norm = jnp.clip((phases % (2 * jnp.pi)) / (2 * jnp.pi), 0, 1).ravel()
+    phase_colors = pc.sample_colorscale(_CYCLIC_COLORSCALE, phase_norm.tolist(), colortype="rgb")
+    rgb_array = jnp.array([[int(x) for x in str(s)[4:-1].split(",")] for s in phase_colors]).reshape(n, n, 3)
+
+    # Magnitude → alpha, blend with white background
+    alphas = jnp.clip(abs_mat / abs_max, 0, 1)[..., None]
+    bg = jnp.full_like(rgb_array, 255)
+    blended = (rgb_array * alphas + bg * (1 - alphas)).astype(jnp.int32)
+    rgba = jnp.concatenate([blended, jnp.full((*blended.shape[:-1], 1), 255, dtype=jnp.int32)], axis=-1)
+
+    fig.add_trace(
+        go.Image(z=rgba),
+        row=row,
+        col=col,
+    )
+
+    # Text annotations (vectorised filter, only add for significant cells)
+    if show_text:
+        text_threshold = float(jnp.mean(abs_mat) - jnp.std(abs_mat))
+        brightness = jnp.sum(blended / 255.0 * jnp.array([0.2126, 0.7152, 0.0722]), axis=-1)
+        real_rounded = jnp.around(jnp.real(matrix), decimals=2)
+        imag_rounded = jnp.around(jnp.imag(matrix), decimals=2)
+        for i in range(n):
+            for j in range(n):
+                if float(abs_mat[i, j]) < text_threshold:
+                    continue
+                re_val = float(real_rounded[i, j])
+                im_val = float(imag_rounded[i, j])
+                re_str = f"{re_val:.2f}" if abs(re_val) >= 1e-4 else ""
+                im_str = f"{im_val:+.2f}i" if abs(im_val) >= 1e-4 else ""
+                text = "<br>".join(filter(None, [re_str, im_str]))
+                if text:
+                    fig.add_annotation(
+                        dict(
+                            x=j,
+                            y=i,
+                            text=text,
+                            showarrow=False,
+                            font=dict(
+                                size=8,
+                                color="#f8f8f8" if float(brightness[i, j]) < 0.5 else "#0d0d36",
+                            ),
+                        ),
+                        row=row,
+                        col=col,
+                    )
+
+    fig.update_xaxes(
+        tickvals=list(range(n)),
+        ticktext=labels,
+        range=[-0.5, n - 0.5],
+        ticks="inside",
+        tickson="boundaries",
+        tickfont=dict(size=10),
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        tickvals=list(range(n)),
+        ticktext=labels,
+        range=[-0.5, n - 0.5],
+        ticks="inside",
+        tickson="boundaries",
+        autorange="reversed",
+        tickfont=dict(size=10),
+        row=row,
+        col=col,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Low-level plot helpers
 # ---------------------------------------------------------------------------
 
 
-def plot_pauli_transfer_matrix(
+def _plot_pauli_transfer_matrix(
     pauli_liouville: PauliLiouville,
-    title: str = "Pauli Transfer Matrix",
     range_color: Optional[Tuple[float, float]] = None,
 ) -> Figure:
     """
@@ -71,11 +200,8 @@ def plot_pauli_transfer_matrix(
     Weyl labels (W00, W01, ...).
 
     :param pauli_liouville: A PauliLiouville quantum object.
-    :param title: Title for the figure.
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
-    colorscale = [(0.0, "#ef476f"), (0.5, "#f8f8f8"), (1.0, "#00b5ad")]
-
     matrix = pauli_liouville.matrix
     labels = _weyl_labels(pauli_liouville.dims[0])
 
@@ -95,7 +221,7 @@ def plot_pauli_transfer_matrix(
         x=labels,
         y=labels,
         labels=dict(x="Input Operator", y="Output Operator"),
-        color_continuous_scale=colorscale,
+        color_continuous_scale=_COLORSCALE,
         width=575,
         height=575,
         range_color=range_color,
@@ -111,7 +237,6 @@ def plot_pauli_transfer_matrix(
         font=dict(
             size=12,
         ),
-        title=f"{title}",
         xaxis=dict(
             ticks="inside",
             tickson="boundaries",
@@ -157,7 +282,6 @@ def plot(obj: QuantumObject, **kwargs) -> Figure:  # type: ignore[type-arg]
 @plot.register(StateVector)
 def _plot_state_vector(
     state_vector: StateVector,
-    title: str = "State Vector",
     area_proportional: bool = False,
 ) -> Figure:
     """
@@ -170,7 +294,6 @@ def _plot_state_vector(
     distinguishes negative amplitudes (Re < 0) from positive ones (solid).
 
     :param state_vector: A :class:`StateVector` (no ensemble dimensions).
-    :param title: Figure title.
     :param area_proportional: If ``True``, the area of each annular sector is
         proportional to the amplitude magnitude rather than the radial extent.
     """
@@ -285,7 +408,6 @@ def _plot_state_vector(
 
     fig.update_layout(
         template="plotly_white",
-        title=title,
         showlegend=True,
         legend=dict(x=0.0, y=-0.05, orientation="h", font=dict(size=11)),
         polar=dict(
@@ -309,7 +431,6 @@ def _plot_state_vector(
 @plot.register(DensityMatrix)
 def _plot_density_matrix(
     density_matrix: DensityMatrix,
-    title: str = "Density Matrix",
     range_color: Optional[Tuple[float, float]] = None,
 ) -> Figure:
     """Heatmap of a density matrix where colour encodes phase and opacity encodes magnitude.
@@ -319,24 +440,10 @@ def _plot_density_matrix(
     Text colour adapts for readability against the effective background.
 
     :param density_matrix: A :class:`DensityMatrix` (no ensemble dimensions).
-    :param title: Figure title.
     :param range_color: Symmetric normalisation range. If ``None``, adapts to the data.
     """
     if density_matrix.ensemble_size != ():
         raise ValueError("plot(DensityMatrix) does not support ensemble dimensions")
-
-    cyclic_colorscale = [
-        "#e2d9e2",
-        "#99e1de",
-        "#76ACB4",
-        "#53778A",
-        "#304260",
-        "#48375A",
-        "#83617E",
-        "#BE8BA1",
-        "#F9B5C5",
-        "#e2d9e2",
-    ]
 
     matrix = density_matrix.matrix
     abs_mat = jnp.abs(matrix)
@@ -351,8 +458,8 @@ def _plot_density_matrix(
 
     # Phase → colour via cyclic colorscale
     phases = jnp.angle(matrix)
-    phase_norm = jnp.clip(((phases + jnp.pi) / (2 * jnp.pi)).ravel(), 0, 1)
-    phase_colors = pc.sample_colorscale(cyclic_colorscale, phase_norm.tolist(), colortype="rgb")
+    phase_norm = jnp.clip(((phases % (2 * jnp.pi)) / (2 * jnp.pi)).ravel(), 0, 1)
+    phase_colors = pc.sample_colorscale(_CYCLIC_COLORSCALE, phase_norm.tolist(), colortype="rgb")
 
     # Magnitude → opacity
     alphas = jnp.clip(abs_mat / abs_max, 0, 1)
@@ -405,25 +512,23 @@ def _plot_density_matrix(
                 )
 
     # Invisible scatter for the phase colourbar
-    import math
-
     phase_colorbar_trace = go.Scatter(
         x=[None],
         y=[None],
         mode="markers",
         marker=dict(
-            colorscale=[[i / (len(cyclic_colorscale) - 1), c] for i, c in enumerate(cyclic_colorscale)],
+            colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
             showscale=True,
-            cmin=-math.pi,
-            cmax=math.pi,
+            cmin=0,
+            cmax=2 * jnp.pi,
             color=[0],
             colorbar=dict(
                 title="Phase (rad)",
                 thickness=10,
                 len=0.5,
                 ypad=0,
-                tickvals=[-math.pi, -math.pi / 2, 0, math.pi / 2, math.pi],
-                ticktext=["-π", "-π/2", "0", "π/2", "π"],
+                tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                ticktext=["0", "π/2", "π", "3π/2", "2π"],
             ),
         ),
         hoverinfo="none",
@@ -434,7 +539,6 @@ def _plot_density_matrix(
     fig.update_layout(
         template="plotly_white",
         font=dict(size=12),
-        title=title,
         shapes=shapes,
         annotations=annotations,
         xaxis=dict(
@@ -459,38 +563,127 @@ def _plot_density_matrix(
 @plot.register(Operator)
 def _plot_operator(
     operator: Operator,
-    title: str = "Pauli Transfer Matrix",
     range_color: Optional[Tuple[float, float]] = None,
 ) -> Figure:
     """
     Plot an operator as its Pauli transfer matrix.
 
     :param operator: Any :class:`Operator` subclass (Unitary, Observable, …).
-    :param title: Figure title.
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
     if operator.ensemble_size != ():
         raise ValueError("plot(Operator) does not support ensemble dimensions")
-    if (any(d > 2 for dim in operator.dims for d in dim)) and (title == "Pauli Transfer Matrix"):
-        title = "Weyl-Liouville Matrix"
     pauli_liouville = to_pauli_liouville(operator)
-    return plot_pauli_transfer_matrix(pauli_liouville, title=title, range_color=range_color)
+    return _plot_pauli_transfer_matrix(pauli_liouville, range_color=range_color)
 
 
 @plot.register(SuperOperator)
 def _plot_superoperator(
     superoperator: SuperOperator,
-    title: str = "Pauli Transfer Matrix",
     range_color: Optional[Tuple[float, float]] = None,
 ) -> Figure:
     """
     Plot a superoperator as its Pauli transfer matrix.
 
     :param superoperator: Any :class:`SuperOperator` subclass (SuperOp, Choi, KrausMap, PauliLiouville, …).
-    :param title: Figure title.
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
-    if (any(d > 2 for dim in superoperator.dims for d in dim)) and (title == "Pauli Transfer Matrix"):
-        title = "Weyl-Liouville Matrix"
     pauli_liouville = to_pauli_liouville(superoperator)
-    return plot_pauli_transfer_matrix(pauli_liouville, title=title, range_color=range_color)
+    return _plot_pauli_transfer_matrix(pauli_liouville, range_color=range_color)
+
+
+@plot.register(QuantumInstrument)
+def _plot_quantum_instrument(
+    instrument: QuantumInstrument,
+) -> Figure:
+    """Plot per-outcome superoperator matrices for a quantum instrument in the computational basis.
+
+    The left subplot shows the total CPTP channel (sum of all outcomes).
+    The right column shows smaller per-outcome superoperator matrices,
+    stacked vertically.
+
+    :param instrument: A :class:`QuantumInstrument`.
+    """
+    n = instrument.num_outcomes
+
+    # Layout: n rows, 2 columns. Left column spans all rows (total channel).
+    cell_size = 200
+    right_col = 1.0
+    specs = [[{"rowspan": n}, {}]] + [[None, {}] for _ in range(n - 1)]
+
+    fig = make_subplots(
+        rows=n,
+        cols=2,
+        specs=specs,
+        column_widths=[n / (n + right_col), right_col / (n + right_col)],
+        horizontal_spacing=0.1,
+        vertical_spacing=0.1,
+    )
+
+    total_superop = instrument.total_channel()
+
+    # --- Computational basis (SuperOp representation) ---
+    total_matrix = total_superop.matrix
+    total_labels = _superoperator_computational_labels(total_superop.dims[0])
+    abs_max = float(jnp.max(jnp.abs(total_matrix)))
+
+    _add_complex_heatmap(fig, total_matrix, total_labels, row=1, col=1, abs_max=abs_max)
+
+    for i in range(n):
+        superop, _coeff = instrument.outcome_superop(i)
+        matrix = superop.matrix
+        labels = _superoperator_computational_labels(superop.dims[0])
+        _add_complex_heatmap(fig, matrix, labels, row=i + 1, col=2, abs_max=abs_max, show_text=False)
+
+    # Add outcome annotations in the upper-right corner of each outcome subplot.
+    # In the subplot grid, col=2 axes are numbered starting from 2: x2/y2, x3/y3, ...
+    for i in range(n):
+        axis_num = i + 2
+        fig.add_annotation(
+            text=str(i),
+            xref=f"x{axis_num} domain",
+            yref=f"y{axis_num} domain",
+            x=1.0,
+            y=1.0,
+            xanchor="right",
+            yanchor="top",
+            showarrow=False,
+            font=dict(size=18),
+        )
+
+    # Phase colorbar
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(
+                colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
+                showscale=True,
+                cmin=0,
+                cmax=2 * jnp.pi,
+                color=[0],
+                colorbar=dict(
+                    title="Phase",
+                    thickness=10,
+                    len=0.5,
+                    ypad=0,
+                    tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                    ticktext=["0", "π/2", "π", "3π/2", "2π"],
+                ),
+            ),
+            hoverinfo="none",
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.update_layout(
+        # font=dict(size=12),
+        margin=dict(l=20, r=20, t=40, b=20),
+        width=cell_size * (n + right_col),
+        height=cell_size * n,
+    )
+
+    return fig

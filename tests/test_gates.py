@@ -366,3 +366,25 @@ def test_qutrit_TRZ02_ensemble():
     ensemble = qx.gates.TRZ02(phis)
     assert ensemble.matrix.shape == (2, 3, 3)
     assert jnp.all(qx.is_unitary(ensemble))
+
+
+def test_parametric_gates_return_unitary():
+    """Parametric gates that are unitary must return Unitary instances at runtime."""
+    phi, theta, lam = 0.3, 0.5, 0.7
+
+    assert isinstance(qx.gates.RZ(phi), qx.Unitary)
+    assert isinstance(qx.gates.RY(phi), qx.Unitary)
+    assert isinstance(qx.gates.RX(phi), qx.Unitary)
+    assert isinstance(qx.gates.PHASE(phi), qx.Unitary)
+    assert isinstance(qx.gates.PHASEDRX(theta, phi), qx.Unitary)
+    assert isinstance(qx.gates.U(theta, phi, lam), qx.Unitary)
+    assert isinstance(qx.gates.CPHASE00(phi), qx.Unitary)
+    assert isinstance(qx.gates.RZZ(phi), qx.Unitary)
+    assert isinstance(qx.gates.CAN(phi, theta, lam), qx.Unitary)
+
+
+def test_tensor_product_of_unitaries_is_unitary():
+    """Tensor product (|) of two Unitary gates must return a Unitary."""
+    phi, lam = 0.3, 0.7
+    result = qx.gates.RY(phi) | qx.gates.RZ(lam)
+    assert isinstance(result, qx.Unitary)

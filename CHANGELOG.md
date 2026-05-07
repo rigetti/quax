@@ -14,6 +14,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.0] - 2026-05-06
+
+### Added
+
+- `QuantumInstrument` quantum object for modeling mid-circuit measurements, with per-outcome superoperators, `confusion_matrix` and `transition_matrix` properties.
+- `MEASURE(dim)` and `RESET(dim)` gate constructors in `qx.gates` for ideal projective measurement and reset channels.
+- `instrument_from_confusion_and_transition` and `instrument_from_axis` constructors for building noisy instruments from classical error models.
+- `apply_instrument_to_density_matrix`, `apply_instrument_to_state_vector`, `select_outcome`, and targeted variants for applying instruments to quantum states.
+- `compose_instrument` and `tensor_instrument` for sequential composition (`@`) and tensor product (`|`) of instruments.
+- `classification_fidelity`, `non_demolition_fidelity`, and `instrument_fidelity` metrics for characterizing instrument quality.
+- `validate` support for `QuantumInstrument` (checks per-outcome CP and total TP).
+- `plot` support for `QuantumInstrument` (per-outcome superoperator heatmaps).
+- `DensityMatrix.pretty_print()` for human-readable `|i⟩⟨j|` display.
+- `promote_hilbert_space` auto-converts `Unitary` to `SuperOp` when paired with a channel type to avoid global-phase artifacts.
+- Quantum instruments documentation page (`docs/quantum-instruments.rst`) with comprehensive theory and usage guide.
+- `docs/citations.bib` bibliography for quantum instrument references.
+
+### Changed
+
+- `process_fidelity` now auto-promotes operands via `promote_hilbert_space` when dimensions differ, instead of raising an error.
+- Removed `title` parameter from `plot` and `plot_pauli_transfer_matrix` functions.
+- Updated phase colorscale and conventions in density matrix visualization.
+
+### Fixed
+
+- `Unitary.__matmul__(KrausMap)` composition order: `U @ K` now correctly composes U (applied second) with K (applied first).
+- Superoperator promotion now uses coherent extension (Kraus-based) instead of the previous zero-pad + complement projector approach, preserving coherences between original and complement subspaces.
+- Parametric gates (`RZ`, `PHASEDRX`, `U`, `CPHASE00`, `RZZ`, `CAN`) now return `Unitary` instances instead of `Operator`.
+
 ## [0.5.3] - 2026-04-23
 
 ### Added

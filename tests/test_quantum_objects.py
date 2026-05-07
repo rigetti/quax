@@ -18,7 +18,9 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
+from itertools import product
 
 import quax as qx
 from quax import (
@@ -39,6 +41,12 @@ from quax import (
     random_density_matrix,
     random_state_vector,
     random_unitary,
+)
+from .instrument_helpers import (
+    basis_dm,
+    basis_dm_multi,
+    basis_sv,
+    superposition_dm,
 )
 
 
@@ -718,3 +726,254 @@ def test_mixed_dim_partial_promotion(object_1, object_2, expected_object):
         assert result.dims == expected_dims
     else:
         assert result.dims == (expected_dims, expected_dims)
+
+
+# ======================================================================
+# QuantumInstrument tests
+# ======================================================================
+
+
+# ======================================================================
+# Basic tests of ideal measurement
+# ======================================================================
+
+
+class TestIdealMeasurementSingleQudit:
+    """Test ideal projective measurement on single qudits."""
+
+    @pytest.mark.parametrize("d", [2, 3, 4])
+    @pytest.mark.parametrize("seed", [0, 1, 42, 123, 9999])
+    def test_basis_state_labeled_correctly(self, d, seed):
+        """Qudit in |k> is labeled k with post-measurement state |k>, for each basis state."""
+        qi = qx.gates.MEASURE(d)
+        for state_idx in range(d):
+            rho = basis_dm(state_idx, d)
+            key = jax.random.key(seed + state_idx)
+            rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+            rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+            assert int(outcome) == state_idx
+            np.testing.assert_allclose(rho_out.matrix, rho.matrix, atol=1e-10)
+
+    def test_qubit_plus_state_probabilities(self):
+        """Qubit in |+> has P(0)=P(1)=0.5; post-measurement state matches label."""
+        qi = qx.gates.MEASURE()
+        rho = superposition_dm(2)
+        _, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        np.testing.assert_allclose(probs, jnp.array([0.5, 0.5]), atol=1e-10)
+
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        for label in range(2):
+            key = jax.random.key(label)
+            rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+            expected = basis_dm(int(outcome), 2)
+            np.testing.assert_allclose(rho_out.matrix, expected.matrix, atol=1e-10)
+
+    @pytest.mark.parametrize("d", [2, 3, 4])
+    @pytest.mark.parametrize("seed", [0, 1, 42, 123, 9999])
+    def test_state_vector_input(self, d, seed):
+        """Apply instrument to a state vector input |0> for dimension d."""
+        qi = qx.gates.MEASURE(d)
+        psi = basis_sv(0, d)
+        key = jax.random.key(seed)
+        psi_out, outcome = qx.apply_instrument_to_state_vector(qi, psi, key)
+        assert int(outcome) == 0
+        assert isinstance(psi_out, StateVector)
+        expected = basis_sv(0, d)
+        np.testing.assert_allclose(psi_out.matrix, expected.matrix, atol=1e-10)
+
+    @pytest.mark.parametrize("d", [2, 3, 4])
+    def test_ideal_confusion_identity(self, d):
+        """Ideal measurement: confusion matrix is d×d identity."""
+        qi = qx.gates.MEASURE(d)
+        np.testing.assert_allclose(qi.confusion_matrix, jnp.eye(d), atol=1e-10)
+
+    @pytest.mark.parametrize("d", [2, 3, 4])
+    def test_ideal_transition_identity(self, d):
+        """Ideal measurement: transition matrix is d×d identity."""
+        qi = qx.gates.MEASURE(d)
+        np.testing.assert_allclose(qi.transition_matrix, jnp.eye(d), atol=1e-10)
+
+    @pytest.mark.parametrize("d", [2, 3, 4])
+    def test_ideal_fidelities(self, d):
+        """Ideal measurement: all fidelities are 1.0."""
+        qi = qx.gates.MEASURE(d)
+        np.testing.assert_allclose(qx.classification_fidelity(qi), 1.0, atol=1e-10)
+        np.testing.assert_allclose(qx.non_demolition_fidelity(qi), 1.0, atol=1e-10)
+        np.testing.assert_allclose(qx.instrument_fidelity(qi), 1.0, atol=1e-10)
+
+
+# ======================================================================
+# 2-qudit perfect measurement
+# ======================================================================
+
+
+class TestIdealMeasurementMultiQudit:
+    """Test ideal projective measurement on pairs of qudits."""
+
+    @pytest.mark.parametrize("seed", [0, 42, 9999])
+    @pytest.mark.parametrize(
+        "i,j",
+        list(product(range(3), range(3))),
+        ids=[f"|{i}{j}>" for i, j in product(range(3), range(3))],
+    )
+    def test_two_qutrit_basis_states(self, i, j, seed):
+        """Pair of qutrits in |ij> is labeled ij with correct post-measurement state."""
+        qi = qx.gates.MEASURE(3) | qx.gates.MEASURE(3)
+        rho = basis_dm_multi((i, j), (3, 3))
+        key = jax.random.key(seed)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+        expected_outcome = i * 3 + j
+        assert int(outcome) == expected_outcome
+        np.testing.assert_allclose(rho_out.matrix, rho.matrix, atol=1e-10)
+
+    @pytest.mark.parametrize("seed", [0, 42, 9999])
+    @pytest.mark.parametrize(
+        "i,j",
+        [(0, 0), (0, 1), (1, 0), (1, 1)],
+        ids=[f"|{i}{j}>" for i, j in [(0, 0), (0, 1), (1, 0), (1, 1)]],
+    )
+    def test_two_qubit_basis_states(self, i, j, seed):
+        """Pair of qubits in |ij> is labeled ij with correct post-measurement state."""
+        qi = qx.gates.MEASURE() | qx.gates.MEASURE()
+        rho = basis_dm_multi((i, j), (2, 2))
+        key = jax.random.key(seed)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+        expected_outcome = i * 2 + j
+        assert int(outcome) == expected_outcome
+        np.testing.assert_allclose(rho_out.matrix, rho.matrix, atol=1e-10)
+
+    def test_two_qubit_plus_state_probabilities(self):
+        """Two qubits both in |+> produce uniform outcome probabilities."""
+        qi = qx.gates.MEASURE() | qx.gates.MEASURE()
+        vec = jnp.ones(4, dtype=complex) / 2.0
+        rho = DensityMatrix.from_matrix(jnp.outer(vec, jnp.conj(vec)), (2, 2))
+
+        _, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        np.testing.assert_allclose(probs, jnp.full(4, 0.25), atol=1e-10)
+
+    def test_two_qubit_superposition_post_state(self):
+        """Post-measurement state of |++> matches the label."""
+        qi = qx.gates.MEASURE() | qx.gates.MEASURE()
+        vec = jnp.ones(4, dtype=complex) / 2.0
+        rho = DensityMatrix.from_matrix(jnp.outer(vec, jnp.conj(vec)), (2, 2))
+
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        for seed in range(50):
+            key = jax.random.key(seed)
+            rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+            i, j = divmod(int(outcome), 2)
+            expected = basis_dm_multi((i, j), (2, 2))
+            np.testing.assert_allclose(rho_out.matrix, expected.matrix, atol=1e-10)
+
+    def test_two_qubit_minus_state_probabilities(self):
+        """Two qubits in |-> states: outcome probabilities are uniform."""
+        minus = jnp.array([1.0, -1.0], dtype=complex) / jnp.sqrt(2)
+        vec = jnp.kron(minus, minus)
+        rho = DensityMatrix.from_matrix(jnp.outer(vec, jnp.conj(vec)), (2, 2))
+        qi = qx.gates.MEASURE() | qx.gates.MEASURE()
+
+        _, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        np.testing.assert_allclose(probs, jnp.full(4, 0.25), atol=1e-10)
+
+
+# ======================================================================
+# QuantumInstrument operator tests
+# ======================================================================
+
+
+class TestInstrumentOperators:
+    """Test that @ (compose) and | (tensor) operators work on QuantumInstruments."""
+
+    def test_compose_via_matmul(self):
+        qi = qx.gates.MEASURE()
+        composed = qi @ qi
+        assert isinstance(composed, qx.QuantumInstrument)
+        assert composed.num_outcomes == 2
+
+    def test_tensor_via_or(self):
+        qi = qx.gates.MEASURE()
+        tensored = qi | qi
+        assert isinstance(tensored, qx.QuantumInstrument)
+        assert tensored.num_outcomes == 4
+        assert tensored.dims == ((2, 2), (2, 2))
+
+
+# ======================================================================
+# Properties and validation tests
+# ======================================================================
+
+
+class TestProperties:
+    """Test qx.QuantumInstrument properties and methods."""
+
+    def test_repr(self):
+        qi = qx.gates.MEASURE()
+        r = repr(qi)
+        assert "QuantumInstrument" in r
+        assert "num_outcomes=2" in r
+
+    def test_dims(self):
+        qi = qx.gates.MEASURE()
+        assert qi.dims == ((2,), (2,))
+        assert qi.d == (2, 2)
+        assert qi.d2 == (4, 4)
+
+    def test_mixed_dims(self):
+        qi = qx.gates.MEASURE() | qx.gates.MEASURE(3)
+        assert qi.dims == ((2, 3), (2, 3))
+        assert qi.d == (6, 6)
+
+    def test_total_channel_cptp(self):
+        qi = qx.gates.MEASURE()
+        total = qi.total_channel()
+        assert isinstance(total, SuperOp)
+        assert qx.is_cptp(total)
+
+    def test_outcome_superop(self):
+        qi = qx.gates.MEASURE()
+        c0, coeff0 = qi.outcome_superop(0)
+        c1, coeff1 = qi.outcome_superop(1)
+        assert isinstance(c0, SuperOp)
+        assert c0.dims == ((2,), (2,))
+        np.testing.assert_allclose(coeff0, 0.5, atol=1e-10)
+        np.testing.assert_allclose(coeff1, 0.5, atol=1e-10)
+
+    def test_pytree_roundtrip(self):
+        qi = qx.gates.MEASURE()
+        leaves, aux = qi.tree_flatten()
+        qi2 = qx.QuantumInstrument.tree_unflatten(aux, leaves)
+        assert qi2.num_outcomes == qi.num_outcomes
+        assert qi2.dims == qi.dims
+        assert qi2.measured_qudits == qi.measured_qudits
+        np.testing.assert_allclose(qi2.data, qi.data)
+
+    def test_from_superop_constructor(self):
+        P0 = jnp.array([[1, 0], [0, 0]], dtype=complex)
+        P1 = jnp.array([[0, 0], [0, 1]], dtype=complex)
+        superop0 = SuperOp.from_matrix(jnp.einsum("ab,cd->acbd", jnp.conj(P0), P0).reshape(4, 4), ((2,), (2,)))
+        superop1 = SuperOp.from_matrix(jnp.einsum("ab,cd->acbd", jnp.conj(P1), P1).reshape(4, 4), ((2,), (2,)))
+        qi = qx.QuantumInstrument.from_superop([superop0, superop1], measured_qudits=(0,))
+        assert qi.num_outcomes == 2
+        assert qx.validate(qi)
+        np.testing.assert_allclose(qi.confusion_matrix, jnp.eye(2), atol=1e-10)
+
+    def test_from_superop_dims_mismatch_raises(self):
+        s1 = SuperOp.from_matrix(jnp.eye(4, dtype=complex) / 2, ((2,), (2,)))
+        s2 = SuperOp.from_matrix(jnp.eye(9, dtype=complex) / 3, ((3,), (3,)))
+        with pytest.raises(ValueError, match="dims"):
+            qx.QuantumInstrument.from_superop([s1, s2], measured_qudits=(0,))
+
+    def test_validation_ideal(self):
+        assert qx.validate(qx.gates.MEASURE())
+
+    def test_validation_noisy(self):
+        confusion = jnp.array([[0.9, 0.1], [0.1, 0.9]])
+        qi = qx.instrument_from_confusion_and_transition(confusion, jnp.eye(2), dims=(2,))
+        assert qx.validate(qi)
+
+    def test_validation_bad_confusion_column_sum(self):
+        confusion = jnp.array([[0.9, 0.1], [0.2, 0.8]])
+        with pytest.raises(ValueError, match="columns must sum to 1"):
+            qx.instrument_from_confusion_and_transition(confusion, jnp.eye(2), dims=(2,))
