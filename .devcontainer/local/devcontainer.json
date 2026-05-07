@@ -1,6 +1,7 @@
 // For use with Visual Studio Code
 {
   "name": "local",
+  "initializeCommand": ".devcontainer/local/detect-gpu.sh",
   "dockerComposeFile": [
     "../../docker-compose.yml",
     "docker-compose.extend.yml"

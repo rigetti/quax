@@ -19,6 +19,7 @@ services:
       args: # these should match your user id (linux only)
         UID: 1000
         GID: 1000
+        CUDA: ${CUDA:-false}
     volumes:
       - .:/home/rigetti/quax/
       - ${GIT_CONFIG_FILE:-~/.gitconfig}:/home/rigetti/.gitconfig

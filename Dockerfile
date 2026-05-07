@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Use the CUDA base image when building with --build-arg CUDA=true
 # FROM nvidia/cuda:12.6.3-devel-ubuntu24.04
 FROM ubuntu:24.04
+
+# Set to "true" to install jax[cuda12] for NVIDIA GPU support.
+# When false (default) only the CPU version of JAX is installed.
+ARG CUDA=false
 
 USER root
 
@@ -84,10 +89,18 @@ ENV PATH="${PATH}:/home/rigetti/.local/bin:/home/rigetti/.cargo/bin"
 # Install the package
 COPY --chown=rigetti:rigetti pyproject.toml poetry.lock* README.md* ./
 COPY --chown=rigetti:rigetti --chmod=775 src/quax/__init__.py ./src/quax/
-RUN poetry install \
-    --no-interaction \
-    --no-ansi \
-    --no-cache 
+RUN if [ "$CUDA" = "true" ]; then \
+        poetry install \
+            --no-interaction \
+            --no-ansi \
+            --no-cache \
+            --with cuda; \
+    else \
+        poetry install \
+            --no-interaction \
+            --no-ansi \
+            --no-cache; \
+    fi
 
 # Set up and activate the venv
 RUN mkdir ${HOME}/.venv/ && ln -s $(poetry env info -p) /home/rigetti/.venv/quax

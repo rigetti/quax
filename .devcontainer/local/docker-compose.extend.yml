@@ -3,3 +3,12 @@ services:
   lab:
     # Overrides default command so things don't shut down after the process ends.
     command: /bin/bash -c "while sleep 1000; do :; done"
+    # For GPU runtime access, uncomment the following lines.
+    # Requires the NVIDIA Container Toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
