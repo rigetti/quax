@@ -60,7 +60,7 @@ DM_SYSTEMS = [
     ("10Q", (2,) * 10),
 ]
 
-ENSEMBLE_SIZES = [(), (4,), (16,), (64,)]
+ENSEMBLE_SIZES = [(), (4,), (8,), (16,)]
 
 
 def _subsystem_patterns(dims: tuple[int, ...]) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -72,6 +72,8 @@ def _subsystem_patterns(dims: tuple[int, ...]) -> list[tuple[str, tuple[int, ...
         patterns.append(("2Qop", dims[:2], (0, 1)))
     if n >= 3:
         patterns.append(("3Qop", dims[:3], (0, 1, 2)))
+    if n >= 4:
+        patterns.append(("4Qop", dims[:4], (0, 1, 2, 3)))
     return patterns
 
 
@@ -87,9 +89,7 @@ def _get_instrument(inst_type: str, dim: int = 2) -> qx.QuantumInstrument:
 # Kraus source descriptors: (label, factory_fn)
 # factory_fn(gate_dims, truncate) -> KrausMap
 KRAUS_SOURCES = {
-    "rank1": lambda gate_dims, tr: make_kraus_map(gate_dims, rank=1, truncate=tr),
     "rank2": lambda gate_dims, tr: make_kraus_map(gate_dims, rank=2, truncate=tr),
-    "rank4": lambda gate_dims, tr: make_kraus_map(gate_dims, rank=4, truncate=tr),
     "depolarizing": lambda gate_dims, tr: make_depolarizing_kraus(gate_dims, truncate=tr),
 }
 
@@ -158,21 +158,23 @@ def test_targeted_apply_superop(benchmark, dims, ensemble_size, gate_dims, subsy
 
 
 @pytest.mark.parametrize(
-    "dims,ensemble_size,source_label,truncated",
+    "dims,ensemble_size,source_label,truncated,gate_dims,subsystem",
     [
-        pytest.param(dims, ens, src, trunc, id=f"{lbl}-ens{ens}-{src}-{'trunc' if trunc else 'full'}")
+        pytest.param(
+            dims, ens, src, trunc, gdims, sub,
+            id=f"{lbl}-ens{ens}-{src}-{'trunc' if trunc else 'full'}-{slbl}",
+        )
         for (lbl, dims), ens, src, trunc in product(
             SV_SYSTEMS, ENSEMBLE_SIZES, KRAUS_SOURCES.keys(), [False, True]
         )
+        for slbl, gdims, sub in _subsystem_patterns(dims)
     ],
 )
-def test_kraus_trajectory(benchmark, dims, ensemble_size, source_label, truncated):
+def test_kraus_trajectory(benchmark, dims, ensemble_size, source_label, truncated, gate_dims, subsystem):
     """Benchmark targeted_apply_kraus_map_trajectory on state vectors."""
     psi = make_state_vector(dims, ensemble_size)
-    gate_dims = (dims[0],)
     kraus = KRAUS_SOURCES[source_label](gate_dims, truncated)
     key = make_keys(1)
-    subsystem = (0,)
 
     # JIT warmup
     result = qx.targeted_apply_kraus_map_trajectory(kraus, psi, key, subsystem)

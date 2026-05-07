@@ -16,8 +16,7 @@
 """Analyze pytest-benchmark JSON output and produce plots + markdown report.
 
 Usage:
-    python benchmarks/analyze.py benchmarks/results/64bit.json
-    python benchmarks/analyze.py benchmarks/results/*.json
+    python benchmarks/analyze.py benchmarks/results/results.json
 
 Produces:
     benchmarks/results/report.md   — Markdown with embedded plot images
@@ -27,38 +26,38 @@ Produces:
 from __future__ import annotations
 
 import json
+import os
+import platform
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import plotly.graph_objects as go
 import plotly.io as pio
 
 # ---------------------------------------------------------------------------
-# Rigetti standard colours
+# Rigetti plot template
 # ---------------------------------------------------------------------------
 
-_COLORS = [
-    "#00B5AD",  # teal
-    "#EF476F",  # pink
-    "#118AB2",  # blue
-    "#073B4C",  # dark blue
-    "#FFD166",  # yellow
-    "#06D6A0",  # green
-    "#8338EC",  # purple
-    "#FB5607",  # orange
+rigetti_template = go.layout.Template()
+rigetti_template.layout = go.Layout(
+    colorway=["#00b5ad", "#ef476f", "#ffc504", "#3c47d9", "#8a8b92", "#0d0d36"],
+)
+rigetti_template.data.scatter = [
+    go.Scatter(marker=dict(size=10, line=dict(width=2, color="DarkSlateGrey")))
 ]
+pio.templates["rigetti"] = rigetti_template
+pio.templates.default = "ggplot2+rigetti"
 
-
-def _color(i: int) -> str:
-    return _COLORS[i % len(_COLORS)]
-
+# Plot dimensions (~30% smaller in width, taller for readability)
+_WIDTH = 700
+_HEIGHT = 525
 
 # ---------------------------------------------------------------------------
-# Dimension string → Hilbert-space dimension
+# Dimension string -> qubit count
 # ---------------------------------------------------------------------------
 
-# Map system labels used in test IDs back to per-qudit dimensions
 _SYSTEM_DIMS: dict[str, tuple[int, ...]] = {
     "2Q": (2, 2),
     "4Q": (2,) * 4,
@@ -81,15 +80,11 @@ def _num_qubits(system_label: str) -> int:
 # Parse test ID fields
 # ---------------------------------------------------------------------------
 
-# Patterns for the various test parameter ID formats:
-# test_targeted_apply_unitary[1Q-ens()-1Qop]
-# test_kraus_trajectory[1Q-rank1-full-keys1]   (no ensemble)
-# test_instrument_dm[1Q-ens()-ideal]
-
 _RE_UNITARY = re.compile(r"test_targeted_apply_unitary\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))-(?P<sub>\w+)\]")
 _RE_SUPEROP = re.compile(r"test_targeted_apply_superop\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))-(?P<sub>\w+)\]")
 _RE_KRAUS = re.compile(
-    r"test_kraus_trajectory\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))-(?P<src>rank\d+|depolarizing)-(?P<trunc>full|trunc)\]"
+    r"test_kraus_trajectory\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))"
+    r"-(?P<src>rank\d+|depolarizing)-(?P<trunc>full|trunc)-(?P<sub>\w+)\]"
 )
 _RE_INST_DM = re.compile(r"test_instrument_dm\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))-(?P<itype>ideal|noisy)\]")
 _RE_INST_SV = re.compile(r"test_instrument_sv\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\))-(?P<itype>ideal|noisy)\]")
@@ -98,9 +93,9 @@ _RE_INST_SV = re.compile(r"test_instrument_sv\[(?P<sys>\w+)-ens(?P<ens>\([^)]*\)
 def _classify(bench: dict) -> dict | None:
     """Parse a benchmark dict and return a record with extracted fields, or None."""
     name = bench["name"]
-    mean_us = bench["stats"]["mean"] * 1e6  # seconds → µs
-    median_us = bench["stats"]["median"] * 1e6
-    stddev_us = bench["stats"]["stddev"] * 1e6
+    mean_ms = bench["stats"]["mean"] * 1e3  # seconds -> ms
+    median_ms = bench["stats"]["median"] * 1e3
+    stddev_ms = bench["stats"]["stddev"] * 1e3
 
     for regex, category in [
         (_RE_UNITARY, "unitary_sv"),
@@ -115,20 +110,20 @@ def _classify(bench: dict) -> dict | None:
                 "category": category,
                 "system": m.group("sys"),
                 "num_qubits": _num_qubits(m.group("sys")),
-                "mean_us": mean_us,
-                "median_us": median_us,
-                "stddev_us": stddev_us,
+                "mean_ms": mean_ms,
+                "median_ms": median_ms,
+                "stddev_ms": stddev_ms,
                 "name": name,
             }
             if "ens" in m.groupdict():
                 rec["ensemble"] = m.group("ens")
+            if "sub" in m.groupdict():
+                rec["subsystem"] = m.group("sub")
             if category == "kraus_sv":
                 rec["source"] = m.group("src")
                 rec["truncated"] = m.group("trunc")
             if category in ("instrument_dm", "instrument_sv"):
                 rec["inst_type"] = m.group("itype")
-            if category in ("unitary_sv", "superop_dm"):
-                rec["subsystem"] = m.group("sub")
             return rec
     return None
 
@@ -141,32 +136,73 @@ def _classify(bench: dict) -> dict | None:
 def _load_results(paths: list[str]) -> list[dict]:
     records: list[dict] = []
     for p in paths:
-        path = Path(p)
-        precision = "64bit" if "64" in path.stem else "32bit"
-        with open(path) as f:
+        with open(p) as f:
             data = json.load(f)
         for bench in data.get("benchmarks", []):
             rec = _classify(bench)
             if rec:
-                rec["precision"] = precision
                 records.append(rec)
     return records
+
+
+# ---------------------------------------------------------------------------
+# Hardware info
+# ---------------------------------------------------------------------------
+
+
+def _hardware_summary() -> str:
+    """Return a short markdown block describing the machine."""
+    lines = []
+    lines.append(f"- **Date**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append(f"- **OS**: {platform.system()} {platform.release()}")
+    lines.append(f"- **CPU**: {platform.processor() or platform.machine()}")
+    cpu_count = os.cpu_count()
+    if cpu_count:
+        lines.append(f"- **CPU cores**: {cpu_count}")
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal"):
+                    kb = int(line.split()[1])
+                    lines.append(f"- **RAM**: {kb / 1024 / 1024:.0f} GB")
+                    break
+    except OSError:
+        pass
+    lines.append(f"- **Python**: {platform.python_version()}")
+    try:
+        import jax
+        lines.append(f"- **JAX**: {jax.__version__}")
+        lines.append(f"- **JAX platforms**: {', '.join(str(d) for d in jax.devices())}")
+    except ImportError:
+        pass
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
+# Consistent color per op size across all plots
+_OP_COLORS: dict[str, str] = {
+    "1Qop": "#00b5ad",
+    "2Qop": "#ef476f",
+    "3Qop": "#ffc504",
+    "4Qop": "#3c47d9",
+}
 
-def _base_layout(title: str, yaxis_title: str = "Mean time (µs)") -> dict:
+
+def _op_color(sub: str) -> str:
+    return _OP_COLORS.get(sub, "#8a8b92")
+
+
+def _base_layout(title: str, yaxis_title: str = "Mean time (ms)") -> dict:
     return dict(
         title=title,
         xaxis_title="Number of qubits",
         yaxis_title=yaxis_title,
         yaxis_type="log",
-        template="plotly_white",
-        width=1000,
-        height=600,
+        width=_WIDTH,
+        height=_HEIGHT,
         legend=dict(font=dict(size=10)),
     )
 
@@ -186,111 +222,133 @@ def _add_line(
     fig.add_trace(
         go.Scatter(
             x=[r["num_qubits"] for r in recs],
-            y=[r["mean_us"] for r in recs],
-            error_y=dict(type="data", array=[r["stddev_us"] for r in recs], visible=True),
+            y=[r["mean_ms"] for r in recs],
+            error_y=dict(type="data", array=[r["stddev_ms"] for r in recs], visible=True),
             mode="markers+lines",
-            marker=dict(size=7, color=color, symbol=symbol),
+            marker=dict(color=color, symbol=symbol),
             line=dict(color=color, dash=dash, width=2),
             name=label,
         )
     )
 
 
-def _plot_unitary_or_superop(records: list[dict], category: str, subsystem: str, title: str) -> go.Figure:
-    """X = num qubits, one line per ensemble size. Filtered to a single op size."""
+def _save(fig: go.Figure, path: Path) -> None:
+    pio.write_image(fig, str(path), scale=3)
+
+
+# ---------------------------------------------------------------------------
+# Plot builders
+# ---------------------------------------------------------------------------
+
+
+def _plot_apply_by_ensemble(
+    records: list[dict], category: str, ensemble: str, title: str,
+) -> go.Figure:
+    """One line per op size for a fixed ensemble.  Color = op size."""
     fig = go.Figure()
-    cat_recs = [r for r in records if r["category"] == category and r.get("subsystem") == subsystem]
+    cat_recs = [r for r in records if r["category"] == category and r.get("ensemble") == ensemble]
     if not cat_recs:
         return fig
 
-    ensembles = sorted({r["ensemble"] for r in cat_recs})
-    for i, ens in enumerate(ensembles):
-        subset = [r for r in cat_recs if r["ensemble"] == ens]
-        label = f"ens={ens}"
-        _add_line(fig, subset, label, _color(i))
+    subsystems = sorted({r["subsystem"] for r in cat_recs})
+    for sub in subsystems:
+        subset = [r for r in cat_recs if r["subsystem"] == sub]
+        _add_line(fig, subset, sub, _op_color(sub))
 
     fig.update_layout(**_base_layout(title))
     return fig
 
 
-def _plot_kraus_trunc_effect(records: list[dict], title: str) -> go.Figure:
-    """Show truncation effect: full vs trunc for each source, no ensemble."""
+def _plot_kraus_by_ensemble(
+    records: list[dict], ensemble: str, title: str,
+) -> go.Figure:
+    """One line per (op_size, source, trunc) for a fixed ensemble.  Color = op size."""
     fig = go.Figure()
-    cat_recs = [r for r in records if r["category"] == "kraus_sv" and r.get("ensemble") == "()"]
+    cat_recs = [r for r in records if r["category"] == "kraus_sv" and r.get("ensemble") == ensemble]
     if not cat_recs:
         return fig
 
-    sources = sorted({r["source"] for r in cat_recs})
-    for i, src in enumerate(sources):
-        for trunc in ["full", "trunc"]:
-            subset = [r for r in cat_recs if r["source"] == src and r["truncated"] == trunc]
-            dash = "dash" if trunc == "trunc" else "solid"
-            label = f"{src} ({trunc})"
-            _add_line(fig, subset, label, _color(i), dash=dash)
+    combos = sorted({(r["subsystem"], r["source"], r["truncated"]) for r in cat_recs})
+    for sub, src, trunc in combos:
+        subset = [
+            r for r in cat_recs
+            if r["subsystem"] == sub and r["source"] == src and r["truncated"] == trunc
+        ]
+        dash = "dash" if trunc == "trunc" else "solid"
+        label = f"{sub} {src} ({trunc})"
+        _add_line(fig, subset, label, _op_color(sub), dash=dash)
 
     fig.update_layout(**_base_layout(title))
     return fig
 
 
-def _plot_kraus_by_ensemble(records: list[dict], title: str) -> go.Figure:
-    """One line per ensemble size, fix source=rank1 full."""
+def _plot_kraus_ensemble_scaling(records: list[dict], title: str) -> go.Figure:
+    """X = ensemble size, Y = mean time averaged over systems/sources/trunc.  Color = op size."""
     fig = go.Figure()
-    cat_recs = [
-        r for r in records
-        if r["category"] == "kraus_sv" and r["source"] == "rank1" and r["truncated"] == "full"
-    ]
+    cat_recs = [r for r in records if r["category"] == "kraus_sv"]
     if not cat_recs:
         return fig
 
-    ensembles = sorted({r["ensemble"] for r in cat_recs})
-    for i, ens in enumerate(ensembles):
-        subset = [r for r in cat_recs if r["ensemble"] == ens]
-        label = f"ens={ens}"
-        _add_line(fig, subset, label, _color(i))
+    # Parse ensemble tuple to a scalar size (e.g. "(16,)" -> 16, "()" -> 1)
+    def _ens_size(ens_str: str) -> int:
+        inner = ens_str.strip("()")
+        if not inner or inner == "":
+            return 1
+        return int(inner.rstrip(","))
 
-    fig.update_layout(**_base_layout(title))
+    subsystems = sorted({r["subsystem"] for r in cat_recs})
+    for sub in subsystems:
+        sub_recs = [r for r in cat_recs if r["subsystem"] == sub]
+        # Group by ensemble, average over all other variables
+        ens_values = sorted({r["ensemble"] for r in sub_recs}, key=_ens_size)
+        x_vals = []
+        y_vals = []
+        for ens in ens_values:
+            group = [r for r in sub_recs if r["ensemble"] == ens]
+            avg_ms = sum(r["mean_ms"] for r in group) / len(group)
+            x_vals.append(_ens_size(ens))
+            y_vals.append(avg_ms)
+        fig.add_trace(
+            go.Scatter(
+                x=x_vals,
+                y=y_vals,
+                mode="markers+lines",
+                marker=dict(color=_op_color(sub)),
+                line=dict(color=_op_color(sub), width=2),
+                name=sub,
+            )
+        )
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Ensemble size",
+        yaxis_title="Mean time (ms) — averaged over systems & sources",
+        yaxis_type="log",
+        xaxis_type="log",
+        width=_WIDTH,
+        height=_HEIGHT,
+        legend=dict(font=dict(size=10)),
+    )
     return fig
 
 
 def _plot_instrument(records: list[dict], category: str, title: str) -> go.Figure:
-    """One line per (ensemble, inst_type).
-
-    Color = ensemble, symbol = ideal/noisy.
-    """
+    """Instrument plot: one line per (ensemble, inst_type)."""
     fig = go.Figure()
     cat_recs = [r for r in records if r["category"] == category]
     if not cat_recs:
         return fig
 
     ensembles = sorted({r["ensemble"] for r in cat_recs})
+    colors = ["#00b5ad", "#ef476f", "#ffc504", "#3c47d9", "#8a8b92", "#0d0d36"]
     for i, ens in enumerate(ensembles):
+        c = colors[i % len(colors)]
         for itype in ["ideal", "noisy"]:
             subset = [r for r in cat_recs if r["ensemble"] == ens and r["inst_type"] == itype]
             dash = "dash" if itype == "noisy" else "solid"
             symbol = "x" if itype == "noisy" else "circle"
             label = f"ens={ens}  {itype}"
-            _add_line(fig, subset, label, _color(i), dash=dash, symbol=symbol)
-
-    fig.update_layout(**_base_layout(title))
-    return fig
-
-
-def _plot_precision_comparison(
-    records: list[dict], category: str, title: str, filter_fn=None,
-) -> go.Figure:
-    """Compare 64-bit vs 32-bit for a category. One line per precision."""
-    fig = go.Figure()
-    cat_recs = [r for r in records if r["category"] == category]
-    if filter_fn:
-        cat_recs = [r for r in cat_recs if filter_fn(r)]
-    if not cat_recs:
-        return fig
-
-    precisions = sorted({r["precision"] for r in cat_recs})
-    for i, prec in enumerate(precisions):
-        subset = [r for r in cat_recs if r["precision"] == prec]
-        if subset:
-            _add_line(fig, subset, prec, _color(i))
+            _add_line(fig, subset, label, c, dash=dash, symbol=symbol)
 
     fig.update_layout(**_base_layout(title))
     return fig
@@ -307,15 +365,16 @@ def _summary_table(records: list[dict], category: str) -> str:
     if not rows:
         return "_No data._\n"
 
-    rows.sort(key=lambda r: (r.get("precision", ""), r["num_qubits"], r.get("ensemble", "")))
+    rows.sort(key=lambda r: (r["num_qubits"], r.get("ensemble", ""), r.get("subsystem", "")))
 
-    lines = ["| System | Qubits | Ensemble | Mean (µs) | Std (µs) | Precision |"]
-    lines.append("|--------|--------|----------|-----------|----------|-----------|")
+    lines = ["| System | Qubits | Ensemble | Op | Mean (ms) | Std (ms) |"]
+    lines.append("|--------|--------|----------|----|-----------|----------|")
     for r in rows:
         ens = r.get("ensemble", "-")
+        sub = r.get("subsystem", "-")
         lines.append(
-            f"| {r['system']} | {r['num_qubits']} | {ens} "
-            f"| {r['mean_us']:.1f} | {r['stddev_us']:.1f} | {r.get('precision', '?')} |"
+            f"| {r['system']} | {r['num_qubits']} | {ens} | {sub} "
+            f"| {r['mean_ms']:.2f} | {r['stddev_ms']:.2f} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -334,98 +393,69 @@ def main(json_paths: list[str], output_dir: str = "benchmarks/results") -> None:
         print("No benchmark records found.", file=sys.stderr)
         sys.exit(1)
 
-    # Split by precision for separate plots
-    by_precision: dict[str, list[dict]] = {}
-    for r in records:
-        by_precision.setdefault(r.get("precision", "unknown"), []).append(r)
+    # Collect all ensembles present
+    ensembles = sorted({r.get("ensemble", "()") for r in records})
 
     plot_files: list[tuple[str, str]] = []  # (title, relative_path)
 
-    for prec, recs in sorted(by_precision.items()):
-        sfx = f"_{prec}"
-
-        # --- Unitary (one plot per op size) ---
-        for sub in ["1Qop", "2Qop", "3Qop"]:
-            fig = _plot_unitary_or_superop(recs, "unitary_sv", sub, f"Unitary apply (SV) — {sub} [{prec}]")
-            if fig.data:
-                fname = f"unitary_sv_{sub}{sfx}.png"
-                pio.write_image(fig, str(outdir / fname), scale=2)
-                plot_files.append((f"Unitary apply (SV) — {sub} [{prec}]", fname))
-
-        # --- SuperOp (one plot per op size) ---
-        for sub in ["1Qop", "2Qop", "3Qop"]:
-            fig = _plot_unitary_or_superop(recs, "superop_dm", sub, f"SuperOp apply (DM) — {sub} [{prec}]")
-            if fig.data:
-                fname = f"superop_dm_{sub}{sfx}.png"
-                pio.write_image(fig, str(outdir / fname), scale=2)
-                plot_files.append((f"SuperOp apply (DM) — {sub} [{prec}]", fname))
-
-        # --- Kraus: source & truncation (no ensemble) ---
-        fig = _plot_kraus_trunc_effect(recs, f"Kraus trajectory: source & truncation [{prec}]")
+    # --- Unitary: one plot per ensemble, color = op size ---
+    for ens in ensembles:
+        title = f"Unitary apply (SV) — ens={ens}"
+        fig = _plot_apply_by_ensemble(records, "unitary_sv", ens, title)
         if fig.data:
-            fname = f"kraus_source{sfx}.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append((f"Kraus trajectory: source & truncation [{prec}]", fname))
+            ens_tag = ens.replace("(", "").replace(")", "").replace(",", "") or "scalar"
+            fname = f"unitary_sv_ens{ens_tag}.png"
+            _save(fig, outdir / fname)
+            plot_files.append((title, fname))
 
-        # --- Kraus: ensemble scaling (rank1 full) ---
-        fig = _plot_kraus_by_ensemble(recs, f"Kraus trajectory: ensemble scaling (rank1 full) [{prec}]")
+    # --- SuperOp: one plot per ensemble, color = op size ---
+    for ens in ensembles:
+        title = f"SuperOp apply (DM) — ens={ens}"
+        fig = _plot_apply_by_ensemble(records, "superop_dm", ens, title)
         if fig.data:
-            fname = f"kraus_ensemble{sfx}.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append((f"Kraus trajectory: ensemble scaling [{prec}]", fname))
+            ens_tag = ens.replace("(", "").replace(")", "").replace(",", "") or "scalar"
+            fname = f"superop_dm_ens{ens_tag}.png"
+            _save(fig, outdir / fname)
+            plot_files.append((title, fname))
 
-        # --- Instrument DM ---
-        fig = _plot_instrument(recs, "instrument_dm", f"Instrument apply (DM) [{prec}]")
+    # --- Kraus: one plot per ensemble, color = op size ---
+    for ens in ensembles:
+        title = f"Kraus trajectory (SV) — ens={ens}"
+        fig = _plot_kraus_by_ensemble(records, ens, title)
         if fig.data:
-            fname = f"instrument_dm{sfx}.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append((f"Instrument apply (density matrix) [{prec}]", fname))
+            ens_tag = ens.replace("(", "").replace(")", "").replace(",", "") or "scalar"
+            fname = f"kraus_sv_ens{ens_tag}.png"
+            _save(fig, outdir / fname)
+            plot_files.append((title, fname))
 
-        # --- Instrument SV ---
-        fig = _plot_instrument(recs, "instrument_sv", f"Instrument apply (SV) [{prec}]")
-        if fig.data:
-            fname = f"instrument_sv{sfx}.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append((f"Instrument apply (state vector) [{prec}]", fname))
+    # --- Kraus: ensemble scaling (averaged) ---
+    fig = _plot_kraus_ensemble_scaling(records, "Kraus trajectory: ensemble scaling")
+    if fig.data:
+        fname = "kraus_ensemble_scaling.png"
+        _save(fig, outdir / fname)
+        plot_files.append(("Kraus trajectory: ensemble scaling", fname))
 
-    # Cross-precision comparison (if both precisions present)
-    if len(by_precision) > 1:
-        fig = _plot_precision_comparison(
-            records, "unitary_sv",
-            "Unitary apply: precision comparison (1Qop, no ensemble)",
-            filter_fn=lambda r: r.get("subsystem") == "1Qop" and r.get("ensemble") == "()",
-        )
-        if fig.data:
-            fname = "precision_unitary.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append(("Precision comparison: unitary", fname))
+    # --- Instrument DM ---
+    fig = _plot_instrument(records, "instrument_dm", "Instrument apply (DM)")
+    if fig.data:
+        fname = "instrument_dm.png"
+        _save(fig, outdir / fname)
+        plot_files.append(("Instrument apply (density matrix)", fname))
 
-        fig = _plot_precision_comparison(
-            records, "superop_dm",
-            "SuperOp apply: precision comparison (1Qop, no ensemble)",
-            filter_fn=lambda r: r.get("subsystem") == "1Qop" and r.get("ensemble") == "()",
-        )
-        if fig.data:
-            fname = "precision_superop.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append(("Precision comparison: superop", fname))
-
-        fig = _plot_precision_comparison(
-            records, "kraus_sv",
-            "Kraus trajectory: precision comparison (rank1 full, no ensemble)",
-            filter_fn=lambda r: (
-                r.get("source") == "rank1" and r.get("truncated") == "full" and r.get("ensemble") == "()"
-            ),
-        )
-        if fig.data:
-            fname = "precision_kraus.png"
-            pio.write_image(fig, str(outdir / fname), scale=2)
-            plot_files.append(("Precision comparison: Kraus trajectory", fname))
+    # --- Instrument SV ---
+    fig = _plot_instrument(records, "instrument_sv", "Instrument apply (SV)")
+    if fig.data:
+        fname = "instrument_sv.png"
+        _save(fig, outdir / fname)
+        plot_files.append(("Instrument apply (state vector)", fname))
 
     # Write markdown report
     report = outdir / "report.md"
     with open(report, "w") as f:
         f.write("# Quax Benchmark Report\n\n")
+        f.write("## Environment\n\n")
+        f.write(_hardware_summary())
+        f.write("\n\n")
         f.write(f"Generated from: {', '.join(json_paths)}\n\n")
 
         for title, fname in plot_files:
