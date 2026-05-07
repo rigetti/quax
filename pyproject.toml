@@ -54,6 +54,7 @@ dev = [
     "plotly (>=5.12)",
     "optax (>=0.2.7)",
     "nbsphinx (>=0.9.8,<0.10.0)",
+    "pytest-benchmark (>=5.1.0,<6.0.0)",
     "pytest-memray (>=1.8.0,<2.0.0)",
     "sphinxcontrib-bibtex (>=2.6.5,<3.0.0)",
     "nbstripout (>=0.9.1,<0.10.0)",
