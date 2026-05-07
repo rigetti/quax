@@ -26,25 +26,30 @@ This document provides guidance for AI agents working with the Quax codebase.
 ```
 src/quax/                              # Main package
 ├── __init__.py                        # Public API exports
-├── gates.py                           # Common quantum gates (public submodule)
+├── gates.py                           # Common quantum gates and measurement instruments (public submodule)
 ├── states.py                          # Predefined states (public submodule)
 ├── ensembles.py                       # Predefined ensembles (public submodule)
 ├── _apply.py                          # Applying operators to states
 ├── _apply_superoperator.py            # Superoperator application logic
-├── _common_channels.py                # Standard quantum channels
+├── _common_channels.py                # Standard quantum channels and instrument constructors
 ├── _compose.py                        # Operator composition
-├── _distance_metrics.py               # Fidelity and distance functions
+├── _metrics.py                        # Fidelity and distance functions
+├── _mul.py                            # Scalar multiplication logic
+├── _observables.py                    # Observable utilities
+├── _operator_basis.py                 # Operator basis construction
 ├── _power.py                          # Operator exponent operations
 ├── _promotion.py                      # State promotion utilities
-├── _quantum_objects.py                # Core quantum types (State, Operator, etc.)
+├── _quantum_objects.py                # Core quantum types (State, Operator, QuantumInstrument, etc.)
 ├── _random.py                         # Random quantum objects
 ├── _state.py                          # State creation and manipulation
 ├── _superoperator_transformations.py  # Convert between representations
 ├── _tensor.py                         # Tensor product operations
-└── _validation.py                     # Validation utilities
+├── _validation.py                     # Validation utilities
+└── _visualization.py                  # Plotting functions
 
 tests/                                 # Test suite
 ├── test_*.py                          # Unit tests for each module
+├── instrument_helpers.py              # Shared helpers for instrument tests
 ├── reference_pauli_liouville.py       # Reference implementations
 └── conftest.py                        # Pytest configuration
 
@@ -52,8 +57,8 @@ docs/                                  # Sphinx documentation
 └── api/                               # API reference
 ```
 
-Most public functions are exported from the top level of the package. However, gates and states are organized into public submodules:
-- **gates**: Access quantum gates via `qx.gates.X`, `qx.gates.CNOT`, etc.
+Most public functions are exported from the top level of the package. However, gates, states, and ensembles are organized into public submodules:
+- **gates**: Access quantum gates via `qx.gates.X`, `qx.gates.CNOT`, `qx.gates.MEASURE()`, etc.
 - **states**: Access predefined states via `qx.states.KET0`, `qx.states.XPLUS`, etc.
 
 The private submodules (those starting with an underscore) are organized for development convenience rather than providing a subpackage architecture.
@@ -190,6 +195,14 @@ All quantum objects store their data in **tensor format**, preserving the struct
    - Example: single-qubit superoperator has shape `(2, 2, 2, 2)`
    - `.matrix` returns shape `(*ensemble, prod(dims_out)**2, prod(dims_in)**2)`
 
+6. **QuantumInstruments**: Tensor with an outcome axis followed by 4 groups of dimensions:
+   `(*ensemble, num_outcomes, d0_out_bra, ..., d0_out_ket, ..., d0_in_bra, ..., d0_in_ket, ...)`
+   - Each outcome slice is a CP (but not TP) superoperator; the sum over outcomes is CPTP.
+   - Example: single-qubit ideal measurement has shape `(2, 2, 2, 2, 2)`
+   - `.matrix` returns shape `(*ensemble, num_outcomes, prod(dims_out)**2, prod(dims_in)**2)`
+   - Key properties: `confusion_matrix`, `transition_matrix`, `measured_qudits`
+   - Supports `@` (compose) and `|` (tensor product) operators.
+
 ## Common Tasks
 
 ### Adding a New Quantum Gate
@@ -215,9 +228,9 @@ All quantum objects store their data in **tensor format**, preserving the struct
 
 ### Adding a New Distance Metric
 
-1. Implement in `src/quax/_distance_metrics.py`
+1. Implement in `src/quax/_metrics.py`
 2. Export from `__init__.py`
-3. Add tests to `tests/test_distance_metrics.py`
+3. Add tests to `tests/test_metrics.py`
 4. Include validation for input types
 
 ### Adding citations

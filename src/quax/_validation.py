@@ -35,6 +35,7 @@ from ._quantum_objects import (
     KrausMap,
     Choi,
 )
+from ._quantum_objects import QuantumInstrument
 from ._superoperator_transformations import to_choi
 from .ensembles import PAULI_ENSEMBLE
 from .gates import SWAP
@@ -197,6 +198,36 @@ def _validate_choi(object: Choi, atol=1e-8) -> Array:
     :return: Boolean array of the ensemble size.
     """
     return is_cptp(object, atol=atol)
+
+
+@validate.register
+def _validate_quantum_instrument(object: QuantumInstrument, atol=1e-8) -> Array:
+    """Validate that a quantum instrument is well-formed.
+
+    Conditions:
+
+    - Each outcome's superoperator is completely positive (CP).
+    - The sum of all outcome superoperators is trace-preserving (TP).
+
+    :param object: QuantumInstrument to validate.
+    :param atol: Tolerance for numerical checks.
+    :return: Boolean scalar.
+    """
+    mat = object.matrix  # (*ens, n_outcomes, d², d²)
+    n_outcomes = object.num_outcomes
+
+    # Check each outcome is CP
+    all_cp = jnp.array(True)
+    for i in range(n_outcomes):
+        outcome_superop = SuperOp.from_matrix(mat[..., i, :, :], object.dims)
+        all_cp = jnp.logical_and(all_cp, is_completely_positive(outcome_superop, atol=atol))
+
+    # Check the sum is TP
+    total_mat = jnp.sum(mat, axis=-3)
+    total_superop = SuperOp.from_matrix(total_mat, object.dims)
+    sum_tp = is_trace_preserving(total_superop, atol=atol)
+
+    return jnp.logical_and(all_cp, sum_tp)
 
 
 @jax.jit

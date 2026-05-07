@@ -21,10 +21,16 @@ import jax
 
 import jax.numpy as jnp
 import numpy as np
+from numpy.linalg import eigh
 import pytest
 
 import qutip as qt
 import quax as qx
+from quax._superoperator_transformations import (
+    choi_to_kraus,
+    choi_to_superop,
+    choi_to_pauli_liouville,
+)
 
 # ---------- helpers ----------
 
@@ -110,37 +116,58 @@ def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[in
 
 def _qt_embed_superoperator(qt_superop, d_in, d_target):
     """
-    Embed a QuTiP superoperator in a larger space (CPTP).
+    Build a reference coherent extension of a QuTiP superoperator.
 
-    We define a embedding operator, E which is (d_out, d_in) with E[:d_in, :d_in] = I and zeros elsewhere.
-    The super-embedding operator is E* ⊗ E.
-
-    The complement projector is Q = I - P where P = EE†.
-    The CPTP promoted channel is::
-
-        S' = E_s @ S @ E_s† + Q ⊗ Q
-
-    where Q ⊗ Q = to_super(Q) acts as identity only within the complement
-    subspace, zeroing out cross-term coherences between the original and
-    complement subspaces.
+    Uses the same strategy as our promotion: eigendecomposition of the
+    Choi matrix for a canonical Kraus decomposition, then zero-pad each
+    operator per subsystem and add the complement projector to the first.
     """
-    # Ei is the embedding operator for each qudit
-    Ei = [qt.Qobj(jnp.diag(jnp.ones(dout))[:, :din], dims=[[dout], [din]]) for din, dout in zip(d_in, d_target)]
+    d_in_total = reduce(mul, d_in, 1)
+    d_target_total = reduce(mul, d_target, 1)
 
-    # E is the full embedding operator for the entire system (tensor product of individual embeddings)
-    E = reduce(qt.tensor, Ei)
+    # Get Choi matrix from SuperOp via QuTiP
+    qt_choi = qt.to_choi(qt_superop)
+    J = qt_choi.full()
 
-    # super_E is the superembedding operator for the entire system
-    super_E = qt.tensor(E.conj(), E)
-    super_dims = [[list(d_target), list(d_target)], [list(d_in), list(d_in)]]
-    super_E = qt.Qobj(super_E.data, dims=super_dims, superrep="super")
+    # Eigendecomposition for canonical Kraus (same algorithm as quax choi_to_kraus)
+    J_herm = 0.5 * (J + J.conj().T)
+    eigvals, eigvecs = eigh(J_herm)
 
-    # Complement projector Q = I - P where P = EE†
-    I_target = reduce(qt.tensor, [qt.qeye(d) for d in d_target])
-    P = E @ E.dag()
-    Q = I_target - P
+    # Sort descending
+    order = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    eigvecs = eigvecs[:, order]
 
-    return super_E @ qt_superop @ super_E.dag() + qt.to_super(Q)
+    # Clamp and sqrt
+    eigvals = np.where(eigvals > 1e-6, eigvals, 0.0)
+    coeffs = np.sqrt(eigvals)
+
+    # Scale eigenvectors and reshape to Kraus operators in tensor form
+    W = eigvecs * coeffs[None, :]
+    n = d_in_total * d_in_total
+
+    # Build complement projector in tensor form: identity on target with original zeroed
+    complement_tensor = np.eye(d_target_total, dtype=complex).reshape(tuple(d_target) + tuple(d_target))
+    orig_slices = tuple(slice(0, d) for d in d_in) * 2
+    complement_tensor[orig_slices] = 0.0
+
+    promoted_kraus = []
+    for i in range(n):
+        # Unvec: vec(K) -> K with transpose (matching quax convention)
+        k = W[:, i].reshape(d_in_total, d_in_total).T
+
+        # Reshape to tensor form, pad per subsystem, then reshape back
+        k_tensor = k.reshape(tuple(d_in) + tuple(d_in))
+        pw = [(0, D - d) for d, D in zip(d_in + d_in, d_target + d_target)]
+        padded_tensor = np.pad(k_tensor, pw)
+
+        if i == 0:
+            padded_tensor = padded_tensor + complement_tensor
+
+        padded = padded_tensor.reshape(d_target_total, d_target_total)
+        promoted_kraus.append(qt.Qobj(padded, dims=[[list(d_target)], [list(d_target)]]))
+
+    return qt.kraus_to_super(promoted_kraus)
 
 
 # ======================== StateVector ========================
@@ -510,3 +537,113 @@ def test_promote_jit_state_vector():
     promoted = do_promote(sv)
     assert promoted.dims == (3,)
     assert promoted.matrix.shape == (3,)
+
+
+# ---------- regression: self-fidelity preservation ----------
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize(
+    "current_dims,target_dims",
+    [
+        ((2,), (3,)),
+        ((2,), (4,)),
+        ((2, 2), (3, 3)),
+    ],
+)
+def test_promotion_preserves_self_fidelity(seed, current_dims, target_dims):
+    """Process fidelity of a channel with itself must be ~1 after promotion."""
+    key = jax.random.key(seed)
+    dims = (current_dims, current_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=key, size=())
+
+    # Test all superoperator representations
+    kraus = choi_to_kraus(choi)
+    superop = choi_to_superop(choi)
+    pauli_liouville = choi_to_pauli_liouville(choi)
+
+    for obj in [choi, kraus, superop, pauli_liouville]:
+        promoted = qx.promote(obj, target_dims)
+        pf = float(qx.process_fidelity(obj, promoted))
+        assert pf == pytest.approx(1.0, abs=1e-6), (
+            f"Self-fidelity after promotion failed for {type(obj).__name__}: {pf}"
+        )
+
+
+# ---------- regression: Unitary global-phase vs channel promotion ----------
+
+
+@pytest.mark.parametrize(
+    "gate_fn",
+    [
+        lambda: qx.gates.RX(jnp.pi),  # global phase -i
+        lambda: qx.gates.RX(jnp.pi / 3),  # global phase e^{-iπ/6}
+        lambda: qx.gates.RY(jnp.pi / 2),  # non-trivial global phase
+    ],
+    ids=["RX(pi)", "RX(pi/3)", "RY(pi/2)"],
+)
+@pytest.mark.parametrize(
+    "target_dims",
+    [(3,), (4,)],
+)
+def test_promote_hilbert_space_strips_phase_before_channel_promotion(gate_fn, target_dims):
+    """promote_hilbert_space converts Unitary to SuperOp before promotion.
+
+    A unitary with a non-trivial global phase (e.g. RX(π) = -iX) produces
+    a different channel after ``to_superop(promote(U))`` vs
+    ``promote(to_superop(U))``, because the identity complement on higher
+    states introduces a relative phase.  ``promote_hilbert_space`` avoids
+    this by converting to SuperOp first when a Unitary is paired with a
+    channel type.
+    """
+    u = gate_fn()
+
+    # The correct reference: convert to SuperOp at native dims, then promote
+    reference = qx.promote(qx.to_superop(u), target_dims)
+
+    # Create a channel at target dims to trigger promotion of the Unitary
+    identity_channel = qx.to_superop(
+        qx.Unitary.from_matrix(jnp.eye(reduce(mul, target_dims), dtype=complex), (target_dims, target_dims))
+    )
+
+    # promote_hilbert_space should auto-convert the Unitary before promotion
+    _, promoted = qx.promote_hilbert_space(identity_channel, u)
+
+    assert isinstance(promoted, qx.SuperOp), f"Expected SuperOp after auto-conversion, got {type(promoted).__name__}"
+    pf = float(qx.process_fidelity(reference, promoted))
+    assert pf == pytest.approx(1.0, abs=1e-6), (
+        f"Auto-converted promotion doesn't match reference for {u} -> {target_dims}: F={pf}"
+    )
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize(
+    "current_dims,target_dims",
+    [
+        ((2,), (3,)),
+        ((2, 2), (3, 3)),
+    ],
+)
+def test_promote_hilbert_space_auto_converts_unitary_with_channel(seed, current_dims, target_dims):
+    """promote_hilbert_space auto-converts Unitary to SuperOp when paired with a channel type."""
+    key = jax.random.key(seed)
+    channel_dims = (current_dims, current_dims)
+    channel = qx.random_choi(dims=channel_dims, rank=2, key=key, size=())
+    superop = qx.to_superop(channel)
+    # Promote SuperOp to target dims so it needs promotion of the unitary partner
+    promoted_superop = qx.promote(superop, target_dims)
+
+    # Create a Unitary at original dims
+    u = qx.random_unitary(dims=channel_dims, key=jax.random.key(seed + 100))
+
+    # promote_hilbert_space(big_channel, small_unitary) should auto-convert Unitary
+    result_channel, result_u = qx.promote_hilbert_space(promoted_superop, u)
+
+    # Both results should be SuperOp (Unitary was auto-converted)
+    assert isinstance(result_u, qx.SuperOp), f"Expected SuperOp after auto-conversion, got {type(result_u).__name__}"
+    assert result_u.dims == ((target_dims), (target_dims))
+
+    # The fidelity should match the explicit conversion path
+    u_explicit = qx.promote(qx.to_superop(u), target_dims)
+    pf = float(qx.process_fidelity(result_u, u_explicit))
+    assert pf == pytest.approx(1.0, abs=1e-6), f"Auto-converted Unitary doesn't match explicit conversion: F={pf}"

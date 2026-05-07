@@ -22,15 +22,19 @@ import jax.numpy as jnp
 from jax import Array
 from jax.typing import ArrayLike
 
+from ._apply import apply_superop_to_density_matrix
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
+    SuperOperator,
+    QuantumInstrument,
     State,
     StateVector,
-    SuperOperator,
     Unitary,
+    _extract_measured_index,
 )
 from ._superoperator_transformations import to_choi, to_pauli_liouville, to_superop
+from ._promotion import promote_hilbert_space
 
 
 @jax.jit
@@ -154,7 +158,8 @@ def process_fidelity(
     else:
         choi_1 = to_choi(superoperator_1)
         if choi_1.dims != choi_0.dims:
-            raise ValueError("Choi matrices must have the same dimensions for process fidelity.")
+            choi_0, choi_1 = promote_hilbert_space(choi_0, choi_1)
+            d2 = choi_0.d2[0]
 
     # The definition of fidelity assumes trace 1 states. Choi matrices have trace d.
     # So we should normalize them before passing to fidelity.
@@ -183,6 +188,8 @@ def depolarizing_constant_to_average_fidelity(p: ArrayLike, dims: tuple[int, ...
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Average fidelity in [0, 1]
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     F = ((d - 1) * p + 1) / d
@@ -197,6 +204,8 @@ def depolarizing_constant_to_process_fidelity(p: ArrayLike, dims: tuple[int, ...
     :param p: Depolarizing constant. Defined so that a 1% depolarizing error corresponds to p=0.99.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Process fidelity in [0, 1]
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     chi_00 = ((d**2 - 1) * p + 1) / (d**2)
@@ -211,6 +220,8 @@ def average_fidelity_to_process_fidelity(F: ArrayLike, dims: tuple[int, ...] = (
     :param F: The average fidelity.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Process fidelity in [0, 1]
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     chi_00 = (F * (d + 1) - 1) / d
@@ -225,6 +236,8 @@ def process_fidelity_to_average_fidelity(chi_00: ArrayLike, dims: tuple[int, ...
     :param chi_00: The process fidelity.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Average fidelity in [0, 1]
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     F = (d * chi_00 + 1) / (d + 1)
@@ -240,6 +253,8 @@ def process_fidelity_to_depolarizing_constant(chi_00: ArrayLike, dims: tuple[int
     :param chi_00: The process fidelity.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Depolarizing constant
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     p = (d**2 * chi_00 - 1) / (d**2 - 1)
@@ -255,6 +270,8 @@ def average_fidelity_to_depolarizing_constant(F: ArrayLike, dims: tuple[int, ...
     :param F: The average fidelity.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Depolarizing constant
+
+    See :cite:`BAGFU`, Table 1.
     """
     d = jnp.prod(jnp.array(dims))
     p = (d * F - 1) / (d - 1)
@@ -271,6 +288,8 @@ def unitarity_to_stochastic_infidelity(u: ArrayLike, dims: tuple[int, ...] = (2,
     :param u: The unitarity of the channel.
     :param dims: Tuple of qudit dimensions, one entry per subsystem (e.g. ``(2,)`` for a single qubit).
     :return: Stochastic infidelity in [0, 1]
+
+    See :cite:`BAGFU`.
     """
     d = jnp.prod(jnp.array(dims))
     return 1 - jnp.sqrt(u * (1 - 1 / d**2) + (1 / d**2))
@@ -324,3 +343,127 @@ def stochastic_infidelity(
     # Tr(S @ S†) = sum of |S_ij|^2
     tr_sst = jnp.sum(jnp.abs(mat) ** 2, axis=(-2, -1))
     return 1 - jnp.real(jnp.sqrt(tr_sst)) / d
+
+
+# ======================================================================
+# Quantum instrument fidelities
+# ======================================================================
+
+
+def classification_fidelity(instrument: QuantumInstrument) -> Array:
+    """
+    Average classification fidelity of a quantum instrument.
+
+    The confusion matrix :math:`C` has shape ``(num_outcomes, d_measured)``, where entry
+    :math:`C[i, j]` is the probability of reporting outcome *i* when the measured subsystem
+    is prepared in computational basis state :math:`|j\\rangle`.
+
+    The classification fidelity is the diagonal average of this matrix — the mean
+    probability of obtaining the *correct* (matching) outcome:
+
+    .. math::
+
+        F_\\text{class} = \\frac{1}{d} \\sum_j C[j, j] = \\frac{1}{d} \\sum_j p(\\text{outcome} = j \\mid \\text{input} = j)
+
+    This measures readout accuracy alone and is insensitive to the post-measurement state.
+    Supports ensembles — returns a scalar per ensemble element.
+
+    See :cite:`DICQI`.
+    """
+    cm = instrument.confusion_matrix
+    d = min(cm.shape[-2], cm.shape[-1])
+    return jnp.sum(jnp.diagonal(cm, axis1=-2, axis2=-1)[..., :d], axis=-1) / d
+
+
+def non_demolition_fidelity(instrument: QuantumInstrument) -> Array:
+    """
+    Quantum non-demolition (QND) fidelity of a quantum instrument.
+
+    For each input basis state :math:`|j\\rangle` and *every* outcome *i*, we apply the
+    corresponding instrument branch superoperator :math:`\\mathcal{E}_i` to
+    :math:`|j\\rangle\\langle j|` and extract two quantities from the (unnormalized)
+    output :math:`\\tilde{\\rho}_{ij} = \\mathcal{E}_i(|j\\rangle\\langle j|)`:
+
+    - :math:`p(i \\mid j) = \\operatorname{Tr}(\\tilde{\\rho}_{ij})` — probability of outcome *i*.
+    - :math:`p(\\text{post} = j \\mid i, j) = \\langle j | \\tilde{\\rho}_{ij} | j \\rangle \\,/\\, p(i \\mid j)` — probability that the post-measurement state is still :math:`|j\\rangle`, given outcome *i*.
+
+    The QND fidelity accumulates these joint contributions over **all** outcomes and input
+    states:
+
+    .. math::
+
+        F_\\text{QND} = \\frac{1}{d} \\sum_j \\sum_i p(i \\mid j) \\cdot p(\\text{post} = j \\mid i,\\, j)
+
+    Unlike :func:`instrument_fidelity`, wrong outcomes can contribute as long as the
+    post-measurement state is preserved.  This makes the QND fidelity sensitive to
+    state preservation independent of readout accuracy.
+    Supports ensembles — returns a scalar per ensemble element.
+
+    See :cite:`DICQI`.
+    """
+    d_total = instrument.d[0]
+    n_outcomes = instrument.num_outcomes
+    dims = instrument.dims[0]
+
+    # TODO: Replace Python loops with vectorised implementation for large systems.
+    total = jnp.array(0.0)
+    count = 0
+    for j_full in range(d_total):
+        rho_j_mat = jnp.zeros((d_total, d_total), dtype=jnp.complex128).at[j_full, j_full].set(1.0)
+        rho_j = DensityMatrix.from_matrix(rho_j_mat, dims)
+
+        for i in range(n_outcomes):
+            superop_i, _ = instrument.outcome_superop(i)
+            rho_out = apply_superop_to_density_matrix(superop_i, rho_j)
+            prob = jnp.real(jnp.trace(rho_out.matrix, axis1=-2, axis2=-1))
+            fid = jnp.where(prob > 1e-12, jnp.real(rho_out.matrix[..., j_full, j_full]) / prob, 0.0)
+            total = total + prob * fid
+        count += 1
+
+    return total / count
+
+
+def instrument_fidelity(instrument: QuantumInstrument) -> Array:
+    r"""
+    Overall instrument fidelity w.r.t. ideal QND measurement.
+
+    For each input basis state, j, we apply the conditional instrument superoperator to the state |j⟩⟨j|.
+
+    We compute the probability, p, of the correct outcome which is just the trace of the un-normalized output state
+    and the fidelity, f, of the post-measurement state with the input state |j⟩⟨j|, normalized by p.
+
+    The instrument fidelity is the cumulative sum of the product of p and f for each input state.
+
+    .. math::
+
+        F_\text{inst} = \frac{1}{d} \sum_j \underbrace{p(j_\text{meas} \mid j)}_{\text{correct outcome}} \cdot \underbrace{p(\text{post} = j \mid j_\text{meas},\, j)}_{\text{state preserved}}
+
+
+    Only "correct" outcomes (outcome *i* matches input basis state *j*
+    on the measured subsystem) contribute.
+
+    Supports ensembles — returns a scalar per ensemble element.
+
+    See :cite:`DICQI`.
+    """
+    d_total = instrument.d[0]
+    n_outcomes = instrument.num_outcomes
+    dims = instrument.dims[0]
+
+    # TODO: Replace Python loops with vectorised implementation for large systems.
+    total = jnp.array(0.0)
+    count = 0
+    for j_full in range(d_total):
+        j_meas = _extract_measured_index(j_full, dims, instrument.measured_qudits)
+        rho_j_mat = jnp.zeros((d_total, d_total), dtype=jnp.complex128).at[j_full, j_full].set(1.0)
+        rho_j = DensityMatrix.from_matrix(rho_j_mat, dims)
+
+        if j_meas < n_outcomes:
+            superop_i, _ = instrument.outcome_superop(j_meas)
+            rho_out = apply_superop_to_density_matrix(superop_i, rho_j)
+            prob = jnp.real(jnp.trace(rho_out.matrix, axis1=-2, axis2=-1))
+            fid = jnp.where(prob > 1e-12, jnp.real(rho_out.matrix[..., j_full, j_full]) / prob, 0.0)
+            total = total + prob * fid
+        count += 1
+
+    return total / count

@@ -18,14 +18,14 @@ A module containing common channels.
 
 from functools import partial, reduce
 from operator import mul
-from typing import Tuple
+from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array, jit
 
 from ._compose import compose_superop
-from ._quantum_objects import Choi, KrausMap, Operator, SuperOp, Unitary
+from ._quantum_objects import Choi, KrausMap, Operator, QuantumInstrument, SuperOp, Unitary, _extract_measured_index
 from ._superoperator_transformations import (
     choi_to_superop,
     unitary_to_superop,
@@ -407,3 +407,128 @@ def seepage_operators(gamma: float) -> KrausMap:
     k1_data = jnp.sqrt(gamma) * lower_12
     data = jnp.stack([k0_data, k1_data], axis=0)
     return KrausMap.from_matrix(data, ((3,), (3,)))
+
+
+def instrument_from_confusion_and_transition(
+    confusion_matrix: Array,
+    transition_matrix: Array,
+    dims: Tuple[int, ...],
+    measured_qudits: Optional[Tuple[int, ...]] = None,
+) -> QuantumInstrument:
+    r"""
+    Construct a quantum instrument from a confusion matrix and a transition matrix.
+
+    The confusion matrix is defined as the probability of observing each measurement outcome,
+    given the true state of the measured qudits or Tij = P(measurement outcome i | true state j).
+    Note that the convention is that the confusion matrix is column-stochastic, i.e. columns sum to 1.
+
+    The transition matrix describes the "backaction" of the measurement on the post-measurement state,
+    i.e. Tij = P(post-measurement state i | pre-measurement state j). The convention is that the
+    transition matrix is column-stochastic, i.e. columns sum to 1.
+
+    The instrument is constructed by creating a Kraus operator of each outcome i, basis state j
+    and post-measurement state k. Each Kraus operator is
+
+    .. math::
+        K_{i,j,k} = \sqrt{C_{i, j} T_{k, j}} |k\rangle\langle j|
+
+    The overall instrument is then
+
+    .. math::
+        \mathcal{M}_i(\rho) = \sum_{j, k} C_{i,j} T_{k, j} \langle j|\rho|k\rangle |k\rangle\langle k|
+
+
+    :param confusion_matrix: ``(num_outcomes, d_measured)`` column-stochastic
+        matrix.
+    :param transition_matrix: ``(d_total, d_total)`` column-stochastic matrix.
+    :param dims: Per-qudit dimensions.
+    :param measured_qudits: Indices of measured qudits.  Defaults to all.
+    """
+    if measured_qudits is None:
+        measured_qudits = tuple(range(len(dims)))
+
+    d_total = reduce(mul, dims, 1)
+    d_measured = reduce(mul, (dims[i] for i in measured_qudits), 1)
+    num_outcomes = confusion_matrix.shape[0]
+
+    if confusion_matrix.shape != (num_outcomes, d_measured):
+        raise ValueError(
+            f"Confusion matrix shape {confusion_matrix.shape} does not match "
+            f"(num_outcomes={num_outcomes}, d_measured={d_measured})."
+        )
+    if transition_matrix.shape != (d_total, d_total):
+        raise ValueError(
+            f"Transition matrix shape {transition_matrix.shape} does not match (d_total={d_total}, d_total={d_total})."
+        )
+    if not jnp.all(confusion_matrix >= -1e-14):
+        raise ValueError("Confusion matrix entries must be non-negative.")
+    if not jnp.all(transition_matrix >= -1e-14):
+        raise ValueError("Transition matrix entries must be non-negative.")
+    if not jnp.allclose(jnp.sum(confusion_matrix, axis=0), 1.0, atol=1e-6):
+        raise ValueError("Confusion matrix columns must sum to 1.")
+    if not jnp.allclose(jnp.sum(transition_matrix, axis=0), 1.0, atol=1e-6):
+        raise ValueError("Transition matrix columns must sum to 1.")
+
+    superop_list: list[Array] = []
+    for i in range(num_outcomes):
+        kraus_ops: list[Array] = []
+        for j_full in range(d_total):
+            j_meas = _extract_measured_index(j_full, dims, measured_qudits)
+            p_measure = confusion_matrix[i, j_meas]
+            for k in range(d_total):
+                p_transition = transition_matrix[k, j_full]
+                amplitude = jnp.sqrt(jnp.clip(p_measure * p_transition, min=0.0))
+                K = jnp.zeros((d_total, d_total), dtype=jnp.complex128)
+                K = K.at[k, j_full].set(amplitude)
+                kraus_ops.append(K)
+        # SuperOp = Σ conj(K_i) ⊗ K_i
+        kraus_stack = jnp.stack(kraus_ops, axis=0)  # (n_kraus, d, d)
+        superop_mat = jnp.einsum("iab,icd->acbd", jnp.conj(kraus_stack), kraus_stack)
+        superop_mat = superop_mat.reshape(d_total * d_total, d_total * d_total)
+        superop_list.append(superop_mat)
+
+    matrices = jnp.stack(superop_list, axis=0)
+    op_dims = (dims, dims)
+    return QuantumInstrument.from_matrix(matrices, op_dims, measured_qudits)
+
+
+def instrument_from_axis(
+    theta: float = 0.0,
+    phi: float = 0.0,
+    sharpness: float = 1.0,
+) -> QuantumInstrument:
+    """Create a single-qubit instrument from a Bloch-sphere measurement axis.
+
+    The angles follow standard Bloch sphere notation.  ``theta=0, phi=0``
+    is the Z-axis (computational basis measurement).
+
+    :param theta: Colatitude with respect to the z-axis.
+    :param phi: Longitude with respect to the x-axis.
+    :param sharpness: Measurement sharpness.  1.0 is projective, 0.0 is no
+        measurement.
+    :return: A single-qubit :class:`QuantumInstrument`.
+    """
+    eye = jnp.eye(2, dtype=jnp.complex128)
+    sig_x = jnp.array([[0, 1], [1, 0]], dtype=jnp.complex128)
+    sig_y = jnp.array([[0, -1j], [1j, 0]], dtype=jnp.complex128)
+    sig_z = jnp.array([[1, 0], [0, -1]], dtype=jnp.complex128)
+
+    nx = jnp.sin(theta) * jnp.cos(phi)
+    ny = jnp.sin(theta) * jnp.sin(phi)
+    nz = jnp.cos(theta)
+
+    lambda_plus = jnp.sqrt((1 + sharpness) / 2)
+    lambda_minus = jnp.sqrt((1 - sharpness) / 2)
+    c = (lambda_plus + lambda_minus) / 2
+    d = (lambda_plus - lambda_minus) / 2
+
+    n_dot_sigma = nx * sig_x + ny * sig_y + nz * sig_z
+    K_plus = c * eye + d * n_dot_sigma
+    K_minus = c * eye - d * n_dot_sigma
+
+    # SuperOp = conj(K) ⊗ K for each single-Kraus outcome
+    superop_plus = jnp.einsum("ab,cd->acbd", jnp.conj(K_plus), K_plus).reshape(4, 4)
+    superop_minus = jnp.einsum("ab,cd->acbd", jnp.conj(K_minus), K_minus).reshape(4, 4)
+
+    matrices = jnp.stack([superop_plus, superop_minus], axis=0)
+    return QuantumInstrument.from_matrix(matrices, ((2,), (2,)), (0,))

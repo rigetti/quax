@@ -70,6 +70,59 @@ def _format_state_vector_str(vec: Array, dims: Tuple[int, ...], decimals: int, a
     return "".join(parts)
 
 
+def _format_density_matrix_str(mat: Array, dims: Tuple[int, ...], decimals: int, atol: float) -> str:
+    """Format a single (non-ensembled) density matrix as a Unicode ``|i⟩⟨j|`` string."""
+
+    def _fmt(x: float) -> str:
+        rounded = round(x, decimals)
+        if rounded == 0.0:
+            return "0"
+        return f"{rounded:.{decimals}f}".rstrip("0").rstrip(".")
+
+    def _fmt_coeff(val: complex) -> str | None:
+        r_str = _fmt(val.real)
+        im_str = _fmt(val.imag)
+        if r_str == "0" and im_str == "0":
+            return None
+        elif im_str == "0":
+            return r_str
+        elif r_str == "0":
+            return f"{im_str}i"
+        else:
+            sign = "+" if val.imag > 0 else "-"
+            return f"({r_str}{sign}{_fmt(abs(val.imag))}i)"
+
+    indices = list(itertools.product(*[range(d) for d in dims]))
+    terms = []
+    for row_idx, bra in zip(indices, range(len(indices))):
+        for col_idx, ket in zip(indices, range(len(indices))):
+            val = complex(mat[bra, ket])
+            if abs(val) < atol:
+                continue
+            coeff = _fmt_coeff(val)
+            if coeff is None:
+                continue
+            row_label = "".join(str(i) for i in row_idx)
+            col_label = "".join(str(i) for i in col_idx)
+            basis = f"|{row_label}\u27e9\u27e8{col_label}|"
+            terms.append((coeff, basis))
+
+    if not terms:
+        return "0"
+
+    parts = []
+    for i, (coeff, basis) in enumerate(terms):
+        if i == 0:
+            parts.append(f"{coeff}{basis}")
+        else:
+            if coeff.startswith("-"):
+                parts.append(f" - {coeff[1:]}{basis}")
+            else:
+                parts.append(f" + {coeff}{basis}")
+
+    return "".join(parts)
+
+
 @jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
 def zero_state_vector(
     n_qubits: int = 0,

@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 import qutip as qt
 
+import quax as qx
 from quax import (
     Choi,
     DensityMatrix,
@@ -232,3 +233,28 @@ def test_tensor_density_matrices(seed, dims, size_a, size_b):
     assert tensored_states.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
     fid = fidelity(qobj_tensored_ref, tensored_states)
     assert jnp.allclose(fid, 1.0, atol=1e-6), "Tensored DensityMatrices don't match"
+
+
+# ======================================================================
+# QuantumInstrument tensor product tests
+# ======================================================================
+
+
+class TestInstrumentTensor:
+    """Test tensor product of quantum instruments."""
+
+    def test_tensor_two_qubits(self):
+        qi = qx.gates.MEASURE()
+        tensored = qx.tensor_instrument(qi, qi)
+        assert tensored.num_outcomes == 4
+        assert tensored.dims == ((2, 2), (2, 2))
+        assert tensored.measured_qudits == (0, 1)
+        assert qx.validate(tensored)
+
+    def test_tensor_qubit_qutrit(self):
+        qi1 = qx.gates.MEASURE()
+        qi2 = qx.gates.MEASURE(3)
+        tensored = qx.tensor_instrument(qi1, qi2)
+        assert tensored.num_outcomes == 6
+        assert tensored.dims == ((2, 3), (2, 3))
+        assert tensored.measured_qudits == (0, 1)

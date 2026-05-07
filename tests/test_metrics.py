@@ -16,6 +16,7 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 import qutip
 import quax as qx
@@ -432,3 +433,77 @@ def test_unitarity_stochastic_infidelity_relation(seed, qudit_dim, num_qudits):
     e_s_from_u = float(qx.unitarity_to_stochastic_infidelity(u, dims=(qudit_dim,) * num_qudits))
     e_s_direct = float(qx.stochastic_infidelity(U))
     assert jnp.isclose(e_s_from_u, e_s_direct, atol=1e-6)
+
+
+# ======================================================================
+# QuantumInstrument fidelity function tests
+# ======================================================================
+
+
+class TestInstrumentFidelities:
+    """Test standalone instrument fidelity functions."""
+
+    def test_classification_ideal(self):
+        np.testing.assert_allclose(qx.classification_fidelity(qx.gates.MEASURE()), 1.0, atol=1e-10)
+
+    @pytest.mark.parametrize("fid", [0.8, 0.9, 0.95])
+    def test_classification_noisy(self, fid):
+        confusion = jnp.array([[fid, 1 - fid], [1 - fid, fid]])
+        qi = qx.instrument_from_confusion_and_transition(confusion, jnp.eye(2), dims=(2,))
+        np.testing.assert_allclose(qx.classification_fidelity(qi), fid, atol=1e-10)
+
+    def test_non_demolition_ideal(self):
+        np.testing.assert_allclose(qx.non_demolition_fidelity(qx.gates.MEASURE()), 1.0, atol=1e-10)
+
+    def test_instrument_fidelity_ideal(self):
+        np.testing.assert_allclose(qx.instrument_fidelity(qx.gates.MEASURE()), 1.0, atol=1e-10)
+
+    def test_bitflip_backaction_zero_qnd(self):
+        confusion = jnp.eye(2)
+        transition = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2,))
+        np.testing.assert_allclose(qx.non_demolition_fidelity(qi), 0.0, atol=1e-10)
+
+    @pytest.mark.parametrize("fid", [0.8, 0.9, 0.95])
+    def test_confusion_only_qnd_is_one(self, fid):
+        """Confusion-only instrument (identity transition) has QND fidelity = 1.0."""
+        confusion = jnp.array([[fid, 1 - fid], [1 - fid, fid]])
+        transition = jnp.eye(2)
+        qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2,))
+        np.testing.assert_allclose(qx.non_demolition_fidelity(qi), 1.0, atol=1e-10)
+
+    @pytest.mark.parametrize("clf_fid", [0.80, 0.90, 0.95])
+    @pytest.mark.parametrize("p_flip", [0.05, 0.10, 0.30])
+    def test_instrument_fidelity_bounded_by_product(self, clf_fid, p_flip):
+        """Instrument fidelity <= classification_fidelity * non_demolition_fidelity."""
+        confusion = jnp.array([[clf_fid, 1 - clf_fid], [1 - clf_fid, clf_fid]])
+        transition = jnp.array([[1 - p_flip, p_flip], [p_flip, 1 - p_flip]])
+        qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2,))
+        f_inst = float(qx.instrument_fidelity(qi))
+        f_clf = float(qx.classification_fidelity(qi))
+        f_qnd = float(qx.non_demolition_fidelity(qi))
+        assert f_inst <= f_clf * f_qnd + 1e-10
+
+    @pytest.mark.parametrize("d", [2, 3])
+    def test_multiqudit_ideal_fidelities(self, d):
+        """Multi-qudit ideal measurement: all fidelities are 1.0."""
+        qi = qx.gates.MEASURE(d) | qx.gates.MEASURE(d)
+        np.testing.assert_allclose(qx.classification_fidelity(qi), 1.0, atol=1e-10)
+        np.testing.assert_allclose(qx.non_demolition_fidelity(qi), 1.0, atol=1e-10)
+        np.testing.assert_allclose(qx.instrument_fidelity(qi), 1.0, atol=1e-10)
+
+    @pytest.mark.parametrize("fid", [0.80, 0.95])
+    def test_multiqudit_noisy_fidelities(self, fid):
+        """Two-qubit noisy instrument: fidelity bounded by clf * qnd."""
+        d = 4  # total dimension for 2 qubits
+        off = (1.0 - fid) / (d - 1)
+        confusion = fid * jnp.eye(d) + off * (jnp.ones((d, d)) - jnp.eye(d))
+        p_flip = 0.1
+        transition_single = jnp.array([[1 - p_flip, p_flip], [p_flip, 1 - p_flip]])
+        transition = jnp.kron(transition_single, transition_single)
+        qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2, 2))
+        f_inst = float(qx.instrument_fidelity(qi))
+        f_clf = float(qx.classification_fidelity(qi))
+        f_qnd = float(qx.non_demolition_fidelity(qi))
+        np.testing.assert_allclose(f_clf, fid, atol=1e-10)
+        assert f_inst <= f_clf * f_qnd + 1e-10

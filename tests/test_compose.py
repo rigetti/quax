@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 import qutip as qt
 
+import quax as qx
 from quax import (
     Choi,
     Unitary,
@@ -200,3 +201,60 @@ def test_compose_operators(seed, num_qudits, qudit_dim, size_a, size_b):
     # Check match
     fid = unitary_entanglement_fidelity(qobj_composed_ref, composed_unitaries)
     assert jnp.allclose(fid, 1.0, atol=1e-6), "Composed Unitary operators don't match"
+
+
+# ======================================================================
+# QuantumInstrument composition tests
+# ======================================================================
+
+
+class TestInstrumentCompose:
+    """Test composition of quantum instruments."""
+
+    def test_compose_ideal_is_idempotent(self):
+        """Composing ideal measurement with itself yields the same ideal measurement."""
+        qi = qx.gates.MEASURE()
+        composed = qx.compose_instrument(qi, qi)
+        assert composed.num_outcomes == 2
+        assert qx.validate(composed)
+        np.testing.assert_allclose(composed.matrix, qi.matrix, atol=1e-10)
+
+    def test_compose_keeps_outer_outcomes(self):
+        """Composed instrument has the outer instrument's number of outcomes."""
+        qiA = qx.gates.MEASURE(3)
+        confusion = jnp.eye(3)
+        transition = jnp.eye(3)
+        qiB = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(3,))
+        composed = qx.compose_instrument(qiB, qiA)
+        assert composed.num_outcomes == 3
+        assert qx.validate(composed)
+
+    def test_compose_dims_mismatch(self):
+        with pytest.raises(ValueError, match="mismatch"):
+            qx.compose_instrument(qx.gates.MEASURE(), qx.gates.MEASURE(3))
+
+    def test_compose_noisy_inner_ideal_outer(self):
+        """Confusion-only noise washes out when inner outcome is discarded."""
+        fid = 0.90
+        confusion = jnp.array([[fid, 1 - fid], [1 - fid, fid]])
+        transition = jnp.eye(2)
+        noisy = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2,))
+        ideal = qx.gates.MEASURE()
+
+        composed = ideal @ noisy
+        assert composed.num_outcomes == 2
+        assert qx.validate(composed)
+        np.testing.assert_allclose(composed.confusion_matrix, jnp.eye(2), atol=1e-10)
+
+    def test_compose_bitflip_backaction(self):
+        """Ideal measurement after bit-flip backaction swaps confusion rows."""
+        confusion = jnp.eye(2)
+        transition = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        bitflip = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2,))
+        ideal = qx.gates.MEASURE()
+
+        composed = ideal @ bitflip
+        assert composed.num_outcomes == 2
+        assert qx.validate(composed)
+        expected_confusion = jnp.array([[0.0, 1.0], [1.0, 0.0]])
+        np.testing.assert_allclose(composed.confusion_matrix, expected_confusion, atol=1e-10)

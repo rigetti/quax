@@ -17,7 +17,7 @@
 import jax
 import jax.numpy as jnp
 
-from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator
+from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator, QuantumInstrument
 from ._promotion import promote_hilbert_space
 from ._superoperator_transformations import (
     choi_to_superop,
@@ -172,3 +172,52 @@ def compose_pauli_liouville(P1: PauliLiouville, P2: PauliLiouville) -> PauliLiou
     data = P1.matrix @ P2.matrix
 
     return PauliLiouville.from_matrix(data, P1.dims)
+
+
+def compose_instrument(
+    i1: QuantumInstrument,
+    i2: QuantumInstrument,
+) -> QuantumInstrument:
+    """
+    Compose two quantum instruments sequentially on the same system.
+
+    Models the process: apply *i2* first (measure and collapse), then apply
+    *i1* to the post-measurement state.  The first measurement result is
+    discarded and only the *i1* outcome is kept, so the composed instrument
+    has ``n1`` outcomes (not ``n1 * n2``).
+
+    Mathematically, for each outcome *i* of *i1*:
+
+    .. math::
+
+        F_i(\\rho) = \\sum_j E^{(1)}_i \\bigl( E^{(2)}_j(\\rho) \\bigr)
+                   = E^{(1)}_i \\circ \\bigl(\\sum_j E^{(2)}_j\\bigr)(\\rho)
+
+    where the sum :math:`\\sum_j E^{(2)}_j` is the total channel of *i2*.
+
+    :param i1: Outer instrument (applied second, its outcomes are kept).
+    :param i2: Inner instrument (applied first, its outcomes are discarded).
+    :return: Composed instrument with ``i1.num_outcomes`` outcomes.
+    """
+    if i1.dims != i2.dims:
+        raise ValueError(f"Dimension mismatch: {i1.dims} vs {i2.dims}")
+
+    n1 = i1.num_outcomes
+    d = i1.d[0]
+    d2 = d * d
+
+    s1 = i1.matrix  # (*ens1, n1, d², d²) — already SuperOp
+    s2 = i2.matrix  # (*ens2, n2, d², d²) — already SuperOp
+
+    # Sum over inner outcomes to get total channel of i2
+    s2_total = s2.sum(axis=-3)  # (*ens2, d², d²)
+
+    # Compose: S_composed_i = S1_i @ S2_total
+    composed = jnp.einsum("...iab,...bc->...iac", s1, s2_total)
+    ens_shape = composed.shape[:-3]
+    composed_flat = composed.reshape(ens_shape + (n1, d2, d2))
+
+    # Merge measured_qudits (union, sorted)
+    merged_measured = tuple(sorted(set(i1.measured_qudits) | set(i2.measured_qudits)))
+
+    return QuantumInstrument.from_matrix(composed_flat, i1.dims, merged_measured)

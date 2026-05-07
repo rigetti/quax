@@ -22,7 +22,9 @@ import numpy as np
 import pytest
 import qutip as qt
 import quax as qx
-from quax import n_qudit_herm_basis
+from quax import n_qudit_herm_basis, DensityMatrix, StateVector
+
+from .instrument_helpers import basis_dm_multi
 
 
 def _identity_unitary(d: int) -> qx.Unitary:
@@ -1194,3 +1196,170 @@ def test_targeted_apply_kraus_map_trajectory_ensemble_general(seed, dims, ens_op
 
     norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
     assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
+
+
+# ======================================================================
+# QuantumInstrument targeted apply tests
+# ======================================================================
+
+
+class TestInstrumentTargetedApply:
+    """Test targeted application of instruments to subsystems."""
+
+    def test_measure_first_qubit_of_two(self):
+        qi = qx.gates.MEASURE()
+        rho = qx.zero_state_matrix(dims=(2, 2))
+        key = jax.random.key(42)
+        rho_outs, probs = qx.targeted_apply_instrument_to_density_matrix(qi, rho, subsystem=(0,))
+        rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+        assert int(outcome) == 0
+        assert rho_out.dims == (2, 2)
+
+    def test_measure_second_qubit_of_two(self):
+        qi = qx.gates.MEASURE()
+        rho = basis_dm_multi((0, 1), (2, 2))
+        key = jax.random.key(42)
+        rho_outs, probs = qx.targeted_apply_instrument_to_density_matrix(qi, rho, subsystem=(1,))
+        rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+        assert int(outcome) == 1
+
+
+# ======================================================================
+# QuantumInstrument ensemble / batch application tests
+# ======================================================================
+
+
+class TestInstrumentEnsembleApplication:
+    """Test applying instruments to batches of states and with batched instruments."""
+
+    def test_single_instrument_batch_of_states(self):
+        """Apply one ideal measurement to an ensemble of density matrices."""
+        qi = qx.gates.MEASURE()
+        rho0 = jnp.array([[1, 0], [0, 0]], dtype=complex)
+        rho1 = jnp.array([[0, 0], [0, 1]], dtype=complex)
+        rho_batch = jnp.stack([rho0, rho1], axis=0)
+        rho = DensityMatrix.from_matrix(rho_batch, (2,))
+
+        keys = jax.random.split(jax.random.key(0), 2)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        assert outcomes.shape == (2,)
+        assert int(outcomes[0]) == 0
+        assert int(outcomes[1]) == 1
+        assert rho_out.matrix.shape == (2, 2, 2)
+
+    def test_batch_outcomes_deterministic_basis_states(self):
+        """Batch of all basis states gives deterministic matching outcomes."""
+        d = 3
+        qi = qx.gates.MEASURE(d)
+        rho_list = [jnp.zeros((d, d), dtype=complex).at[k, k].set(1.0) for k in range(d)]
+        rho_batch = jnp.stack(rho_list, axis=0)
+        rho = DensityMatrix.from_matrix(rho_batch, (d,))
+
+        keys = jax.random.split(jax.random.key(42), d)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        assert outcomes.shape == (d,)
+        for k in range(d):
+            assert int(outcomes[k]) == k
+            np.testing.assert_allclose(rho_out.matrix[k], rho_batch[k], atol=1e-10)
+
+    def test_batch_post_measurement_states(self):
+        """Post-measurement states for a batch of |+> inputs are projected correctly."""
+        qi = qx.gates.MEASURE()
+        plus = jnp.array([[0.5, 0.5], [0.5, 0.5]], dtype=complex)
+        rho_batch = jnp.broadcast_to(plus, (5, 2, 2))
+        rho = DensityMatrix.from_matrix(rho_batch, (2,))
+
+        keys = jax.random.split(jax.random.key(7), 5)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi, rho)
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        for i in range(5):
+            o = int(outcomes[i])
+            expected = jnp.zeros((2, 2), dtype=complex).at[o, o].set(1.0)
+            np.testing.assert_allclose(rho_out.matrix[i], expected, atol=1e-10)
+
+    def test_batch_instrument_single_state(self):
+        """Apply an ensemble of instruments (different confusions) to one state."""
+        fids = jnp.array([1.0, 0.8, 0.6])
+        choi_list = []
+        for fid in fids:
+            cm = jnp.array([[fid, 1 - fid], [1 - fid, fid]])
+            qi_single = qx.instrument_from_confusion_and_transition(cm, jnp.eye(2), dims=(2,))
+            choi_list.append(qi_single.matrix)
+        batch_mat = jnp.stack(choi_list, axis=0)
+        qi_batch = qx.QuantumInstrument.from_matrix(batch_mat, ((2,), (2,)), (0,))
+
+        assert qi_batch.ensemble_size == (3,)
+        assert qi_batch.num_outcomes == 2
+
+        rho0 = qx.zero_state_matrix(dims=(2,))
+        keys = jax.random.split(jax.random.key(0), 3)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi_batch, rho0)
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        assert outcomes.shape == (3,)
+        assert rho_out.matrix.shape == (3, 2, 2)
+        assert int(outcomes[0]) == 0
+
+    def test_batch_instrument_batch_state(self):
+        """Matching ensemble dims: each instrument applied to corresponding state."""
+        fids = [1.0, 1.0, 1.0]
+        choi_list = []
+        for fid in fids:
+            cm = jnp.array([[fid, 1 - fid], [1 - fid, fid]])
+            qi_s = qx.instrument_from_confusion_and_transition(cm, jnp.eye(2), dims=(2,))
+            choi_list.append(qi_s.matrix)
+        batch_mat = jnp.stack(choi_list, axis=0)
+        qi_batch = qx.QuantumInstrument.from_matrix(batch_mat, ((2,), (2,)), (0,))
+
+        rho0 = jnp.array([[1, 0], [0, 0]], dtype=complex)
+        rho1 = jnp.array([[0, 0], [0, 1]], dtype=complex)
+        rho_batch = jnp.stack([rho0, rho1, rho0], axis=0)
+        rho = DensityMatrix.from_matrix(rho_batch, (2,))
+
+        keys = jax.random.split(jax.random.key(99), 3)
+        rho_outs, probs = qx.apply_instrument_to_density_matrix(qi_batch, rho)
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        assert outcomes.shape == (3,)
+        assert int(outcomes[0]) == 0
+        assert int(outcomes[1]) == 1
+        assert int(outcomes[2]) == 0
+
+    def test_batch_state_vector_input(self):
+        """Apply instrument to batch of state vectors."""
+        qi = qx.gates.MEASURE()
+        sv0 = jnp.array([1, 0], dtype=complex)
+        sv1 = jnp.array([0, 1], dtype=complex)
+        sv_batch = jnp.stack([sv0, sv1], axis=0)
+        psi = StateVector.from_matrix(sv_batch, (2,))
+
+        keys = jax.random.split(jax.random.key(5), 2)
+        psi_out, outcomes = qx.apply_instrument_to_state_vector(qi, psi, keys)
+
+        assert outcomes.shape == (2,)
+        assert int(outcomes[0]) == 0
+        assert int(outcomes[1]) == 1
+        assert isinstance(psi_out, StateVector)
+
+    def test_batch_targeted_apply(self):
+        """Targeted apply with batch of 2-qubit states, measuring first qubit."""
+        qi = qx.gates.MEASURE()
+        rho00 = basis_dm_multi((0, 0), (2, 2)).matrix
+        rho10 = basis_dm_multi((1, 0), (2, 2)).matrix
+        rho_batch = jnp.stack([rho00, rho10], axis=0)
+        rho = DensityMatrix.from_matrix(rho_batch, (2, 2))
+
+        keys = jax.random.split(jax.random.key(3), 2)
+        rho_outs, probs = qx.targeted_apply_instrument_to_density_matrix(qi, rho, subsystem=(0,))
+        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+
+        assert outcomes.shape == (2,)
+        assert int(outcomes[0]) == 0
+        assert int(outcomes[1]) == 1
+        assert rho_out.dims == (2, 2)
+        assert rho_out.matrix.shape == (2, 4, 4)

@@ -16,6 +16,7 @@
 
 from functools import partial, reduce, singledispatch
 from operator import mul
+from typing import Tuple, TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -29,6 +30,16 @@ from ._quantum_objects import (
     StateVector,
     SuperOp,
     Unitary,
+    SuperOperator,
+)
+from ._superoperator_transformations import (
+    choi_to_kraus,
+    kraus_to_choi,
+    kraus_to_pauli_liouville,
+    kraus_to_superop,
+    pauli_liouville_to_kraus,
+    superop_to_kraus,
+    unitary_to_superop,
 )
 
 
@@ -153,69 +164,48 @@ def _promote_operator(op: Operator, dims: tuple[int, ...]) -> Operator:
 @promote.register(SuperOp)
 @partial(jax.jit, static_argnames=("dims",))
 def _promote_superop(superop: SuperOp, dims: tuple[int, ...]) -> SuperOp:
-    """Embed a superoperator in a larger Liouville space (CPTP).
+    """Embed a superoperator in a larger Liouville space via coherent extension.
 
     The promoted channel applies the original channel on the original
-    subspace, acts as identity on the complement subspace, and maps
-    cross-term coherences (between original and complement) to zero.
-    This is the unique CPTP extension and corresponds to:
-
-    .. math:: S' = \\mathcal{E}_s S \\mathcal{E}_s^\\dagger + Q \\otimes Q
-
-    where *Q = I − P* is the complement projector.
+    subspace and acts as identity on the complement subspace, preserving
+    coherences between the two subspaces.  This is achieved by converting
+    to a Kraus representation, performing the coherent Kraus promotion,
+    and converting back.
     """
     current_dims = superop.dims[0]
     _validate_promote_dims(current_dims, dims)
 
-    batch_shape = superop.ensemble_size
-    n_ensemble = len(batch_shape)
-    n = len(dims)
-    D = reduce(mul, dims, 1)
-
-    # Zero-pad the original superoperator tensor (equivalent to E_s S E_s†)
-    pw = [(0, 0)] * n_ensemble + [(0, D_t - d_c) for d_c, D_t in zip(current_dims * 4, dims * 4)]
-    padded = jnp.pad(superop.data, pw)
-
-    # Complement indicator: 1 for multi-indices outside the original subspace
-    q = jnp.ones(dims, dtype=complex)
-    q = q.at[tuple(slice(0, d) for d in current_dims)].set(0.0)
-
-    # Q⊗Q in superop tensor form: I_s[α,β,γ,δ] · q[α] · q[β]
-    I_s = jnp.eye(D**2, dtype=complex).reshape(dims * 4)
-    q_bra = q.reshape(dims + (1,) * (3 * n))
-    q_ket = q.reshape((1,) * n + dims + (1,) * (2 * n))
-    QQ = I_s * q_bra * q_ket
-
-    promoted = padded + jnp.broadcast_to(QQ, batch_shape + dims * 4)
-    return SuperOp(promoted, num_qubits=n)
+    kraus = superop_to_kraus(superop)
+    promoted_kraus = _promote_kraus_map(kraus, dims)
+    return kraus_to_superop(promoted_kraus)
 
 
 @promote.register(Choi)
 @partial(jax.jit, static_argnames=("dims",))
 def _promote_choi(choi: Choi, dims: tuple[int, ...]) -> Choi:
-    """Embed a Choi matrix in a larger Hilbert space.
+    """Embed a Choi matrix in a larger Hilbert space via coherent extension.
 
     The promoted Choi matrix corresponds to a channel that acts as
-    identity on the higher basis states.
+    identity on the higher basis states while preserving coherences
+    between the original and complement subspaces.
     """
-    from ._superoperator_transformations import choi_to_superop, superop_to_choi
-
     current_dims = choi.dims[0]
     _validate_promote_dims(current_dims, dims)
 
-    superop = choi_to_superop(choi)
-    promoted_superop = _promote_superop(superop, dims)
-    return superop_to_choi(promoted_superop)
+    kraus = choi_to_kraus(choi)
+    promoted_kraus = _promote_kraus_map(kraus, dims)
+    return kraus_to_choi(promoted_kraus)
 
 
 @promote.register(KrausMap)
 @partial(jax.jit, static_argnames=("dims",))
 def _promote_kraus_map(kraus: KrausMap, dims: tuple[int, ...]) -> KrausMap:
-    """Embed Kraus operators in a larger Hilbert space.
+    """Embed Kraus operators in a larger Hilbert space via coherent extension.
 
     Each Kraus operator K_i is zero-padded in the larger tensor space.
-    An additional Kraus operator is appended that acts as identity on
-    the complement subspace to preserve trace preservation.
+    The complement projector (identity on higher basis states) is added
+    to the first Kraus operator K_0, preserving coherences between the
+    original and complement subspaces.
     """
     current_dims = kraus.dims[0]
     _validate_promote_dims(current_dims, dims)
@@ -233,29 +223,27 @@ def _promote_kraus_map(kraus: KrausMap, dims: tuple[int, ...]) -> KrausMap:
     complement = jnp.eye(D, dtype=complex).reshape(dims + dims)
     orig_slices = tuple(slice(0, d) for d in current_dims) * 2
     complement = complement.at[orig_slices].set(0.0)
-    # Shape: (*batch, 1, *dims, *dims)
-    target_shape = batch_shape + (1,) + dims + dims
-    extra = jnp.broadcast_to(complement, target_shape)
 
-    promoted = jnp.concatenate([padded, extra], axis=n_ensemble)
-    return KrausMap(promoted, num_qubits=len(dims))
+    # Add complement identity to the first Kraus operator (coherent extension).
+    k0_slices = tuple([slice(None)] * n_ensemble + [0])
+    padded = padded.at[k0_slices].add(complement)
+
+    return KrausMap(padded, num_qubits=len(dims))
 
 
 @promote.register(PauliLiouville)
 @partial(jax.jit, static_argnames=("dims",))
 def _promote_pauli_liouville(pl: PauliLiouville, dims: tuple[int, ...]) -> PauliLiouville:
-    """Embed a Pauli-Liouville matrix in a larger Hilbert space.
+    """Embed a Pauli-Liouville matrix in a larger Hilbert space via coherent extension.
 
-    Converts to SuperOp, promotes, and converts back.
+    Converts to Kraus, promotes coherently, and converts back.
     """
-    from ._superoperator_transformations import pauli_liouville_to_superop, superop_to_pauli_liouville
-
     current_dims = pl.dims[0]
     _validate_promote_dims(current_dims, dims)
 
-    superop = pauli_liouville_to_superop(pl)
-    promoted_superop = _promote_superop(superop, dims)
-    return superop_to_pauli_liouville(promoted_superop)
+    kraus = pauli_liouville_to_kraus(pl)
+    promoted_kraus = _promote_kraus_map(kraus, dims)
+    return kraus_to_pauli_liouville(promoted_kraus)
 
 
 def _get_subsystem_dims(obj):
@@ -291,13 +279,26 @@ def broadcast_qudits(obj1, obj2) -> tuple:
     return tuple(max(a, b) for a, b in zip(dims1, dims2))
 
 
-def promote_hilbert_space(obj1, obj2):
+_T1 = TypeVar("_T1")
+_T2 = TypeVar("_T2")
+
+
+def promote_hilbert_space(obj1: _T1, obj2: _T2) -> Tuple[_T1, _T2]:
     """
     Promote two quantum objects to compatible per-subsystem dimensions.
 
     For each subsystem index the target dimension is the maximum of the
     two objects' dimensions.  Only the subsystems that actually differ
     are enlarged; other subsystems are left untouched.
+
+    When a :class:`Unitary` is paired with a channel representation
+    (:class:`SuperOp`, :class:`Choi`, :class:`KrausMap`, or
+    :class:`PauliLiouville`) and promotion is required, the ``Unitary``
+    is first converted to ``SuperOp``.  This ensures the global phase —
+    which is unobservable for channels but becomes a physical relative
+    phase after embedding in a larger Hilbert space — is stripped
+    *before* promotion, so that ``promote(to_superop(U))`` and
+    ``to_superop(promote(U))`` agree.
 
     .. note::
         This function is not JIT-compiled because its control flow is
@@ -311,6 +312,11 @@ def promote_hilbert_space(obj1, obj2):
     if dims1 == dims2:
         return obj1, obj2
 
+    if isinstance(obj1, Unitary) and isinstance(obj2, SuperOperator):
+        obj1 = unitary_to_superop(obj1)
+    elif isinstance(obj2, Unitary) and isinstance(obj1, SuperOperator):
+        obj2 = unitary_to_superop(obj2)
+
     target = broadcast_qudits(obj1, obj2)
 
     if dims1 != target:
@@ -318,4 +324,4 @@ def promote_hilbert_space(obj1, obj2):
     if dims2 != target:
         obj2 = promote(obj2, target)
 
-    return obj1, obj2
+    return cast(_T1, obj1), cast(_T2, obj2)
