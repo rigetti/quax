@@ -613,12 +613,22 @@ def targeted_apply_kraus_map_trajectory(
         optimize="optimal",
     )
 
-    # Step 2: Compute Born-rule probabilities p_i = ⟨ψ'_i|ψ'_i⟩
+    # Step 2: Expand all_outcomes so its ensemble dims broadcast with the key.
+    # The key may have more ensemble dims (e.g. key shape (3,5) with ens_result (3,)),
+    # meaning "for each operator, sample multiple trajectories". We insert trailing
+    # singleton dims in the ensemble portion of all_outcomes to enable broadcasting.
+    n_ens_outcomes = all_outcomes.ndim - (n + 1)  # current ensemble dims in all_outcomes
+    if key.ndim > n_ens_outcomes:
+        n_extra = key.ndim - n_ens_outcomes
+        expand_axes = tuple(range(n_ens_outcomes, n_ens_outcomes + n_extra))
+        all_outcomes = jnp.expand_dims(all_outcomes, axis=expand_axes)
+
+    # Step 3: Compute Born-rule probabilities p_i = ⟨ψ'_i|ψ'_i⟩
     # Sum |amplitude|^2 over qubit dimensions (last n axes), keeping Kraus axis.
     qubit_axes = tuple(range(-n, 0))
     probs = jnp.sum(jnp.abs(all_outcomes) ** 2, axis=qubit_axes)  # (*ens, n_kraus)
 
-    # Step 3: Sample one Kraus outcome per ensemble element.
+    # Step 4: Sample one Kraus outcome per ensemble element.
     # categorical requires a scalar key, so we vmap over key ensemble dims if present.
     logits = jnp.log(jnp.clip(probs, min=1e-30))  # guard against log(0)
     sampled_idx = _batched_categorical(key, logits)  # (*broadcast_ens,)
@@ -840,6 +850,14 @@ def select_outcome(
     n_outcomes = probs.shape[-1]
     rho_outs_mat = rho_outs.matrix  # (*ens, n_outcomes, d_total, d_total)
 
+    # Expand probs/rho_outs_mat so ensemble dims broadcast with the key.
+    n_ens_probs = probs.ndim - 1
+    if key.ndim > n_ens_probs:
+        n_extra = key.ndim - n_ens_probs
+        expand_axes = tuple(range(n_ens_probs, n_ens_probs + n_extra))
+        probs = jnp.expand_dims(probs, axis=expand_axes)
+        rho_outs_mat = jnp.expand_dims(rho_outs_mat, axis=expand_axes)
+
     logits = jnp.log(jnp.clip(probs, min=1e-30))
     sampled_idx = _batched_categorical(key, logits)
 
@@ -895,6 +913,13 @@ def targeted_apply_instrument_to_state_vector(
 
     einsum_str = _generate_kraus_trajectory_contraction(subsystem, n)
     all_outcomes = jnp.einsum(einsum_str, kraus_data, psi.data, optimize="optimal")
+
+    # Expand all_outcomes so its ensemble dims broadcast with the key.
+    n_ens_outcomes = all_outcomes.ndim - (n + 1)
+    if key.ndim > n_ens_outcomes:
+        n_extra = key.ndim - n_ens_outcomes
+        expand_axes = tuple(range(n_ens_outcomes, n_ens_outcomes + n_extra))
+        all_outcomes = jnp.expand_dims(all_outcomes, axis=expand_axes)
 
     # Born-rule probabilities
     qubit_axes = tuple(range(-n, 0))

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# FROM nvidia/cuda:12.6.3-devel-ubuntu24.04
 FROM ubuntu:24.04
 
 USER root
@@ -87,8 +86,8 @@ COPY --chown=rigetti:rigetti --chmod=775 src/quax/__init__.py ./src/quax/
 RUN poetry install \
     --no-interaction \
     --no-ansi \
-    --no-cache 
-
+    --no-cache;
+        
 # Set up and activate the venv
 RUN mkdir ${HOME}/.venv/ && ln -s $(poetry env info -p) /home/rigetti/.venv/quax
 ENV VIRTUAL_ENV=/home/rigetti/.venv/quax

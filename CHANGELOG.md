@@ -14,6 +14,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.1] - 2026-05-06
+
+### Added
+
+- Benchmarks for targeted_apply for `KrausMap`, `QuantumInstrument` and `Superoperator`.
+- `truncate_kraus` reduces the size of Kraus maps by truncating small operators.
+- `cuda` group now available for running on Nvidia GPU. Install with `poetry install --with cuda`.
+
+### Fixed
+
+- `targeted_apply_kraus_map_trajectory` now broadcasts ensembles of keys and states.
+
 ## [0.6.0] - 2026-05-06
 
 ### Added

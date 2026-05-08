@@ -1140,6 +1140,55 @@ def test_targeted_apply_kraus_map_trajectory_ensemble(seed, ens_op, ens_psi, ens
     assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
 
 
+@pytest.mark.parametrize("seed", [90573, 42])
+@pytest.mark.parametrize(
+    "ens_op, ens_psi, ens_key",
+    [
+        ((3,), (), (3, 5)),  # key has more dims than op/psi ensemble
+        ((), (), (3, 5)),  # only key has ensemble dims (2D)
+        ((3,), (3,), (3, 5)),  # op and psi match, key has extra trailing dim
+        ((3, 1), (), (3, 5)),  # 2D op broadcasts with 2D key
+    ],
+)
+def test_targeted_apply_kraus_map_trajectory_key_extra_dims(seed, ens_op, ens_psi, ens_key):
+    """Test that trajectory Kraus application broadcasts key dims beyond the op/psi ensemble."""
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+
+    initial_state = qx.random_state_vector((2, 2, 2), key, size=ens_psi)
+
+    # Build ensemble of Kraus maps if needed
+    if ens_op:
+        noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
+        kraus_list = [
+            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,))).data
+            for p in noise_params
+        ]
+        kraus_mats = jnp.stack(kraus_list).reshape(ens_op + jnp.stack(kraus_list).shape[1:])
+        k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
+    else:
+        k_ensemble = qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,)))
+
+    # Build ensemble of keys
+    n_keys = reduce(lambda a, b: a * b, ens_key, 1)
+    sample_keys = jax.random.split(subkey, num=n_keys).reshape(ens_key)
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory(k_ensemble, initial_state, sample_keys, (1,))
+
+    # Check ensemble size matches broadcast.
+    # The key may have more dims than the op/psi broadcast, introducing extra "samples" dims.
+    ens_intermediate = jnp.broadcast_shapes(ens_op, ens_psi)
+    if len(ens_key) > len(ens_intermediate):
+        n_extra = len(ens_key) - len(ens_intermediate)
+        ens_intermediate = ens_intermediate + (1,) * n_extra
+    broadcast_ens = jnp.broadcast_shapes(ens_intermediate, ens_key)
+    assert psi_out.ensemble_size == broadcast_ens
+
+    # Check normalization for all ensemble elements
+    norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+    assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
+
+
 @pytest.mark.parametrize("seed", [42, 123])
 @pytest.mark.parametrize("dims", [(3, 3), (2, 3), (3, 2, 3)])
 def test_targeted_apply_kraus_map_trajectory_normalization_general(seed, dims):

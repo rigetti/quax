@@ -16,7 +16,7 @@
     "ms-toolsai.jupyter-renderers",
     "ms-toolsai.jupyter",
     "ms-vsliveshare.vsliveshare",
-    "Iterative.dvc",
+    "lakeFS.lakefs-dvc",
     "github.copilot-chat"
   ],
   "settings": {

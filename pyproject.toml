@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.6.0"
+version = "0.6.1"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -33,6 +33,9 @@ plot = ["plotly (>=5.20)"]
 Documentation = "https://rigetti.gitlab.io/application_benchmarking/quax"
 
 [dependency-groups]
+cuda = [
+    "jax[cuda12] (>=0.8.2)",
+]
 dev = [
     "pytest (>=9.0.2,<10.0.0)",
     "ruff (>=0.14.10)",
@@ -51,10 +54,14 @@ dev = [
     "plotly (>=5.12)",
     "optax (>=0.2.7)",
     "nbsphinx (>=0.9.8,<0.10.0)",
+    "pytest-benchmark (>=5.1.0,<6.0.0)",
     "pytest-memray (>=1.8.0,<2.0.0)",
     "sphinxcontrib-bibtex (>=2.6.5,<3.0.0)",
     "nbstripout (>=0.9.1,<0.10.0)",
 ]
+
+[tool.poetry.group.cuda]
+optional = true
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
