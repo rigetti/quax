@@ -87,6 +87,19 @@ test-package: ## Run all unit tests for the package, and report coverage.
 	cd ${PROJECT_DIR}
 	poetry run pytest -vv tests/
 
+run-benchmarks: ## Run performance benchmarks
+	cd ${PROJECT_DIR}
+	mkdir -p benchmarks/results
+	JAX_ENABLE_X64=0 poetry run pytest benchmarks/ -v --benchmark-only --benchmark-json=benchmarks/results/results.json
+
+.PHONY: benchmark-report
+benchmark-report: ## Generate benchmark report from saved JSON results.
+	cd ${PROJECT_DIR}
+	poetry run python benchmarks/analyze.py benchmarks/results/results.json
+
+.PHONY: benchmark
+benchmark: run-benchmarks benchmark-report ## Run benchmarks at 64-bit precision and generate report.
+
 # go install github.com/google/addlicense@latest
 .PHONY: add-license
 add-license: ## Add license headers to all source files.

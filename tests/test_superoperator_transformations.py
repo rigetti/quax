@@ -43,6 +43,7 @@ Unfortuantely, QuTiP does not have a Pauli-Liouville representation natively, so
 against some known values.
 """
 
+import jax
 import jax.numpy as jnp
 import quax as qx
 
@@ -332,3 +333,85 @@ def test_generate_superop_fixtures(save_random_choi_channels):
     from pathlib import Path
 
     assert Path(save_random_choi_channels).exists()
+
+
+# ============================================================================
+# Test truncate_kraus
+# ============================================================================
+
+
+class TestKrausTruncation:
+    def test_ordering(self):
+        """Verify that truncate_kraus sorts Kraus operators by descending Frobenius norm."""
+        # Build a KrausMap with operators in ascending norm order
+        k0 = 0.1 * jnp.eye(2, dtype=complex)
+        k1 = 0.5 * jnp.eye(2, dtype=complex)
+        k2 = 0.9 * jnp.eye(2, dtype=complex)
+        data = jnp.stack([k0, k1, k2], axis=0)
+        kraus = qx.KrausMap.from_matrix(data, ((2,), (2,)))
+
+        result = qx.truncate_kraus(kraus)
+        norms = jnp.linalg.norm(result.matrix, axis=(-2, -1))
+
+        # Norms should be in descending order
+        assert norms[0] >= norms[1] >= norms[2]
+        assert jnp.allclose(norms[0], 0.9 * jnp.sqrt(2.0))
+
+    def test_removes_zeros(self):
+        """Verify that near-zero Kraus operators are removed from the output."""
+        # Identity channel: only one significant Kraus operator
+        key = jax.random.PRNGKey(0)
+        U = qx.random_unitary(dims=((2,), (2,)), key=key)
+        kraus = qx.to_kraus(U)
+
+        # Should have d^2 = 4 operators before truncation
+        assert kraus.matrix.shape[-3] == 4
+
+        result = qx.truncate_kraus(kraus)
+
+        # Should have 1 significant operator
+        assert result.matrix.shape[-3] == 1
+        # Channel should be preserved
+        fid = qx.process_fidelity(result, kraus)
+        assert jnp.allclose(fid, 1.0, atol=1e-6)
+
+    def test_preserves_channel(self, random_kraus_channels):
+        """Verify that truncation with a tight tolerance preserves the channel."""
+        result = qx.truncate_kraus(random_kraus_channels, atol=1e-10)
+        fid = qx.process_fidelity(result, random_kraus_channels)
+        assert jnp.allclose(fid, 1.0, atol=1e-6)
+
+    def test_depolarizing(self):
+        """Depolarizing channel has exactly 4 Kraus operators (for a single qubit)."""
+        kraus = qx.depolarizing_operators(0.1)
+        result = qx.truncate_kraus(kraus)
+
+        # All 4 operators are significant for nonzero depolarizing probability
+        assert result.matrix.shape[-3] == 4
+        fid = qx.process_fidelity(result, kraus)
+        assert jnp.allclose(fid, 1.0, atol=1e-8)
+
+    def test_ensemble(self):
+        """Ensemble with different effective ranks uses max count across members."""
+        # Member 0: unitary (1 significant op), Member 1: depolarizing (4 significant ops)
+        key = jax.random.PRNGKey(42)
+        unitary_kraus = qx.to_kraus(qx.random_unitary(dims=((2,), (2,)), key=key))
+        depol_kraus = qx.to_kraus(qx.to_choi(qx.depolarizing_operators(0.1)))
+
+        # Stack into an ensemble of shape (2, 4, 2, 2)
+        ensemble_data = jnp.stack([unitary_kraus.matrix, depol_kraus.matrix], axis=0)
+        ensemble_kraus = qx.KrausMap.from_matrix(ensemble_data, ((2,), (2,)))
+
+        result = qx.truncate_kraus(ensemble_kraus)
+
+        # Should keep 4 (max across ensemble: unitary=1, depolarizing=4)
+        assert result.matrix.shape[-3] == 4
+        fid = qx.process_fidelity(result, ensemble_kraus)
+        assert jnp.allclose(fid, 1.0, atol=1e-6)
+
+    def test_at_least_one(self):
+        """Even with a very large tolerance, at least one Kraus operator is kept."""
+        kraus = qx.depolarizing_operators(0.001)
+        result = qx.truncate_kraus(kraus, atol=1e10)
+
+        assert result.matrix.shape[-3] >= 1

@@ -1383,13 +1383,14 @@ version = "0.10.0"
 description = "Differentiate, compile, and transform Numpy code."
 optional = false
 python-versions = ">=3.11"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "jax-0.10.0-py3-none-any.whl", hash = "sha256:76c42ba163c8db3dc2e449e225b888c0edfb623ded31efdc96d85e0fda1d26e8"},
     {file = "jax-0.10.0.tar.gz", hash = "sha256:0119c767de1645f407df72345d28a3837dc904f1d698911c121d8f2b396fdece"},
 ]
 
 [package.dependencies]
+jax-cuda12-plugin = {version = "0.10.0", extras = ["with-cuda"], optional = true, markers = "extra == \"cuda12\""}
 jaxlib = "0.10.0"
 ml_dtypes = ">=0.5.0"
 numpy = ">=2.0"
@@ -1410,12 +1411,64 @@ tpu = ["jaxlib (==0.10.0)", "libtpu (==0.0.40.*)", "requests"]
 xprof = ["xprof"]
 
 [[package]]
+name = "jax-cuda12-pjrt"
+version = "0.10.0"
+description = "JAX XLA PJRT Plugin for NVIDIA GPUs"
+optional = false
+python-versions = "*"
+groups = ["cuda"]
+files = [
+    {file = "jax_cuda12_pjrt-0.10.0-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:36ac316c588a0e08eb64f868270526adca3856d4b70b13760b7e9b73be85d2cf"},
+    {file = "jax_cuda12_pjrt-0.10.0-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:309515453f59caad95bf76c8bc649c24bc0e3d12d07baf3cf792be082abdee3b"},
+]
+
+[[package]]
+name = "jax-cuda12-plugin"
+version = "0.10.0"
+description = "JAX Plugin for NVIDIA GPUs"
+optional = false
+python-versions = ">=3.11"
+groups = ["cuda"]
+files = [
+    {file = "jax_cuda12_plugin-0.10.0-cp311-cp311-manylinux_2_27_aarch64.whl", hash = "sha256:1a4a4a56a832ad30e01c14085b1fa2440a55fa4ce0808e405e73650eff8afb31"},
+    {file = "jax_cuda12_plugin-0.10.0-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:957317caff1e6b006a13551733770df235a2747064be26b027460fe3a58f58ee"},
+    {file = "jax_cuda12_plugin-0.10.0-cp312-cp312-manylinux_2_27_aarch64.whl", hash = "sha256:eaf1a6195aa0eb48b420c71f22b92d19778d948024977cae4641279d5f6c1f81"},
+    {file = "jax_cuda12_plugin-0.10.0-cp312-cp312-manylinux_2_27_x86_64.whl", hash = "sha256:a16ba00d72366145827ca39a8c849f9fee1177d6738c9edfd72b3a9fedf5cf18"},
+    {file = "jax_cuda12_plugin-0.10.0-cp313-cp313-manylinux_2_27_aarch64.whl", hash = "sha256:7479e67d9d98d4a0f525f94f8b81880dcc058631f6de118b91de91db1b4095ed"},
+    {file = "jax_cuda12_plugin-0.10.0-cp313-cp313-manylinux_2_27_x86_64.whl", hash = "sha256:ed074d37967bce61c1bafddf9dd0a8302306c12f90700ca5adfa3d08fdd4aee7"},
+    {file = "jax_cuda12_plugin-0.10.0-cp313-cp313t-manylinux_2_27_aarch64.whl", hash = "sha256:95e77953e774004488edfe953dae5b5c3891571a9a2d44727150410fc4a6de45"},
+    {file = "jax_cuda12_plugin-0.10.0-cp313-cp313t-manylinux_2_27_x86_64.whl", hash = "sha256:7f892ba9e317b12d8cd09f7a62e3c0bee12709609a49c580092138864e898250"},
+    {file = "jax_cuda12_plugin-0.10.0-cp314-cp314-manylinux_2_27_aarch64.whl", hash = "sha256:8886fc57975fee01be1725f898b69292f615b70830aef5c2fbde638333616b5d"},
+    {file = "jax_cuda12_plugin-0.10.0-cp314-cp314-manylinux_2_27_x86_64.whl", hash = "sha256:f7a6a1881349dc39f24481a2a019ff294b94909b80a8881efe21d45b6a5f691d"},
+    {file = "jax_cuda12_plugin-0.10.0-cp314-cp314t-manylinux_2_27_aarch64.whl", hash = "sha256:81aeecfcc589ece960a0c731fa8b660e3ea40ced1bb2e6be0306018f25771620"},
+    {file = "jax_cuda12_plugin-0.10.0-cp314-cp314t-manylinux_2_27_x86_64.whl", hash = "sha256:d439b23ad32ee56d64738aa5d2b2e7700aec8752b4ce27d313b3248525836394"},
+]
+
+[package.dependencies]
+jax-cuda12-pjrt = "0.10.0"
+nvidia-cublas-cu12 = {version = ">=12.1.3.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-cupti-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvcc-cu12 = {version = ">=12.6.85", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-nvrtc-cu12 = {version = ">=12.1.55", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cuda-runtime-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cudnn-cu12 = {version = ">=9.8,<10.0", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cufft-cu12 = {version = ">=11.0.2.54", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusolver-cu12 = {version = ">=11.4.5.107", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-cusparse-cu12 = {version = ">=12.1.0.106", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nccl-cu12 = {version = ">=2.18.1", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvjitlink-cu12 = {version = ">=12.1.105", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+nvidia-nvshmem-cu12 = {version = ">=3.2.5", optional = true, markers = "sys_platform == \"linux\" and extra == \"with-cuda\""}
+
+[package.extras]
+with-cuda = ["nvidia-cublas-cu12 (>=12.1.3.1) ; sys_platform == \"linux\"", "nvidia-cuda-cupti-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cuda-nvcc-cu12 (>=12.6.85) ; sys_platform == \"linux\"", "nvidia-cuda-nvrtc-cu12 (>=12.1.55) ; sys_platform == \"linux\"", "nvidia-cuda-runtime-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-cudnn-cu12 (>=9.8,<10.0) ; sys_platform == \"linux\"", "nvidia-cufft-cu12 (>=11.0.2.54) ; sys_platform == \"linux\"", "nvidia-cusolver-cu12 (>=11.4.5.107) ; sys_platform == \"linux\"", "nvidia-cusparse-cu12 (>=12.1.0.106) ; sys_platform == \"linux\"", "nvidia-nccl-cu12 (>=2.18.1) ; sys_platform == \"linux\"", "nvidia-nvjitlink-cu12 (>=12.1.105) ; sys_platform == \"linux\"", "nvidia-nvshmem-cu12 (>=3.2.5) ; sys_platform == \"linux\""]
+
+[[package]]
 name = "jaxlib"
 version = "0.10.0"
 description = "XLA library for JAX"
 optional = false
 python-versions = ">=3.11"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "jaxlib-0.10.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:277032e9f074c3fd5ffd1e0cb03d4fe66e272de472667cdbc418ad99b21b646a"},
     {file = "jaxlib-0.10.0-cp311-cp311-manylinux_2_27_aarch64.whl", hash = "sha256:3db94ebc859375d955de3504182add7ce1733ce3d30c15e0ef031602cb51a559"},
@@ -2098,7 +2151,7 @@ version = "0.5.4"
 description = "ml_dtypes is a stand-alone implementation of several NumPy dtype extensions used in machine learning."
 optional = false
 python-versions = ">=3.9"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "ml_dtypes-0.5.4-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:b95e97e470fe60ed493fd9ae3911d8da4ebac16bd21f87ffa2b7c588bf22ea2c"},
     {file = "ml_dtypes-0.5.4-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b4b801ebe0b477be666696bda493a9be8356f1f0057a57f1e35cd26928823e5a"},
@@ -2620,7 +2673,7 @@ version = "2.4.4"
 description = "Fundamental package for array computing in Python"
 optional = false
 python-versions = ">=3.11"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "numpy-2.4.4-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:f983334aea213c99992053ede6168500e5f086ce74fbc4acc3f2b00f5762e9db"},
     {file = "numpy-2.4.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:72944b19f2324114e9dc86a159787333b77874143efcf89a5167ef83cfee8af0"},
@@ -2697,12 +2750,212 @@ files = [
 ]
 
 [[package]]
+name = "nvidia-cublas-cu12"
+version = "12.9.2.10"
+description = "CUBLAS native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:5572131a59c3eebeeb1c4c8144f772d49372c20124916e072a0e3fc30df421d5"},
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:e4f53a8ca8c5d6e8c492d0d0a3d565ecb59a751b19cfdaa4f6da0ab2104c1702"},
+    {file = "nvidia_cublas_cu12-12.9.2.10-py3-none-win_amd64.whl", hash = "sha256:623f43027d40d44ceadf0043f002bd25cf353e8f13ce90b9a87057019f560661"},
+]
+
+[package.dependencies]
+nvidia-cuda-nvrtc-cu12 = "*"
+
+[[package]]
+name = "nvidia-cuda-cccl-cu12"
+version = "12.9.27"
+description = "CUDA CCCL"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d7898b38aa68beaa234d48f0868273702342a196d6e2e9d0ef058dca2390ebea"},
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:37869e17ce2e1ecec6eddf1927cca0f8c34e64fd848d40453df559091e2d7117"},
+    {file = "nvidia_cuda_cccl_cu12-12.9.27-py3-none-win_amd64.whl", hash = "sha256:72106f95a9bb3be18472806b4f663ebf0f9248a86d14b4ae3305725b855d9d92"},
+]
+
+[[package]]
+name = "nvidia-cuda-cupti-cu12"
+version = "12.9.79"
+description = "CUDA profiling tools runtime libs."
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-manylinux_2_25_aarch64.whl", hash = "sha256:791853b030602c6a11d08b5578edfb957cadea06e9d3b26adbf8d036135a4afe"},
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-manylinux_2_25_x86_64.whl", hash = "sha256:096bcf334f13e1984ba36685ad4c1d6347db214de03dbb6eebb237b41d9d934f"},
+    {file = "nvidia_cuda_cupti_cu12-12.9.79-py3-none-win_amd64.whl", hash = "sha256:1848a9380067560d5bee10ed240eecc22991713e672c0515f9c3d9396adf93c8"},
+]
+
+[[package]]
+name = "nvidia-cuda-nvcc-cu12"
+version = "12.9.86"
+description = "CUDA nvcc"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:5d6a0d32fdc7ea39917c20065614ae93add6f577d840233237ff08e9a38f58f0"},
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:44e1eca4d08926193a558d2434b1bf83d57b4d5743e0c431c0c83d51da1df62b"},
+    {file = "nvidia_cuda_nvcc_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:8ed7f0b17dea662755395be029376db3b94fed5cbb17c2d35cc866c5b1b84099"},
+]
+
+[[package]]
+name = "nvidia-cuda-nvrtc-cu12"
+version = "12.9.86"
+description = "NVRTC native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:210cf05005a447e29214e9ce50851e83fc5f4358df8b453155d5e1918094dcb4"},
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:096d4de6bda726415dfaf3198d4f5c522b8e70139c97feef5cd2ca6d4cd9cead"},
+    {file = "nvidia_cuda_nvrtc_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:72972ebdcf504d69462d3bcd67e7b81edd25d0fb85a2c46d3ea3517666636349"},
+]
+
+[[package]]
+name = "nvidia-cuda-runtime-cu12"
+version = "12.9.79"
+description = "CUDA Runtime native Libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:83469a846206f2a733db0c42e223589ab62fd2fabac4432d2f8802de4bded0a4"},
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:25bba2dfb01d48a9b59ca474a1ac43c6ebf7011f1b0b8cc44f54eb6ac48a96c3"},
+    {file = "nvidia_cuda_runtime_cu12-12.9.79-py3-none-win_amd64.whl", hash = "sha256:8e018af8fa02363876860388bd10ccb89eb9ab8fb0aa749aaf58430a9f7c4891"},
+]
+
+[[package]]
+name = "nvidia-cudnn-cu12"
+version = "9.21.1.3"
+description = "cuDNN runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cudnn_cu12-9.21.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:8f8bf4d0f942bc9c3a501cc990dbc2397e2dfbe4af8d3f2984fab14aa7a606e2"},
+    {file = "nvidia_cudnn_cu12-9.21.1.3-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:ffd5bf372071423c441f1de01af35abd6b6f3921a8ab80b23db8ba69a12131b0"},
+    {file = "nvidia_cudnn_cu12-9.21.1.3-py3-none-win_amd64.whl", hash = "sha256:4e87cb118a52d7cb4a758d1dc47652975bb81e52f230febd361eba04d0204799"},
+]
+
+[package.dependencies]
+nvidia-cublas-cu12 = "*"
+
+[[package]]
+name = "nvidia-cufft-cu12"
+version = "11.4.1.4"
+description = "CUFFT native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:1a28c9b12260a1aa7a8fd12f5ebd82d027963d635ba82ff39a1acfa7c4c0fbcf"},
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:c67884f2a7d276b4b80eb56a79322a95df592ae5e765cf1243693365ccab4e28"},
+    {file = "nvidia_cufft_cu12-11.4.1.4-py3-none-win_amd64.whl", hash = "sha256:8e5bfaac795e93f80611f807d42844e8e27e340e0cde270dcb6c65386d795b80"},
+]
+
+[package.dependencies]
+nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
+name = "nvidia-cusolver-cu12"
+version = "11.7.5.82"
+description = "CUDA solver native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:62efa83e4ace59a4c734d052bb72158e888aa7b770e1a5f601682f16fe5b4fd2"},
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:15da72d1340d29b5b3cf3fd100e3cd53421dde36002eda6ed93811af63c40d88"},
+    {file = "nvidia_cusolver_cu12-11.7.5.82-py3-none-win_amd64.whl", hash = "sha256:77666337237716783c6269a658dea310195cddbd80a5b2919b1ba8735cec8efd"},
+]
+
+[package.dependencies]
+nvidia-cublas-cu12 = "*"
+nvidia-cusparse-cu12 = "*"
+nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
+name = "nvidia-cusparse-cu12"
+version = "12.5.10.65"
+description = "CUSPARSE native runtime libraries"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:221c73e7482dd93eda44e65ce567c031c07e2f93f6fa0ecd3ba876a195023e83"},
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:73060ce019ac064a057267c585bf1fd5a353734151f87472ff02b2c5c9984e78"},
+    {file = "nvidia_cusparse_cu12-12.5.10.65-py3-none-win_amd64.whl", hash = "sha256:9e487468a22a1eaf1fbd1d2035936a905feb79c4ce5c2f67626764ee4f90227c"},
+]
+
+[package.dependencies]
+nvidia-nvjitlink-cu12 = "*"
+
+[[package]]
+name = "nvidia-nccl-cu12"
+version = "2.30.4"
+description = "NVIDIA Collective Communication Library (NCCL) Runtime"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nccl_cu12-2.30.4-py3-none-manylinux_2_18_aarch64.whl", hash = "sha256:606fa9aa9215c00367d060188eb1a5bbd28396aff5e11b9200d99d1a6ab79a71"},
+    {file = "nvidia_nccl_cu12-2.30.4-py3-none-manylinux_2_18_x86_64.whl", hash = "sha256:040974b261edec4b8b793e59e92ab7176fe4ab4bc61b800f9f3bfaeec2d436f3"},
+]
+
+[[package]]
+name = "nvidia-nvjitlink-cu12"
+version = "12.9.86"
+description = "Nvidia JIT LTO Library"
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:e3f1171dbdc83c5932a45f0f4c99180a70de9bd2718c1ab77d14104f6d7147f9"},
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:994a05ef08ef4b0b299829cde613a424382aff7efb08a7172c1fa616cc3af2ca"},
+    {file = "nvidia_nvjitlink_cu12-12.9.86-py3-none-win_amd64.whl", hash = "sha256:cc6fcec260ca843c10e34c936921a1c426b351753587fdd638e8cff7b16bb9db"},
+]
+
+[[package]]
+name = "nvidia-nvshmem-cu12"
+version = "3.6.5"
+description = "NVSHMEM creates a global address space that provides efficient and scalable communication for NVIDIA GPU clusters."
+optional = false
+python-versions = ">=3"
+groups = ["cuda"]
+markers = "sys_platform == \"linux\""
+files = [
+    {file = "nvidia_nvshmem_cu12-3.6.5-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:7b38521ff84cdfc68da3360fe249cfbabfe05ee9aa271458857476124b03a420"},
+    {file = "nvidia_nvshmem_cu12-3.6.5-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f86db35f1ced21a790fa255dcae7db8998bf8655a95e76c033a6574190b398e4"},
+]
+
+[package.dependencies]
+nvidia-cuda-cccl-cu12 = "*"
+
+[[package]]
 name = "opt-einsum"
 version = "3.4.0"
 description = "Path optimization of einsum functions."
 optional = false
 python-versions = ">=3.8"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "opt_einsum-3.4.0-py3-none-any.whl", hash = "sha256:69bb92469f86a1565195ece4ac0323943e83477171b91d24c35afe028a90d7cd"},
     {file = "opt_einsum-3.4.0.tar.gz", hash = "sha256:96ca72f1b886d148241348783498194c577fa30a8faac108586b14f1ba4473ac"},
@@ -3136,6 +3389,18 @@ files = [
 tests = ["pytest"]
 
 [[package]]
+name = "py-cpuinfo"
+version = "9.0.0"
+description = "Get CPU info with pure Python"
+optional = false
+python-versions = "*"
+groups = ["dev"]
+files = [
+    {file = "py-cpuinfo-9.0.0.tar.gz", hash = "sha256:3cdbbf3fac90dc6f118bfd64384f309edeadd902d7c8fb17f02ffa1fc3f49690"},
+    {file = "py_cpuinfo-9.0.0-py3-none-any.whl", hash = "sha256:859625bc251f64e21f077d099d4162689c762b5d6a4c3c97553d56241c9674d5"},
+]
+
+[[package]]
 name = "pybtex"
 version = "0.26.1"
 description = "A BibTeX-compatible bibliography processor in Python"
@@ -3197,40 +3462,11 @@ windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
 name = "pyquil"
-version = "4.17.0"
-description = "A Python library for creating Quantum Instruction Language (Quil) programs."
-optional = false
-python-versions = "<3.13,>=3.9"
-groups = ["dev"]
-markers = "python_version < \"3.13\""
-files = [
-    {file = "pyquil-4.17.0-py3-none-any.whl", hash = "sha256:40124ccb63126251c1eb0c014f7c5d8a2fcd7f4534e4b6d0f00d0bb8b7390148"},
-    {file = "pyquil-4.17.0.tar.gz", hash = "sha256:9b1838eb9bc3ffbff260b12ff48cf1766dcefe5c8c80594cb7ae37616da50d2d"},
-]
-
-[package.dependencies]
-deprecated = ">=1.2.14,<2.0.0"
-networkx = ">=2.5"
-numpy = ">=1.26,<3"
-packaging = ">=23.1"
-qcs-sdk-python = ">=0.20.1,<0.22"
-quil = ">=0.15.3,<0.18"
-rpcq = ">=3.11.0,<4.0.0"
-scipy = ">=1.11,<2.0"
-types-deprecated = ">=1.2.9.3,<2.0.0.0"
-
-[package.extras]
-docs = ["Sphinx (>=7.3.7,<8.0.0)", "matplotlib (>=3.9.0,<4.0.0)", "myst-parser (>=3.0.1,<4.0.0)", "nbsphinx (>=0.9.3,<0.10.0)", "pandoc (==2.4b0)", "seaborn (>=0.13.2,<0.14.0)", "sphinx-rtd-theme (>=1.3.0,<2.0.0)"]
-latex = ["ipython (>=8.16.0,<9.0.0)"]
-
-[[package]]
-name = "pyquil"
 version = "5.0.0rc3"
 description = "A Python library for creating Quantum Instruction Language (Quil) programs."
 optional = false
 python-versions = "<4,>=3.10"
 groups = ["dev"]
-markers = "python_version >= \"3.13\""
 files = [
     {file = "pyquil-5.0.0rc3-py3-none-any.whl", hash = "sha256:5c44f7efb576b81539dc84e1061ee8a8bc7f0bd205a6ad81f6974fb28409b166"},
     {file = "pyquil-5.0.0rc3.tar.gz", hash = "sha256:59fdfe558fe3e5caec1c188bb319e9b4f61d50285d6e99d230ff24d1740536a8"},
@@ -3293,6 +3529,27 @@ pygments = ">=2.7.2"
 
 [package.extras]
 dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "requests", "setuptools", "xmlschema"]
+
+[[package]]
+name = "pytest-benchmark"
+version = "5.2.3"
+description = "A ``pytest`` fixture for benchmarking code. It will group the tests into rounds that are calibrated to the chosen timer."
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "pytest_benchmark-5.2.3-py3-none-any.whl", hash = "sha256:bc839726ad20e99aaa0d11a127445457b4219bdb9e80a1afc4b51da7f96b0803"},
+    {file = "pytest_benchmark-5.2.3.tar.gz", hash = "sha256:deb7317998a23c650fd4ff76e1230066a76cb45dcece0aca5607143c619e7779"},
+]
+
+[package.dependencies]
+py-cpuinfo = "*"
+pytest = ">=8.1"
+
+[package.extras]
+aspect = ["aspectlib"]
+elasticsearch = ["elasticsearch"]
+histogram = ["pygal", "pygaljs", "setuptools"]
 
 [[package]]
 name = "pytest-memray"
@@ -3668,7 +3925,6 @@ description = "Contains core QCS client functionality and middleware implementat
 optional = false
 python-versions = "<4,>=3.10"
 groups = ["dev"]
-markers = "python_version >= \"3.13\""
 files = [
     {file = "qcs_api_client_common-0.15.0-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:429543fddd265635be0f12b0bd947434820b9a08a3e7c825d0e0421efbb3a299"},
     {file = "qcs_api_client_common-0.15.0-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:0446f4e4c34dca4c116aa47783e86ca1dfb13d8027b3c0be60c6be1b0b2e41df"},
@@ -3695,91 +3951,12 @@ grpcio = ">=1.63.0"
 httpx = ">=0.27.0"
 
 [[package]]
-name = "qcs-api-client-common"
-version = "0.17.5"
-description = "Contains core QCS client functionality and middleware implementations."
-optional = false
-python-versions = "<4,>=3.10"
-groups = ["dev"]
-markers = "python_version < \"3.13\""
-files = [
-    {file = "qcs_api_client_common-0.17.5-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:4b4fd6f8495eaea3c305ed9708d6d6cc15dd92ec227e1bca43521aa855d92239"},
-    {file = "qcs_api_client_common-0.17.5-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:45f17f51344c10ee4dac3486fc6d1753fca0716f79e6de47ccfa76592c11b9a4"},
-    {file = "qcs_api_client_common-0.17.5-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:8e9650ed50faed7e3cfeebf4374b27f0f1409acfd022b1fdf525162031eb4983"},
-    {file = "qcs_api_client_common-0.17.5-cp310-cp310-win_amd64.whl", hash = "sha256:6a9573dd6ac9a342d8c189386fa2377407d338f25257969911d2136d782d520c"},
-    {file = "qcs_api_client_common-0.17.5-cp311-cp311-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:212d41c6a70584c91b46b970a0de3cbd3a1900aba44a92648813a8053615f28d"},
-    {file = "qcs_api_client_common-0.17.5-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:101951a8eff305869ebd7575cbf3b02909e8d1bf2da0580f7eb49ed9edf3bfa0"},
-    {file = "qcs_api_client_common-0.17.5-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:37aa7f6c76e917890158ba57ef2600b0069aeceefa7d3c74f2c45cfabd6f2fed"},
-    {file = "qcs_api_client_common-0.17.5-cp311-cp311-win_amd64.whl", hash = "sha256:deba7add73c9926c5d3589a581f983c05b6a03a65db711c2270342a56d635aac"},
-    {file = "qcs_api_client_common-0.17.5-cp312-cp312-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:2f7f563fbb3498b03faef1517358e8c7f56c43bafbc73fa66c4325fd8e6c6ec7"},
-    {file = "qcs_api_client_common-0.17.5-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:3103e61a2302d5dfa688315d29ef0f4f7f234aab4f70cfbc75c73318c2eead62"},
-    {file = "qcs_api_client_common-0.17.5-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:6136f786bc5262eaa510e0683a7ade1b8bfc6b2b850e7333a45a80d397c03099"},
-    {file = "qcs_api_client_common-0.17.5-cp312-cp312-win_amd64.whl", hash = "sha256:92ef06de9948ffa978231a0412daecdde70b26450d1f51618015887675e2e84e"},
-    {file = "qcs_api_client_common-0.17.5-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:e2f63c4bbad2936a54478c2f4f026fca8d6c76462bee34a01854cb9b1bf1e5da"},
-    {file = "qcs_api_client_common-0.17.5-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:c9252fcb6ab258c1878e5f978a6983af7941a12defd38304d4d09383641ee9b9"},
-    {file = "qcs_api_client_common-0.17.5-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:9480cc4e5d64b16831383608f6251fda94886a65be17da37fa50a41fc57a51c5"},
-    {file = "qcs_api_client_common-0.17.5-cp313-cp313-win_amd64.whl", hash = "sha256:c7aaa84479f326ce13728cba1c0f3c3bcf314c6267b3d45e05f63a51b703b239"},
-    {file = "qcs_api_client_common-0.17.5.tar.gz", hash = "sha256:6d39b53cc83f11ffebb5f80a1618c1b3ed5a286dbfedb6a0bc6ed8534f32de47"},
-]
-
-[package.dependencies]
-grpc-interceptor = ">=0.15.0"
-grpcio = ">=1.63.0"
-httpx = ">=0.27.0"
-
-[[package]]
-name = "qcs-sdk-python"
-version = "0.21.22"
-description = "Python interface for the QCS Rust SDK"
-optional = false
-python-versions = "*"
-groups = ["dev"]
-markers = "python_version < \"3.13\""
-files = [
-    {file = "qcs_sdk_python-0.21.22-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:2cb91c482b0fa9305f54bed35acfc7e75b62b9826d0686dfe21b2db9e96c2535"},
-    {file = "qcs_sdk_python-0.21.22-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:6096bda4a7901d58505bbf44603b70a95b00d995ef2ddfd4d445f3ce0c746e37"},
-    {file = "qcs_sdk_python-0.21.22-cp310-cp310-manylinux_2_28_aarch64.whl", hash = "sha256:62aafe936bf60f053f2ad2ecef8399eed6e8a7d49e7f2cb19af0c9e308205cc6"},
-    {file = "qcs_sdk_python-0.21.22-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:ca85831da9f25ed837c606b63f9b6ced5cb7b9241bd596451607643766acf158"},
-    {file = "qcs_sdk_python-0.21.22-cp310-cp310-win_amd64.whl", hash = "sha256:70f385b3329a6ab621a5aac56e02ed836657816edf8a2082ed04fff45b0f5870"},
-    {file = "qcs_sdk_python-0.21.22-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:35e1aef030083c1b58f4b95ad7da89ab939617da3ad98093d87298dbffea8994"},
-    {file = "qcs_sdk_python-0.21.22-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:121cd94a8e09ce125bcc287efe56555eee350365be719961d05c51a456af4d00"},
-    {file = "qcs_sdk_python-0.21.22-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:1113f957445f1663e5c0431fa1ee1cb6b08ce7574dc519203acb3c39b8a41678"},
-    {file = "qcs_sdk_python-0.21.22-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:cf1a6578b1b4382175f0db25d86e21e13c5b7b229396aceb2f5b264dc8b9b317"},
-    {file = "qcs_sdk_python-0.21.22-cp311-cp311-win_amd64.whl", hash = "sha256:7a37b473f52bc4006369108e37ccc82357a727566faa7c494859f0a615cc3c4c"},
-    {file = "qcs_sdk_python-0.21.22-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:bd3998d7d8a9c09703667e65a72f2994b6e01aeed7f95bf42e828d22d734cdab"},
-    {file = "qcs_sdk_python-0.21.22-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:14c1a08550a67570b3965025228489e4400b123593442c677a1d0d8ea0ecb7ed"},
-    {file = "qcs_sdk_python-0.21.22-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:e0e55b477d5d053334aede3dd7f1613fb9c547d09d560ae7f43a67cdfe0d09a8"},
-    {file = "qcs_sdk_python-0.21.22-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:d8c75597e8b3e87477f48a1554b3a34b8c289133853a2bec5db0c9561e96332c"},
-    {file = "qcs_sdk_python-0.21.22-cp312-cp312-win_amd64.whl", hash = "sha256:becdb70a11345a0e13b072b57f5de1630be4495c5972d11d5d5d037500180fdd"},
-    {file = "qcs_sdk_python-0.21.22-cp38-cp38-macosx_10_12_x86_64.whl", hash = "sha256:9c37818ca9b511ddbbf80be2ed1c8eb3d0f59f5e3a3e9dc5c4ee017295ca1a80"},
-    {file = "qcs_sdk_python-0.21.22-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:bae9af7b1271ae32fccecca6c3dc2b8239d9b9703cc23567a9177ab5650c2010"},
-    {file = "qcs_sdk_python-0.21.22-cp38-cp38-manylinux_2_28_aarch64.whl", hash = "sha256:54a80a96a3a2f83296aef2766829b9aea4c80eb185e925721711a9dc27873447"},
-    {file = "qcs_sdk_python-0.21.22-cp38-cp38-manylinux_2_28_x86_64.whl", hash = "sha256:98a8ebb898d2d2ae84ec1ab960afe91af7b08e744c260930782455dad1da9485"},
-    {file = "qcs_sdk_python-0.21.22-cp38-cp38-win_amd64.whl", hash = "sha256:22c1d8692eef9c207a50f4c1a66f8b15e87d56adc6ad07d8a8db3388ceb5c818"},
-    {file = "qcs_sdk_python-0.21.22-cp39-cp39-macosx_10_12_x86_64.whl", hash = "sha256:133548d3ceaaca71fc93161bb5213b5d843fbb79ff5dfaf2e06eacbd5b79abed"},
-    {file = "qcs_sdk_python-0.21.22-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:6d4f2585756aec307d461d5465eee8fba3fb6636bfe55b48c1876d9ec075522f"},
-    {file = "qcs_sdk_python-0.21.22-cp39-cp39-manylinux_2_28_aarch64.whl", hash = "sha256:ad0ee18426c368a960b519d390fe4ca82cf32c3f7be747d41568e4e9fe298623"},
-    {file = "qcs_sdk_python-0.21.22-cp39-cp39-manylinux_2_28_x86_64.whl", hash = "sha256:353f7a485e40df974d2df19ff30b9b753f466469f611a1e46de9324e8ed90be6"},
-    {file = "qcs_sdk_python-0.21.22-cp39-cp39-win_amd64.whl", hash = "sha256:882fb9600f0993027de7de49128bdd25d579acc2faaf4a6b4d7c09eab2806467"},
-    {file = "qcs_sdk_python-0.21.22.tar.gz", hash = "sha256:cdedde65abe084f2aa049cbf214dbe45a0f35505147a26f3c9373b598c2ea918"},
-]
-
-[package.dependencies]
-qcs-api-client-common = ">=0.11.8"
-quil = ">=0.15.2"
-
-[package.extras]
-dev = ["black (>=24.8.0)", "maturin (==1.8.2)", "mypy (>=1.14.1)", "numpy (>=1.24.1)", "opentelemetry-sdk (==1.25.0)", "pdoc (>=14.6.1)", "pytest (>=8.1.1)", "pytest-asyncio (>=0.23.6)", "pytest-clarity (>=1.0.1)", "pytest-mock (>=3.14.0)", "pytest-sugar (>=1.0.0)", "ruff (>=0.3.5)", "syrupy (>=4.0.0)"]
-pyquil = ["pyquil (==4.14.2)"]
-
-[[package]]
 name = "qcs-sdk-python"
 version = "0.26.1"
 description = "Python interface for the QCS Rust SDK"
 optional = false
 python-versions = "<4,>=3.10"
 groups = ["dev"]
-markers = "python_version >= \"3.13\""
 files = [
     {file = "qcs_sdk_python-0.26.1-cp310-cp310-macosx_10_12_x86_64.whl", hash = "sha256:ca8a284e7250d3caa852a05274984eea41a05e9002ccb1efa2da5f28fe2185a4"},
     {file = "qcs_sdk_python-0.26.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:d956bb583b41230700e2a7cc88fec7639c46cf1a67297c722323afbae57eb653"},
@@ -3809,55 +3986,11 @@ quil = ">=0.35.0,<0.36.0"
 
 [[package]]
 name = "quil"
-version = "0.17.0"
-description = "A Python package for building and parsing Quil programs."
-optional = false
-python-versions = "<3.13,>=3.9"
-groups = ["dev"]
-markers = "python_version < \"3.13\""
-files = [
-    {file = "quil-0.17.0-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:b86bdbb88ea0efdddcbab1141b5319929ee7d176bb827e1b8eadad4160cb8d47"},
-    {file = "quil-0.17.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ab9aefe04f1a0eb84be4f0a85b6132e906afc910c018acfaa454bf03e5af9010"},
-    {file = "quil-0.17.0-cp310-cp310-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:772d292490333a74b2d8b4605064ef81a4f0b000ed0cab048f7d8d9c77ea7a58"},
-    {file = "quil-0.17.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d7318de8370ad10950987e6596306aef900631d7365e272f1396879532966148"},
-    {file = "quil-0.17.0-cp310-cp310-win_amd64.whl", hash = "sha256:7bf073400052dc1271c89cf860a427f9d4e2aeffd3bdadcf244b1db15c764906"},
-    {file = "quil-0.17.0-cp311-cp311-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:e64c5192528947227e8576f1bfbc8fc482673615286cca2b63509328dc4a8c4c"},
-    {file = "quil-0.17.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:24fc50550a6fb997179d0884fdae92548d165d37d09795b805eab2292876c8c0"},
-    {file = "quil-0.17.0-cp311-cp311-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:78a29082cc484a92dcda2d6ad2f95ac2ff7e401fc48cdf9e1d6fda82b8fc0b10"},
-    {file = "quil-0.17.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a7e699bc5b43be6365e0ca5fc244985c90e8345c7bfca8edcdbfcc8ff8be7f62"},
-    {file = "quil-0.17.0-cp311-cp311-win_amd64.whl", hash = "sha256:76e6a1cef43f082fe039b704babc9a1200788a8b45b8d65b4fb856667eed23c3"},
-    {file = "quil-0.17.0-cp312-cp312-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:7c0a644f5a0a23e7d2bde47b035ce2377f0cce3870a142607e92675e9229e47b"},
-    {file = "quil-0.17.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a6c004801df9d645409e36b3eb80c79045e1dc2385fee71c6b01da82b8c66a32"},
-    {file = "quil-0.17.0-cp312-cp312-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:965db0df11e5bc22bbd3b203613d279552759a57dbb74805e91295e0a69876a6"},
-    {file = "quil-0.17.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fb54dd8f9769ce9c3cd4f0c0413b7dac344d0fb04c6f7e88e532b7bb9ce08037"},
-    {file = "quil-0.17.0-cp312-cp312-win_amd64.whl", hash = "sha256:bdd370e45f1405163ad63ce58dd75c2b6315272f7ec68ed5c18ada5eaae21506"},
-    {file = "quil-0.17.0-cp38-cp38-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:db4d3416e050993afd5323d0b72b648727819234f5a65248e5125958a35f4153"},
-    {file = "quil-0.17.0-cp38-cp38-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:6a652b61c57832043fe738fe7f8a1ed37756703b5f9f888ed3d5c7f780e2c8ca"},
-    {file = "quil-0.17.0-cp38-cp38-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:97b7cf27e24a055738bfe027a63df96ec713ff601b5fd91a0ef079788640fe0f"},
-    {file = "quil-0.17.0-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d9415c208168011468235819ea7c9576d1fdda696cef24e668d72f8efc3d45e3"},
-    {file = "quil-0.17.0-cp38-cp38-win_amd64.whl", hash = "sha256:70719a3da80807a1d2dd4a8b70e5d0591b8b80dc60faecef45cc4fd6c3aa84f3"},
-    {file = "quil-0.17.0-cp39-cp39-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:4830b0b40d397291de9402c99a1a4d9bcbc21f69d718d66b725b49eb2bb8aef1"},
-    {file = "quil-0.17.0-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2707ed23f37bada6c90768687b7e293a8343fece9fcb9941bd443faec59c39a8"},
-    {file = "quil-0.17.0-cp39-cp39-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:02668e3e68c8b0c4845392a60e5b9cf1a957b3a1851dfcab63359a503016cbb1"},
-    {file = "quil-0.17.0-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c92ee8563869840b311a314778bd30cc7f021ce04dcdc48a981b8df77481b2ca"},
-    {file = "quil-0.17.0-cp39-cp39-win_amd64.whl", hash = "sha256:98634a586733042688449e8d7bc695d5ed1557b04d1a8e352592c7d8701be070"},
-    {file = "quil-0.17.0.tar.gz", hash = "sha256:ee9bc5db5e695354aaff371ef88eb2a16ec653b7b6ff1320242fbc60eed01b62"},
-]
-
-[package.dependencies]
-numpy = ">=1.26"
-
-[package.extras]
-dev = ["maturin (>=1.2.3)", "mypy (>=1.13.0)", "pdoc (>=14.1.0)", "pytest (>=7.2.2)", "ruff (>=0.3.7)", "syrupy (>=3.0.6)"]
-
-[[package]]
-name = "quil"
 version = "0.35.0"
 description = "A Python package for building and parsing Quil programs."
 optional = false
 python-versions = "<4,>=3.10"
 groups = ["dev"]
-markers = "python_version >= \"3.13\""
 files = [
     {file = "quil-0.35.0-cp310-cp310-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:3aa6b195d9709339458482548faf065ec1047a97fd909b2cfa8ba1f94044fb50"},
     {file = "quil-0.35.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:50f5c097698aaeddd5885b635cb130a077c44caeb41af9f92d731c756bb3a94d"},
@@ -4255,7 +4388,7 @@ version = "1.17.1"
 description = "Fundamental algorithms for scientific computing in Python"
 optional = false
 python-versions = ">=3.11"
-groups = ["main", "dev"]
+groups = ["main", "cuda", "dev"]
 files = [
     {file = "scipy-1.17.1-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:1f95b894f13729334fb990162e911c9e5dc1ab390c58aa6cbecb389c5b5e28ec"},
     {file = "scipy-1.17.1-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:e18f12c6b0bc5a592ed23d3f7b891f68fd7f8241d69b7883769eb5d5dfb52696"},
@@ -5207,4 +5340,4 @@ plot = ["plotly"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "dea64b019928cc91011fbeedc711c5a8972bed9670cd0ccad6a29cb33291abb0"
+content-hash = "236e6607fbb4542179672210a484c33ff3a5b65088c7ca79ef870c6af90b50e0"

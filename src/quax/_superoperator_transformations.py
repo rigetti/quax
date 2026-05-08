@@ -250,7 +250,9 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
       J = sum_i λ_i ``|v_i><v_i|``
       K_i = sqrt(max(λ_i, 0)) * unvec(v_i)
 
-    Eigenvalues below tol are clamped to 0 => corresponding Kraus operators are zero.
+    The Kraus operators are returned in descending order of their Choi
+    eigenvalues. Eigenvalues below tol are clamped to 0, yielding zero
+    Kraus operators that can be removed with :func:`truncate_kraus`.
     """
     d_out, d_in = choi.d
     ensemble_size = choi.ensemble_size
@@ -285,6 +287,58 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     K = jnp.swapaxes(K, -1, -2)  # (..., n, d_in, d_out) -> swap to get (d_out, d_in)
 
     return KrausMap.from_matrix(K, choi.dims)
+
+
+def truncate_kraus(kraus_map: KrausMap, atol: float = 1e-6) -> KrausMap:
+    """
+    Sort Kraus operators by descending Frobenius norm and remove near-zero operators.
+
+    This is useful for Monte Carlo simulations where the number of Kraus operators
+    directly impacts performance. Many physical noise channels have only a few
+    significant Kraus operators, so truncating near-zero operators can dramatically
+    reduce computational cost.
+
+    The Frobenius norm is used as the ordering and truncation criterion because
+    it equals the square root of the corresponding Choi eigenvalue, providing a
+    basis-independent measure of each operator's contribution to the channel.
+    For low-error-rate channels the dominant Kraus operator (typically close to
+    the identity) will have the largest norm, so ordering by descending norm
+    places the most probable trajectory first — ideal for Monte Carlo sampling.
+
+    For ensembles, the number of significant operators may vary across ensemble
+    members. In this case, the maximum count across the ensemble is used so that
+    the output array has a uniform shape.
+
+    .. note::
+
+        This function is **not** JIT-compatible because the output shape depends
+        on the data. Use it outside of JIT-compiled regions.
+
+    :param kraus_map: KrausMap to truncate
+    :param atol: Absolute tolerance. Kraus operators with Frobenius norm <= atol are removed.
+    :return: KrausMap with operators sorted by descending norm and near-zero operators removed
+    """
+    K = kraus_map.matrix  # (..., n_kraus, d_out, d_in)
+
+    # Frobenius norm of each Kraus operator: (..., n_kraus)
+    norms = jnp.linalg.norm(K, axis=(-2, -1))
+
+    # Sort by descending norm
+    order = jnp.flip(jnp.argsort(norms, axis=-1), axis=-1)
+    K_sorted = jnp.take_along_axis(K, order[..., None, None], axis=-3)
+
+    # Recompute norms in sorted order for threshold check
+    norms_sorted = jnp.take_along_axis(norms, order, axis=-1)
+
+    # Count significant operators per ensemble member, then take global max
+    n_sig = jnp.sum(norms_sorted > atol, axis=-1)
+    max_kraus = int(jnp.max(n_sig))
+    max_kraus = max(max_kraus, 1)  # keep at least one operator
+
+    # Truncate
+    K_truncated = K_sorted[..., :max_kraus, :, :]
+
+    return KrausMap.from_matrix(K_truncated, kraus_map.dims)
 
 
 @jax.jit

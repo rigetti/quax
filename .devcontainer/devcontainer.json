@@ -5,7 +5,10 @@
     "dockerfile": "../Dockerfile",
     "context": "../"
   },
-  "runArgs": ["--gpus", "all"],
+  "runArgs": [
+    "--gpus",
+    "all"
+  ],
   "remoteUser": "rigetti",
   "service": "lab",
   "workspaceFolder": "/home/rigetti/${localWorkspaceFolderBasename}",
@@ -17,8 +20,8 @@
     "ms-toolsai.jupyter-renderers",
     "ms-toolsai.jupyter",
     "ms-vsliveshare.vsliveshare",
-    "Iterative.dvc",
-    "github.copilot-chat"  
+    "lakeFS.lakefs-dvc",
+    "github.copilot-chat"
   ],
   "settings": {
     "python.defaultInterpreterPath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python",
