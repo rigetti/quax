@@ -1362,11 +1362,12 @@ def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
 
 def test_trajectory_ensembled_kraus_statistical_convergence():
     """Ensembled KrausMap with different noise levels should converge to correct channels."""
+    dims = (2,)
     n_samples = 5000
     seed = 314
 
-    # Four different noise levels in ensemble
-    noise_levels = jnp.array([0.01, 0.2, 0.05, 0.35])
+    # Two different noise levels in ensemble
+    noise_levels = jnp.array([0.01, 0.2])
     kraus_list = []
     for p in noise_levels:
         s = qx.depolarizing_channel_superoperator(p, dims=(2,))
@@ -1383,7 +1384,7 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     for i in range(n_samples):
         out = qx.targeted_apply_kraus_map_trajectory(kraus_ens, psi, keys[i], (0,))
         results.append(out.data)
-    results = jnp.stack(results)  # (n_samples, ensemble_size, 2)
+    results = jnp.stack(results)  # (n_samples, 2, 2)
 
     # For each ensemble element, compute average density matrix
     for e in range(2):
