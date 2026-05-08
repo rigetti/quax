@@ -647,6 +647,259 @@ def targeted_apply_kraus_map_trajectory(
     return StateVector(data=selected, num_qubits=psi.num_qubits)
 
 
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_kraus_map_trajectory_rdm(
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+) -> StateVector:
+    """
+    Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
+
+    Memory-efficient variant that computes Born probabilities via the subsystem
+    reduced density matrix instead of materializing all K_i|ψ⟩ simultaneously.
+
+    Algorithm:
+      1. Compute M_i = K_i†K_i for each Kraus operator (small, cheap).
+      2. Compute ρ_sub = Tr_complement(|ψ⟩⟨ψ|), the reduced density matrix
+         on the subsystem qubits — one pass over the state vector.
+      3. Born probabilities: p_i = Tr[M_i · ρ_sub] — tiny matrix operations.
+      4. Sample one outcome per ensemble element.
+      5. Gather the selected Kraus operator per batch element.
+      6. Apply only the selected operator — one more pass over the state vector.
+
+    Peak memory: O(ens × 2^n) instead of O(ens × n_kraus × 2^n).
+    This enables effective batch parallelism that the standard implementation
+    cannot achieve, because each of the two full-state passes (steps 2 and 6)
+    is a batched operation that scales like a unitary application.
+
+    Supports ensemble broadcasting between psi and key.
+    Does not currently support ensembled Kraus maps.
+
+    :param kraus_map: The Kraus map with data shape (n_kraus, d_out..., d_in...).
+    :param psi: The state vector with data shape (*ens_s, d0, d1, ...).
+    :param key: A JAX PRNG key (scalar or ensemble of keys) for sampling.
+    :param subsystem: The qubit indices the operator acts on.
+    :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
+    """
+    target_dims = tuple(psi.dims[i] for i in subsystem)
+    if kraus_map.dims[0] != target_dims:
+        kraus_map = promote(kraus_map, target_dims)
+    n = len(psi.dims)
+    n_ens = psi.num_ensemble_dims
+    n_kraus = kraus_map.data.shape[kraus_map.num_ensemble_dims]
+
+    # --- Step 1: Precompute K†K for each Kraus operator ---
+    # kraus_mat: (n_kraus, d_out, d_in)
+    # KdagK: (n_kraus, d_in, d_in)
+    kraus_mat = kraus_map.matrix
+    KdagK = jnp.einsum("xja,xjb->xab", kraus_mat.conj(), kraus_mat)
+
+    # --- Step 2: Compute subsystem reduced density matrix ---
+    # Permute state tensor: (ens, subsystem_qubits, complement_qubits)
+    subsystem_set = set(subsystem)
+    complement = tuple(i for i in range(n) if i not in subsystem_set)
+    d_sub = reduce(mul, (psi.dims[q] for q in subsystem), 1)
+    d_complement = reduce(mul, (psi.dims[q] for q in complement), 1)
+
+    perm = (
+        tuple(range(n_ens))
+        + tuple(n_ens + q for q in subsystem)
+        + tuple(n_ens + q for q in complement)
+    )
+    psi_perm = jnp.transpose(psi.data, perm)
+    psi_reshaped = psi_perm.reshape(psi.ensemble_size + (d_sub, d_complement))
+
+    # ρ_sub = Tr_complement(|ψ⟩⟨ψ|) via batched matmul: ψ @ ψ†
+    rho_sub = jnp.einsum("...ij,...kj->...ik", psi_reshaped, psi_reshaped.conj())
+
+    # --- Step 3: Born probabilities p_i = Tr[M_i · ρ_sub] ---
+    probs = jnp.real(jnp.einsum("xab,...ba->...x", KdagK, rho_sub))
+
+    # --- Step 4: Handle key ensemble broadcasting ---
+    n_ens_probs = probs.ndim - 1
+    if key.ndim > n_ens_probs:
+        n_extra = key.ndim - n_ens_probs
+        expand_axes = tuple(range(n_ens_probs, n_ens_probs + n_extra))
+        probs = jnp.expand_dims(probs, axis=expand_axes)
+
+    # --- Step 5: Sample one Kraus outcome per ensemble element ---
+    logits = jnp.log(jnp.clip(probs, min=1e-30))
+    sampled_idx = _batched_categorical(key, logits)
+
+    # --- Step 6: Gather selected Kraus operator per batch element ---
+    # kraus_map.data: (n_kraus, d_out..., d_in...)  [non-ensembled]
+    # sampled_idx: (*ens,)  →  selected: (*ens, d_out..., d_in...)
+    selected_kraus = kraus_map.data[sampled_idx]
+
+    # --- Step 7: Apply selected operators (batched, like unitary application) ---
+    # The ... in the einsum matches the ensemble dims element-wise.
+    einsum_str = _generate_unitary_contraction(subsystem, n)
+    selected_state = jnp.einsum(
+        einsum_str,
+        selected_kraus,
+        psi.data,
+        optimize="optimal",
+    )
+
+    # --- Step 8: Normalize ---
+    p_selected = jnp.take_along_axis(probs, sampled_idx[..., jnp.newaxis], axis=-1).squeeze(-1)
+    norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
+    selected_state = selected_state / norm.reshape(norm.shape + (1,) * n)
+
+    return StateVector(data=selected_state, num_qubits=psi.num_qubits)
+
+
+def classify_kraus_operators(kraus_map: KrausMap, atol: float = 1e-6) -> Tuple[Array, Array]:
+    """Classify Kraus operators as unitary-like or general.
+
+    A Kraus operator K_i is *unitary-like* if K_i = c_i U_i for some scalar c_i
+    and unitary U_i.  This is detected by checking K_i†K_i ≈ |c_i|² I.
+
+    For unitary-like operators, the Born probability p_i = |c_i|² can be
+    obtained without applying the operator to the state vector.  This
+    classification is used by :func:`targeted_apply_kraus_map_single_trajectory`
+    to skip expensive state-vector passes.
+
+    :param kraus_map: KrausMap with data shape ``(n_kraus, d_out…, d_in…)``.
+        Must not have ensemble dimensions.
+    :param atol: Absolute tolerance for the identity check.
+    :return: ``(is_unitary_like, scalar_mags_sq)``
+
+        - *is_unitary_like*: bool array ``(n_kraus,)``
+        - *scalar_mags_sq*: float array ``(n_kraus,)`` with |c_i|² values.
+          For non-unitary-like ops this equals Tr[K†K]/d (average diagonal).
+    """
+    kraus_mat = kraus_map.matrix  # (n_kraus, d_out, d_in)
+    KdagK = jnp.einsum("xja,xjb->xab", kraus_mat.conj(), kraus_mat)
+    d = KdagK.shape[-1]
+    traces = jnp.real(jnp.trace(KdagK, axis1=-2, axis2=-1))
+    scalar_mags_sq = traces / d
+    identity = jnp.eye(d, dtype=KdagK.dtype)
+    diff = jnp.max(jnp.abs(KdagK - scalar_mags_sq[:, None, None] * identity[None]), axis=(-2, -1))
+    is_unitary_like = diff < atol
+    return is_unitary_like, scalar_mags_sq
+
+
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_kraus_map_single_trajectory(
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+) -> StateVector:
+    r"""Apply a Kraus map to a single state vector via an optimised Monte Carlo trajectory.
+
+    Specialised for **single-state** evaluation with two key optimisations:
+
+    1. **Unitary-like classification** — Kraus operators of the form
+       K_i = c_i U_i have Born probability p_i = |c_i|² which costs O(1)
+       instead of a full state-vector pass.
+    2. **Lazy reduced-density-matrix** — For general operators the subsystem
+       RDM is computed only if a non-unitary-like operator is reached
+       before the cumulative probability exceeds the sampling threshold.
+
+    The algorithm uses inverse-transform sampling via
+    :func:`jax.lax.while_loop` so that, for high-fidelity channels where
+    the dominant operator is selected ~95 %+ of the time, only a single
+    pass over the state vector (the final application) is needed.
+
+    .. note::
+
+        This function operates on a **single** state vector and a scalar
+        PRNG key (no ensemble dimensions).  For batched trajectories use
+        :func:`targeted_apply_kraus_map_trajectory_rdm`.  The Kraus map
+        should be pre-sorted by descending operator norm (see
+        :func:`truncate_kraus`) for best early-termination performance.
+
+    :param kraus_map: Kraus map, shape ``(n_kraus, d_out…, d_in…)``.
+        Must not have ensemble dimensions.
+    :param psi: State vector, shape ``(d0, d1, …)``.  No ensemble dims.
+    :param key: Scalar JAX PRNG key.
+    :param subsystem: Qubit indices the operator acts on.
+    :return: Normalised state vector, shape ``(d0, d1, …)``.
+    """
+    target_dims = tuple(psi.dims[i] for i in subsystem)
+    if kraus_map.dims[0] != target_dims:
+        kraus_map = promote(kraus_map, target_dims)
+
+    n = len(psi.dims)
+    kraus_mat = kraus_map.matrix  # (n_kraus, d_out, d_in)
+    n_kraus = kraus_mat.shape[0]
+    d_in = kraus_mat.shape[-1]
+
+    # --- Classify operators ---
+    KdagK = jnp.einsum("xja,xjb->xab", kraus_mat.conj(), kraus_mat)
+    traces = jnp.real(jnp.trace(KdagK, axis1=-2, axis2=-1))
+    scalar_mags_sq = traces / d_in
+    identity = jnp.eye(d_in, dtype=KdagK.dtype)
+    diff = jnp.max(
+        jnp.abs(KdagK - scalar_mags_sq[:, None, None] * identity[None]),
+        axis=(-2, -1),
+    )
+    is_unitary_like = diff < 1e-6
+
+    # --- Precompute for lazy ρ_sub ---
+    complement = tuple(i for i in range(n) if i not in set(subsystem))
+    d_sub = reduce(mul, (psi.dims[q] for q in subsystem), 1)
+    d_comp = reduce(mul, (psi.dims[q] for q in complement), 1)
+    perm = subsystem + complement
+
+    def compute_rho_sub():
+        psi_perm = jnp.transpose(psi.data, perm)
+        psi_2d = psi_perm.reshape(d_sub, d_comp)
+        return psi_2d @ psi_2d.conj().T
+
+    # --- Inverse-transform sampling with early termination ---
+    threshold = jax.random.uniform(key)
+    rho_sub_init = jnp.zeros((d_sub, d_sub), dtype=psi.data.dtype)
+
+    def cond_fn(carry):
+        i, _, _, found, _, _ = carry
+        return ~found & (i < n_kraus)
+
+    def body_fn(carry):
+        i, cum_prob, selected_idx, found, rho_sub, rho_computed = carry
+
+        # Lazily compute ρ_sub only when a non-unitary-like op is reached
+        needs_rdm = ~is_unitary_like[i]
+        new_rho_sub = jax.lax.cond(
+            needs_rdm & ~rho_computed,
+            compute_rho_sub,
+            lambda: rho_sub,
+        )
+        new_rho_computed = rho_computed | needs_rdm
+
+        # Born probability: O(1) for unitary-like, O(d_sub²) for general
+        p_i = jax.lax.cond(
+            is_unitary_like[i],
+            lambda: scalar_mags_sq[i],
+            lambda: jnp.real(jnp.sum(KdagK[i] * new_rho_sub.T)),
+        )
+
+        new_cum = cum_prob + p_i
+        crossed = new_cum > threshold
+        new_selected = jnp.where(crossed, i, selected_idx)
+
+        return (i + 1, new_cum, new_selected, crossed, new_rho_sub, new_rho_computed)
+
+    init = (
+        jnp.array(0, dtype=jnp.int32),
+        jnp.zeros(()),
+        jnp.array(n_kraus - 1, dtype=jnp.int32),  # fallback: last op
+        jnp.bool_(False),
+        rho_sub_init,
+        jnp.bool_(False),
+    )
+    _, _, selected_idx, _, _, _ = jax.lax.while_loop(cond_fn, body_fn, init)
+
+    # --- Apply selected operator ---
+    selected_kraus = kraus_map.data[selected_idx]
+    einsum_str = _generate_unitary_contraction(subsystem, n)
+    out = jnp.einsum(einsum_str, selected_kraus, psi.data, optimize="optimal")
+
+    # --- Normalise ---
+    norm = jnp.sqrt(jnp.clip(jnp.sum(jnp.abs(out) ** 2), min=1e-30))
+    out = out / norm
+
+    return StateVector(data=out, num_qubits=psi.num_qubits)
+
+
 @lru_cache(maxsize=1000)
 def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
     """

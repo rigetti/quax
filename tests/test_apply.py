@@ -1248,6 +1248,349 @@ def test_targeted_apply_kraus_map_trajectory_ensemble_general(seed, dims, ens_op
 
 
 # ======================================================================
+# targeted_apply_kraus_map_trajectory_rdm tests
+# ======================================================================
+
+
+@pytest.mark.parametrize(
+    "dims, gate, subsystem",
+    [
+        ((2, 2), qx.gates.X, (0,)),
+        ((2, 2), qx.gates.H, (1,)),
+        ((2, 2, 2), qx.gates.CNOT, (0, 1)),
+        ((2, 3), qx.gates.TX, (1,)),
+        ((3, 2, 3), qx.gates.X, (1,)),
+    ],
+)
+def test_targeted_apply_kraus_map_trajectory_rdm_unitary(dims, gate, subsystem):
+    """A single-operator Kraus map (unitary) should match targeted_apply_unitary exactly."""
+    seed = 90573
+    key = jax.random.key(seed)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, key)
+
+    kraus = qx.unitary_to_kraus_map(gate)
+    psi_rdm = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_key, subsystem)
+    psi_reference = qx.targeted_apply_unitary(gate, initial_state, subsystem)
+    assert jnp.allclose(qx.fidelity(psi_rdm, psi_reference), 1.0, atol=1e-6)
+
+
+def test_targeted_apply_kraus_map_trajectory_rdm_normalization():
+    """Output states should always be normalized."""
+    key = jax.random.key(42)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector((2, 2, 2), key)
+
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2,))
+    kraus = qx.superop_to_kraus(s)
+    psi_out = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_key, (1,))
+    norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [42, 123, 7])
+@pytest.mark.parametrize(
+    "dims, target, noise_p",
+    [
+        ((2, 2), (0,), 0.1),
+        ((3, 3), (0,), 0.1),
+        ((2, 3), (1,), 0.1),
+        ((3, 2), (0,), 0.1),
+    ],
+)
+def test_targeted_apply_kraus_map_trajectory_rdm_statistical_convergence(seed, dims, target, noise_p):
+    """Averaging |ψ⟩⟨ψ| over many trajectories should converge to ∑ K_i ρ K_i†."""
+    key = jax.random.key(seed)
+    key, state_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, state_key)
+
+    target_dims = tuple(dims[t] for t in target)
+    s = qx.depolarizing_channel_superoperator(jnp.asarray(noise_p), dims=target_dims)
+    kraus = qx.superop_to_kraus(s)
+
+    rho_initial = qx.promote_state_vector_to_density_matrix(initial_state)
+    rho_reference = qx.targeted_apply_kraus_map(kraus, rho_initial, target)
+
+    n_trajectories = 5000
+    sample_keys = jax.random.split(key, num=n_trajectories)
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_keys, target)
+    rho_avg = jnp.mean(psi_out.matrix[:, :, None] * psi_out.matrix[:, None, :].conj(), axis=0)
+    rho_avg = qx.DensityMatrix.from_matrix(rho_avg, dims)
+
+    assert qx.fidelity(rho_avg, rho_reference) > 0.99
+
+
+@pytest.mark.parametrize("seed", [90573, 42])
+@pytest.mark.parametrize(
+    "dims, target",
+    [
+        ((2, 2), (0,)),
+        ((2, 2), (1,)),
+        ((2, 2, 2), (0, 1)),
+        ((2, 2, 2), (2,)),
+        ((2, 3), (0,)),
+        ((2, 3), (1,)),
+    ],
+)
+def test_targeted_apply_kraus_map_trajectory_rdm_normalization_general(seed, dims, target):
+    """Output states should always be normalized for general qudit systems."""
+    key = jax.random.key(seed)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, key)
+
+    target_dims = tuple(dims[t] for t in target)
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=target_dims)
+    kraus = qx.superop_to_kraus(s)
+    psi_out = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_key, target)
+    norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("ens_key", [(), (3,)])
+@pytest.mark.parametrize("ens_psi", [(), (3,)])
+def test_targeted_apply_kraus_map_trajectory_rdm_ensemble(ens_psi, ens_key):
+    """Test ensemble broadcasting for the RDM trajectory variant."""
+    seed = 90573
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+
+    dims = (2, 2, 2)
+    initial_state = qx.random_state_vector(dims, key, size=ens_psi)
+
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+    kraus = qx.superop_to_kraus(s)
+
+    if ens_key:
+        n_keys = reduce(lambda a, b: a * b, ens_key, 1)
+        sample_keys = jax.random.split(subkey, num=n_keys).reshape(ens_key)
+    else:
+        sample_keys = subkey
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_keys, (1,))
+
+    broadcast_ens = jnp.broadcast_shapes(ens_psi, ens_key)
+    assert psi_out.ensemble_size == broadcast_ens
+
+    norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+    assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
+
+
+def test_targeted_apply_kraus_map_trajectory_rdm_matches_original():
+    """With the same key, RDM variant should produce the same statistical distribution as original."""
+    key = jax.random.key(42)
+    key, state_key = jax.random.split(key)
+    dims = (2, 2, 2)
+    initial_state = qx.random_state_vector(dims, state_key)
+
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2, 2))
+    kraus = qx.superop_to_kraus(s)
+    target = (0, 1)
+
+    n_trajectories = 5000
+    sample_keys = jax.random.split(key, num=n_trajectories)
+
+    psi_orig = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_keys, target)
+    psi_rdm = qx.targeted_apply_kraus_map_trajectory_rdm(kraus, initial_state, sample_keys, target)
+
+    # Both should produce the same average density matrix
+    rho_orig = jnp.mean(psi_orig.matrix[:, :, None] * psi_orig.matrix[:, None, :].conj(), axis=0)
+    rho_rdm = jnp.mean(psi_rdm.matrix[:, :, None] * psi_rdm.matrix[:, None, :].conj(), axis=0)
+
+    rho_orig = qx.DensityMatrix.from_matrix(rho_orig, dims)
+    rho_rdm = qx.DensityMatrix.from_matrix(rho_rdm, dims)
+    assert qx.fidelity(rho_orig, rho_rdm) > 0.99
+
+
+# ======================================================================
+# classify_kraus_operators tests
+# ======================================================================
+
+
+def test_classify_kraus_operators_depolarizing():
+    """Depolarizing channel: choi_to_kraus eigendecomposition may not yield all unitary-like ops."""
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+    kraus = qx.superop_to_kraus(s)
+    is_unitary_like, scalar_mags_sq = qx.classify_kraus_operators(kraus)
+
+    # The dominant operator (≈ identity) should be unitary-like
+    assert is_unitary_like[0]
+    # Sum of scalar_mags_sq for unitary-like ops should be ≤ 1
+    assert jnp.sum(scalar_mags_sq[is_unitary_like]) <= 1.0 + 1e-6
+
+
+def test_classify_kraus_operators_pure_unitary():
+    """A single-operator Kraus map from a unitary should be unitary-like with |c|²≈1."""
+    kraus = qx.unitary_to_kraus_map(qx.gates.H)
+    is_unitary_like, scalar_mags_sq = qx.classify_kraus_operators(kraus)
+
+    # Only the first operator should be significant; rest are zeros from choi_to_kraus
+    assert is_unitary_like[0]
+    assert jnp.allclose(scalar_mags_sq[0], 1.0, atol=1e-4)
+
+
+def test_classify_kraus_operators_2q_depolarizing():
+    """2-qubit depolarizing: dominant operator should be unitary-like."""
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2, 2))
+    kraus = qx.superop_to_kraus(s)
+    kraus = qx.truncate_kraus(kraus)
+    is_unitary_like, scalar_mags_sq = qx.classify_kraus_operators(kraus)
+
+    # The dominant operator (≈ identity) should be unitary-like
+    assert is_unitary_like[0]
+    # Should detect at least one unitary-like operator
+    assert jnp.sum(is_unitary_like) >= 1
+
+
+def test_classify_kraus_operators_random_channel():
+    """A random rank-2 channel generally has non-unitary-like operators."""
+    key = jax.random.key(42)
+    choi = qx.random_choi(dims=((2,), (2,)), rank=2, key=key)
+    kraus = qx.choi_to_kraus(choi)
+    kraus = qx.truncate_kraus(kraus)
+    is_unitary_like, _ = qx.classify_kraus_operators(kraus)
+
+    # A generic rank-2 channel is unlikely to have all unitary-like operators
+    # (it could in principle, but we check that at least the function runs)
+    assert is_unitary_like.shape[0] == kraus.matrix.shape[0]
+
+
+# ======================================================================
+# targeted_apply_kraus_map_single_trajectory tests
+# ======================================================================
+
+
+@pytest.mark.parametrize(
+    "dims, gate, subsystem",
+    [
+        ((2, 2), qx.gates.X, (0,)),
+        ((2, 2), qx.gates.H, (1,)),
+        ((2, 2, 2), qx.gates.CNOT, (0, 1)),
+        ((2, 3), qx.gates.TX, (1,)),
+        ((3, 2, 3), qx.gates.X, (1,)),
+    ],
+)
+def test_single_trajectory_unitary(dims, gate, subsystem):
+    """A single-operator Kraus map (unitary) should match targeted_apply_unitary."""
+    seed = 90573
+    key = jax.random.key(seed)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, key)
+
+    kraus = qx.unitary_to_kraus_map(gate)
+    psi_single = qx.targeted_apply_kraus_map_single_trajectory(kraus, initial_state, sample_key, subsystem)
+    psi_reference = qx.targeted_apply_unitary(gate, initial_state, subsystem)
+    assert jnp.allclose(qx.fidelity(psi_single, psi_reference), 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [42, 123, 7])
+@pytest.mark.parametrize(
+    "dims, target",
+    [
+        ((2, 2), (0,)),
+        ((2, 2), (1,)),
+        ((2, 2, 2), (1,)),
+        ((2, 2, 2), (0, 1)),
+        ((2, 3), (0,)),
+        ((2, 3), (1,)),
+    ],
+)
+def test_single_trajectory_normalization(seed, dims, target):
+    """Output states should always be normalized."""
+    key = jax.random.key(seed)
+    key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, key)
+
+    target_dims = tuple(dims[t] for t in target)
+    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=target_dims)
+    kraus = qx.superop_to_kraus(s)
+    psi_out = qx.targeted_apply_kraus_map_single_trajectory(kraus, initial_state, sample_key, target)
+    norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [42, 123, 7])
+@pytest.mark.parametrize(
+    "dims, target, noise_p",
+    [
+        ((2, 2), (0,), 0.1),
+        ((3, 3), (0,), 0.1),
+        ((2, 3), (1,), 0.1),
+        ((3, 2), (0,), 0.1),
+    ],
+)
+def test_single_trajectory_statistical_convergence(seed, dims, target, noise_p):
+    """Averaging |ψ⟩⟨ψ| over many trajectories should converge to ∑ K_i ρ K_i†."""
+    key = jax.random.key(seed)
+    key, state_key = jax.random.split(key)
+    initial_state = qx.random_state_vector(dims, state_key)
+
+    target_dims = tuple(dims[t] for t in target)
+    s = qx.depolarizing_channel_superoperator(jnp.asarray(noise_p), dims=target_dims)
+    kraus = qx.superop_to_kraus(s)
+
+    rho_initial = qx.promote_state_vector_to_density_matrix(initial_state)
+    rho_reference = qx.targeted_apply_kraus_map(kraus, rho_initial, target)
+
+    n_trajectories = 5000
+    sample_keys = jax.random.split(key, num=n_trajectories)
+
+    # Apply single-trajectory function to each key via vmap
+    fn = lambda k: qx.targeted_apply_kraus_map_single_trajectory(kraus, initial_state, k, target).matrix
+    psi_out_mat = jax.vmap(fn)(sample_keys)  # (n_trajectories, d)
+
+    rho_avg = jnp.mean(psi_out_mat[:, :, None] * psi_out_mat[:, None, :].conj(), axis=0)
+    rho_avg = qx.DensityMatrix.from_matrix(rho_avg, dims)
+
+    assert qx.fidelity(rho_avg, rho_reference) > 0.99
+
+
+def test_single_trajectory_with_general_kraus_ops():
+    """Test with a random channel whose operators are NOT unitary-like."""
+    key = jax.random.key(42)
+    key, state_key, sample_key = jax.random.split(key, 3)
+
+    dims = (2, 2, 2)
+    initial_state = qx.random_state_vector(dims, state_key)
+
+    # Random rank-2 channel on qubit 1
+    choi = qx.random_choi(dims=((2,), (2,)), rank=2, key=key)
+    kraus = qx.choi_to_kraus(choi)
+    kraus = qx.truncate_kraus(kraus)
+
+    psi_out = qx.targeted_apply_kraus_map_single_trajectory(kraus, initial_state, sample_key, (1,))
+    norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
+    assert jnp.allclose(norm, 1.0, atol=1e-6)
+
+
+def test_single_trajectory_general_channel_convergence():
+    """Statistical convergence for a non-unitary-like (random) Kraus channel."""
+    key = jax.random.key(42)
+    key, state_key, choi_key = jax.random.split(key, 3)
+
+    dims = (2, 2)
+    initial_state = qx.random_state_vector(dims, state_key)
+
+    choi = qx.random_choi(dims=((2,), (2,)), rank=2, key=choi_key)
+    kraus = qx.choi_to_kraus(choi)
+    kraus = qx.truncate_kraus(kraus)
+
+    rho_initial = qx.promote_state_vector_to_density_matrix(initial_state)
+    rho_reference = qx.targeted_apply_kraus_map(kraus, rho_initial, (0,))
+
+    n_trajectories = 5000
+    sample_keys = jax.random.split(key, num=n_trajectories)
+
+    fn = lambda k: qx.targeted_apply_kraus_map_single_trajectory(kraus, initial_state, k, (0,)).matrix
+    psi_out_mat = jax.vmap(fn)(sample_keys)
+
+    rho_avg = jnp.mean(psi_out_mat[:, :, None] * psi_out_mat[:, None, :].conj(), axis=0)
+    rho_avg = qx.DensityMatrix.from_matrix(rho_avg, dims)
+
+    assert qx.fidelity(rho_avg, rho_reference) > 0.99
+
+
+# ======================================================================
 # QuantumInstrument targeted apply tests
 # ======================================================================
 
