@@ -39,6 +39,8 @@ RUN apt-get update -qq \
     python3.12-dev \
     python3.12-venv \
     python3-pip \
+    # plotly kaleido
+    libnss3 \
     chromium-browser \
     && rm -rf /var/lib/apt/lists/*
 
