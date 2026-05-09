@@ -1362,7 +1362,6 @@ def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
 
 def test_trajectory_ensembled_kraus_statistical_convergence():
     """Ensembled KrausMap with different noise levels should converge to correct channels."""
-    dims = (2,)
     n_samples = 5000
     seed = 314
 
