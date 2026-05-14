@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.2] - 2026-05-14
+
+### Added
+
+- `state_vector_reduced_density_matrix` computes the reduced density matrix for a subsytem of a state vector.
+
+### Changed
+
+- `targeted_apply_kraus_map_trajectory` uses reduced density matrices to compute Bron probabilities, improving performance.
+
 ## [0.6.1] - 2026-05-06
 
 ### Added
