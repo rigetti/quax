@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.6.1"
+version = "0.6.2"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -58,6 +58,7 @@ dev = [
     "pytest-memray (>=1.8.0,<2.0.0)",
     "sphinxcontrib-bibtex (>=2.6.5,<3.0.0)",
     "nbstripout (>=0.9.1,<0.10.0)",
+    "kaleido (>=1.3.0,<2.0.0)",
 ]
 
 [tool.poetry.group.cuda]

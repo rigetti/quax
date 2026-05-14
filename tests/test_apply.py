@@ -1248,6 +1248,158 @@ def test_targeted_apply_kraus_map_trajectory_ensemble_general(seed, dims, ens_op
 
 
 # ======================================================================
+# state_vector_rdm tests
+# ======================================================================
+
+
+@pytest.mark.parametrize("dims", [(2,), (2, 2), (2, 2, 2), (2, 3)])
+def test_state_vector_rdm_full_system(dims):
+    """When subsystem = all qudits, RDM should equal |ψ⟩⟨ψ|."""
+    psi = qx.random_state_vector(dims=dims, key=jax.random.key(42))
+    subsystem = tuple(range(len(dims)))
+    rdm = qx.state_vector_reduced_density_matrix(psi, subsystem)
+    expected = jnp.einsum("...i,...j->...ij", psi.matrix, psi.matrix.conj())
+    assert jnp.allclose(rdm.matrix, expected, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "dims,subsystem",
+    [
+        ((2, 2), (0,)),
+        ((2, 2), (1,)),
+        ((2, 2, 2), (0, 2)),
+        ((2, 3), (0,)),
+        ((2, 3), (1,)),
+    ],
+)
+def test_state_vector_rdm_vs_partial_trace(dims, subsystem):
+    """state_vector_rdm should match partial_trace on |ψ⟩⟨ψ|."""
+    psi = qx.random_state_vector(dims=dims, key=jax.random.key(123))
+    rdm = qx.state_vector_reduced_density_matrix(psi, subsystem)
+
+    # Build full density matrix and partial trace
+    rho_full = qx.DensityMatrix.from_matrix(jnp.einsum("i,j->ij", psi.matrix, psi.matrix.conj()), dims)
+    rdm_ref = qx.partial_trace(rho_full, subsystem)
+    assert jnp.allclose(rdm.matrix, rdm_ref.matrix, atol=1e-12)
+
+
+def test_state_vector_rdm_ensemble():
+    """state_vector_rdm should handle ensembled state vectors."""
+    dims = (2, 2)
+    ens = (3,)
+    psi = qx.random_state_vector(dims=dims, key=jax.random.key(99), size=ens)
+    rdm = qx.state_vector_reduced_density_matrix(psi, (0,))
+    assert rdm.matrix.shape == ens + (2, 2)
+
+    # Check each element matches the scalar version
+    for i in range(ens[0]):
+        psi_i = qx.StateVector(data=psi.data[i], num_qubits=len(dims))
+        rdm_i = qx.state_vector_reduced_density_matrix(psi_i, (0,))
+        assert jnp.allclose(rdm.matrix[i], rdm_i.matrix, atol=1e-12)
+
+
+def test_state_vector_rdm_trace_one():
+    """RDM should have trace 1 for normalized states."""
+    psi = qx.random_state_vector(dims=(2, 2, 2), key=jax.random.key(7))
+    rdm = qx.state_vector_reduced_density_matrix(psi, (1,))
+    assert jnp.allclose(jnp.trace(rdm.matrix), 1.0, atol=1e-12)
+
+
+def test_state_vector_rdm_positive_semidefinite():
+    """RDM eigenvalues should be non-negative."""
+    psi = qx.random_state_vector(dims=(2, 2, 2), key=jax.random.key(11))
+    rdm = qx.state_vector_reduced_density_matrix(psi, (0, 2))
+    eigvals = jnp.linalg.eigvalsh(rdm.matrix)
+    assert jnp.all(eigvals >= -1e-12)
+
+
+# ======================================================================
+# Ensembled KrausMap trajectory tests
+# ======================================================================
+
+
+@pytest.mark.parametrize("ens_k", [(), (3,), (1,)])
+@pytest.mark.parametrize("ens_psi", [(), (3,)])
+@pytest.mark.parametrize("ens_key", [(), (3,)])
+def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
+    """Ensembled KrausMap should broadcast with psi and key ensemble dims."""
+    dims = (2, 2)
+    target = 0
+    noise_p = 0.05
+    seed = 42
+
+    try:
+        broadcast_ens = jnp.broadcast_shapes(ens_k, ens_psi, ens_key)
+    except Exception:
+        pytest.skip("incompatible broadcast shapes")
+
+    # Build ensembled Kraus map by stacking
+    if ens_k:
+        noise_ps = jnp.full(ens_k, noise_p)
+        kraus_list = []
+        for i in range(ens_k[0]):
+            s = qx.depolarizing_channel_superoperator(noise_ps[i], dims=(2,))
+            k = qx.superop_to_kraus(s)
+            kraus_list.append(k.data)
+        kraus_data = jnp.stack(kraus_list)
+        kraus = qx.KrausMap(data=kraus_data, num_qubits=1)
+    else:
+        s = qx.depolarizing_channel_superoperator(jnp.array(noise_p), dims=(2,))
+        kraus = qx.superop_to_kraus(s)
+
+    psi = qx.random_state_vector(dims=dims, key=jax.random.key(seed + 1), size=ens_psi)
+    if ens_key:
+        sample_keys = jax.random.split(jax.random.key(seed + 2), ens_key[0])
+    else:
+        sample_keys = jax.random.key(seed + 2)
+
+    psi_out = qx.targeted_apply_kraus_map_trajectory(kraus, psi, sample_keys, (target,))
+    assert psi_out.ensemble_size == broadcast_ens
+
+    norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+    assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
+
+
+def test_trajectory_ensembled_kraus_statistical_convergence():
+    """Ensembled KrausMap with different noise levels should converge to correct channels."""
+    n_samples = 5000
+    seed = 314
+
+    # Four different noise levels in ensemble
+    noise_levels = jnp.array([0.01, 0.2, 0.05, 0.35])
+    kraus_list = []
+    for p in noise_levels:
+        s = qx.depolarizing_channel_superoperator(p, dims=(2,))
+        k = qx.superop_to_kraus(s)
+        kraus_list.append(k.data)
+    kraus_data = jnp.stack(kraus_list)
+    kraus_ens = qx.KrausMap(data=kraus_data, num_qubits=1)
+
+    psi = qx.zero_state_vector(dims=(2,))
+    keys = jax.random.split(jax.random.key(seed), n_samples)
+
+    # Apply to each sample
+    results = []
+    for i in range(n_samples):
+        out = qx.targeted_apply_kraus_map_trajectory(kraus_ens, psi, keys[i], (0,))
+        results.append(out.data)
+    results = jnp.stack(results)  # (n_samples, ensemble_size, 2)
+
+    # For each ensemble element, compute average density matrix
+    for e in range(2):
+        rho_samples = jnp.einsum("si,sj->sij", results[:, e], results[:, e].conj())
+        rho_avg = jnp.mean(rho_samples, axis=0)
+
+        s = qx.depolarizing_channel_superoperator(noise_levels[e], dims=(2,))
+        rho_expected = qx.apply_superop_to_density_matrix(
+            s, qx.DensityMatrix.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), (2,))
+        )
+        assert jnp.allclose(rho_avg, rho_expected.matrix, atol=0.05), (
+            f"Ensemble element {e} (p={noise_levels[e]}) did not converge"
+        )
+
+
+# ======================================================================
 # QuantumInstrument targeted apply tests
 # ======================================================================
 

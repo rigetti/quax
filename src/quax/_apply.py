@@ -579,72 +579,159 @@ def _batched_categorical(key: Array, logits: Array) -> Array:
 
 
 @jax.jit(static_argnames=("subsystem",))
+def state_vector_reduced_density_matrix(psi: StateVector, subsystem: Tuple[int, ...]) -> DensityMatrix:
+    r"""Compute the reduced density matrix of a state vector on a subsystem.
+
+    Computes :math:`\rho_\text{sub} = \text{Tr}_\text{comp}(|\psi\rangle\langle\psi|)`
+    directly from the state vector, without forming the full density matrix.
+    The state vector is reshaped into a bipartite matrix
+    :math:`\Psi \in \mathbb{C}^{d_\text{sub} \times d_\text{comp}}` and the
+    reduced density matrix is computed as :math:`\rho_\text{sub} = \Psi \Psi^\dagger`.
+
+    This uses :math:`O(2^n)` memory (the state vector) instead of the
+    :math:`O(2^{2n})` required by forming :math:`|\psi\rangle\langle\psi|`
+    and calling :func:`partial_trace`.
+
+    :param psi: State vector with data shape ``(*ens, d0, d1, ...)``.
+    :param subsystem: The qudit indices to keep (trace out the complement).
+    :return: Reduced density matrix on the subsystem with shape
+        ``(*ens, d_sub, d_sub)`` in matrix form.
+    """
+    num_qubits = len(psi.dims)
+    n_ens = psi.num_ensemble_dims
+
+    subsystem_set = set(subsystem)
+    complement = tuple(i for i in range(num_qubits) if i not in subsystem_set)
+    d_sub = reduce(mul, (psi.dims[q] for q in subsystem), 1)
+    d_complement = reduce(mul, (psi.dims[q] for q in complement), 1)
+
+    # Permute: (*ens, subsystem_qubits..., complement_qubits...)
+    perm = tuple(range(n_ens)) + tuple(n_ens + q for q in subsystem) + tuple(n_ens + q for q in complement)
+    psi_perm = jnp.transpose(psi.data, perm)
+    psi_bipartite = psi_perm.reshape(psi.ensemble_size + (d_sub, d_complement))
+
+    # ρ_sub = Ψ Ψ† (trace over complement via matrix multiply)
+    rho_sub = jnp.einsum("...ij,...kj->...ik", psi_bipartite, psi_bipartite.conj())
+
+    sub_dims = tuple(psi.dims[q] for q in subsystem)
+    return DensityMatrix.from_matrix(rho_sub, sub_dims)
+
+
+@jax.jit(static_argnames=("subsystem",))
 def targeted_apply_kraus_map_trajectory(
     kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
 ) -> StateVector:
     """
     Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
 
-    Applies all Kraus operators K_i to |ψ⟩, computes Born-rule probabilities
-    p_i = ⟨ψ|K_i†K_i|ψ⟩, samples one outcome per ensemble element, and returns
-    the normalized post-measurement state |ψ'_i⟩ / √p_i.
+    This function computes Born probabilities via the subsystem
+    reduced density matrix instead of materializing all K_i|ψ⟩ simultaneously.
 
-    Supports ensemble broadcasting between kraus_map, psi, and key.
+    Algorithm:
+      1. Compute M_i = K_i†K_i for each Kraus operator.
+      2. Compute ρ_sub = Tr_complement(|ψ⟩⟨ψ|), the reduced density matrix
+         on the subsystem qubits.
+      3. Born probabilities: p_i = Tr[M_i · ρ_sub].
+      4. Sample outcome.
+      5. Apply the selected operator.
+
+    Peak memory: O(ens × 2^n) instead of O(ens × n_kraus × 2^n).
+    This enables effective batch parallelism that the standard implementation
+    cannot achieve, because each of the two full-state passes (steps 2 and 5)
+    is a batched operation that scales like a unitary application.
+
+    Supports ensemble broadcasting between psi, key, and kraus_map.
 
     :param kraus_map: The Kraus map with data shape (*ens_k, n_kraus, d_out..., d_in...).
     :param psi: The state vector with data shape (*ens_s, d0, d1, ...).
-    :param key: A JAX PRNG key (scalar or ensemble of keys with shape (*ens_key,)) for sampling.
+    :param key: A JAX PRNG key (scalar or ensemble of keys) for sampling.
     :param subsystem: The qubit indices the operator acts on.
     :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
     """
     target_dims = tuple(psi.dims[i] for i in subsystem)
     if kraus_map.dims[0] != target_dims:
         kraus_map = promote(kraus_map, target_dims)
-    n = len(psi.dims)
-    n_kraus = kraus_map.data.shape[kraus_map.num_ensemble_dims]
 
-    # Step 1: Apply all Kraus operators to the state vector.
-    # Result shape: (*broadcast_ens, n_kraus, d0, d1, ..., dn-1)
-    einsum_str = _generate_kraus_trajectory_contraction(subsystem, n)
-    all_outcomes = jnp.einsum(
+    num_qubits = len(psi.dims)
+    n_ens_k = kraus_map.num_ensemble_dims
+
+    # --- Step 1: Precompute K†K for each Kraus operator ---
+    # kraus_mat: (*ens_k, n_kraus, d_out, d_in)
+    # KdagK: (*ens_k, n_kraus, d_in, d_in)
+    kraus_mat = kraus_map.matrix
+    KdagK = jnp.einsum("...xja,...xjb->...xab", kraus_mat.conj(), kraus_mat)
+
+    # --- Step 2: Compute subsystem reduced density matrix ---
+    rho_sub = state_vector_reduced_density_matrix(psi, subsystem)
+
+    # --- Step 3: Born probabilities p_i = Tr[M_i · ρ_sub] ---
+    # KdagK: (*ens_k, n_kraus, d_in, d_in), rho_sub: (*ens_s, d_sub, d_sub)
+    # Broadcast ensemble dims, then contract: -> (*broadcast_ens, n_kraus)
+    rho_sub_mat = rho_sub.matrix
+    probs = jnp.real(jnp.einsum("...xab,...ba->...x", KdagK, rho_sub_mat))
+
+    # --- Broadcast probs with key ensemble dims ---
+    ens_probs = probs.shape[:-1]
+    ens_key = key.shape if key.ndim > 0 else ()
+    # Key may have more dims than probs (extra "sample" dimensions appended).
+    # Pad ens_probs with trailing 1s so broadcast_shapes can align them.
+    if len(ens_key) > len(ens_probs):
+        ens_probs = ens_probs + (1,) * (len(ens_key) - len(ens_probs))
+    broadcast_ens = jnp.broadcast_shapes(ens_probs, ens_key)
+    probs = jnp.broadcast_to(probs.reshape(ens_probs + probs.shape[-1:]), broadcast_ens + probs.shape[-1:])
+
+    # --- Step 4: Sample one Kraus outcome per ensemble element ---
+    logits = jnp.log(jnp.clip(probs, min=1e-30))
+    sampled_idx = _batched_categorical(key, logits)
+
+    # --- Gather selected Kraus operator per batch element ---
+    # kraus_map.data: (*ens_k, n_kraus, d_out..., d_in...)
+    # sampled_idx: (*broadcast_ens,) → selected: (*broadcast_ens, d_out..., d_in...)
+    if n_ens_k == 0:
+        selected_kraus = kraus_map.data[sampled_idx]
+    else:
+        # Advanced indexing for ensembled Kraus maps.
+        # Pad ens_k with trailing 1s so it broadcasts against broadcast_ens.
+        ens_k = kraus_map.ensemble_size
+        if len(broadcast_ens) > len(ens_k):
+            padded_ens_k = ens_k + (1,) * (len(broadcast_ens) - len(ens_k))
+        else:
+            padded_ens_k = ens_k
+        ens_broadcast = jnp.broadcast_shapes(padded_ens_k, broadcast_ens)
+        non_ens_shape = kraus_map.data.shape[n_ens_k:]
+        kraus_data = jnp.broadcast_to(
+            kraus_map.data.reshape(padded_ens_k + non_ens_shape),
+            ens_broadcast + non_ens_shape,
+        )
+        idx = tuple(
+            jnp.arange(s).reshape((1,) * i + (s,) + (1,) * (len(ens_broadcast) - i - 1))
+            for i, s in enumerate(ens_broadcast)
+        )
+        selected_kraus = kraus_data[idx + (sampled_idx,)]
+
+    # --- Step 5: Apply selected operators (batched, like unitary application) ---
+    # Broadcast psi data to match broadcast_ens (key may introduce extra dims).
+    psi_ens = psi.ensemble_size
+    if len(broadcast_ens) > len(psi_ens):
+        psi_ens = psi_ens + (1,) * (len(broadcast_ens) - len(psi_ens))
+    psi_data = jnp.broadcast_to(
+        psi.data.reshape(psi_ens + psi.dims),
+        jnp.broadcast_shapes(psi_ens, broadcast_ens) + psi.dims,
+    )
+    einsum_str = _generate_unitary_contraction(subsystem, num_qubits)
+    selected_state = jnp.einsum(
         einsum_str,
-        kraus_map.data,
-        psi.data,
+        selected_kraus,
+        psi_data,
         optimize="optimal",
     )
 
-    # Step 2: Expand all_outcomes so its ensemble dims broadcast with the key.
-    # The key may have more ensemble dims (e.g. key shape (3,5) with ens_result (3,)),
-    # meaning "for each operator, sample multiple trajectories". We insert trailing
-    # singleton dims in the ensemble portion of all_outcomes to enable broadcasting.
-    n_ens_outcomes = all_outcomes.ndim - (n + 1)  # current ensemble dims in all_outcomes
-    if key.ndim > n_ens_outcomes:
-        n_extra = key.ndim - n_ens_outcomes
-        expand_axes = tuple(range(n_ens_outcomes, n_ens_outcomes + n_extra))
-        all_outcomes = jnp.expand_dims(all_outcomes, axis=expand_axes)
-
-    # Step 3: Compute Born-rule probabilities p_i = ⟨ψ'_i|ψ'_i⟩
-    # Sum |amplitude|^2 over qubit dimensions (last n axes), keeping Kraus axis.
-    qubit_axes = tuple(range(-n, 0))
-    probs = jnp.sum(jnp.abs(all_outcomes) ** 2, axis=qubit_axes)  # (*ens, n_kraus)
-
-    # Step 4: Sample one Kraus outcome per ensemble element.
-    # categorical requires a scalar key, so we vmap over key ensemble dims if present.
-    logits = jnp.log(jnp.clip(probs, min=1e-30))  # guard against log(0)
-    sampled_idx = _batched_categorical(key, logits)  # (*broadcast_ens,)
-
-    # Step 4: Select the sampled states via one-hot multiply.
-    one_hot = jax.nn.one_hot(sampled_idx, n_kraus)  # (*ens, n_kraus)
-    # Reshape to (*ens, n_kraus, 1, 1, ..., 1) for broadcasting over qubit dims
-    one_hot = one_hot.reshape(one_hot.shape + (1,) * n)
-    selected = jnp.sum(all_outcomes * one_hot, axis=-(n + 1))  # (*ens, d0, ..., dn-1)
-
-    # Step 5: Normalize by 1/sqrt(p_selected).
-    p_selected = jnp.sum(probs * jax.nn.one_hot(sampled_idx, n_kraus), axis=-1)  # (*ens,)
+    # --- Normalize ---
+    p_selected = jnp.take_along_axis(probs, sampled_idx[..., jnp.newaxis], axis=-1).squeeze(-1)
     norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
-    selected = selected / norm.reshape(norm.shape + (1,) * n)
+    selected_state = selected_state / norm.reshape(norm.shape + (1,) * num_qubits)
 
-    return StateVector(data=selected, num_qubits=psi.num_qubits)
+    return StateVector(data=selected_state, num_qubits=psi.num_qubits)
 
 
 @lru_cache(maxsize=1000)
