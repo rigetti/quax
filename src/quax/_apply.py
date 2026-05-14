@@ -670,7 +670,7 @@ def targeted_apply_kraus_map_trajectory(
     rho_sub_mat = rho_sub.matrix
     probs = jnp.real(jnp.einsum("...xab,...ba->...x", KdagK, rho_sub_mat))
 
-    # --- Step 4: Broadcast probs with key ensemble dims ---
+    # --- Broadcast probs with key ensemble dims ---
     ens_probs = probs.shape[:-1]
     ens_key = key.shape if key.ndim > 0 else ()
     # Key may have more dims than probs (extra "sample" dimensions appended).
@@ -680,11 +680,11 @@ def targeted_apply_kraus_map_trajectory(
     broadcast_ens = jnp.broadcast_shapes(ens_probs, ens_key)
     probs = jnp.broadcast_to(probs.reshape(ens_probs + probs.shape[-1:]), broadcast_ens + probs.shape[-1:])
 
-    # --- Step 5: Sample one Kraus outcome per ensemble element ---
+    # --- Step 4: Sample one Kraus outcome per ensemble element ---
     logits = jnp.log(jnp.clip(probs, min=1e-30))
     sampled_idx = _batched_categorical(key, logits)
 
-    # --- Step 6: Gather selected Kraus operator per batch element ---
+    # --- Gather selected Kraus operator per batch element ---
     # kraus_map.data: (*ens_k, n_kraus, d_out..., d_in...)
     # sampled_idx: (*broadcast_ens,) → selected: (*broadcast_ens, d_out..., d_in...)
     if n_ens_k == 0:
@@ -709,7 +709,7 @@ def targeted_apply_kraus_map_trajectory(
         )
         selected_kraus = kraus_data[idx + (sampled_idx,)]
 
-    # --- Step 7: Apply selected operators (batched, like unitary application) ---
+    # --- Step 5: Apply selected operators (batched, like unitary application) ---
     # Broadcast psi data to match broadcast_ens (key may introduce extra dims).
     psi_ens = psi.ensemble_size
     if len(broadcast_ens) > len(psi_ens):
@@ -726,7 +726,7 @@ def targeted_apply_kraus_map_trajectory(
         optimize="optimal",
     )
 
-    # --- Step 8: Normalize ---
+    # --- Normalize ---
     p_selected = jnp.take_along_axis(probs, sampled_idx[..., jnp.newaxis], axis=-1).squeeze(-1)
     norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
     selected_state = selected_state / norm.reshape(norm.shape + (1,) * num_qubits)

@@ -1365,8 +1365,8 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     n_samples = 5000
     seed = 314
 
-    # Two different noise levels in ensemble
-    noise_levels = jnp.array([0.01, 0.2])
+    # Four different noise levels in ensemble
+    noise_levels = jnp.array([0.01, 0.2, 0.05, 0.35])
     kraus_list = []
     for p in noise_levels:
         s = qx.depolarizing_channel_superoperator(p, dims=(2,))
@@ -1383,7 +1383,7 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     for i in range(n_samples):
         out = qx.targeted_apply_kraus_map_trajectory(kraus_ens, psi, keys[i], (0,))
         results.append(out.data)
-    results = jnp.stack(results)  # (n_samples, 2, 2)
+    results = jnp.stack(results)  # (n_samples, ensemble_size, 2)
 
     # For each ensemble element, compute average density matrix
     for e in range(2):
