@@ -22,6 +22,7 @@ from ._apply import (
     apply_kraus_to_state_vector,
     apply_pauli_liouville_to_density_matrix,
     apply_superop_to_density_matrix,
+    apply_unitary_to_density_matrix,
     apply_unitary_to_state_vector,
     compute_choi_observables_from_states,
     compute_kraus_observables_from_states,
@@ -37,6 +38,7 @@ from ._apply import (
     targeted_apply_kraus_map_trajectory,
     targeted_apply_superop,
     targeted_apply_unitary,
+    targeted_apply_unitary_to_density_matrix,
 )
 from ._common_channels import (
     depolarizing_channel_superoperator,
@@ -192,6 +194,7 @@ __all__ = [
     "apply_kraus_to_density_matrix",
     "apply_pauli_liouville_to_density_matrix",
     "apply_superop_to_density_matrix",
+    "apply_unitary_to_density_matrix",
     "apply_unitary_to_state_vector",
     "apply_kraus_to_state_vector",
     "apply_instrument_to_density_matrix",
@@ -204,6 +207,7 @@ __all__ = [
     "targeted_apply_kraus_map_trajectory",
     "targeted_apply_superop",
     "targeted_apply_unitary",
+    "targeted_apply_unitary_to_density_matrix",
     # Common channels
     "depolarizing_channel_superoperator",
     "integrated_thermal_superoperator",
