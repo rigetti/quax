@@ -909,11 +909,10 @@ class Unitary(Operator):
 
                 return apply_unitary_to_state_vector(self, other)
             case DensityMatrix():
-                # ρU is an Operator product
-                from ._apply import apply_superop_to_density_matrix
-                from ._superoperator_transformations import unitary_to_superop
+                # U ρ U† → DensityMatrix (apply unitary channel to density matrix)
+                from ._apply import apply_unitary_to_density_matrix
 
-                return apply_superop_to_density_matrix(unitary_to_superop(self), other)
+                return apply_unitary_to_density_matrix(self, other)
             case Operator():
                 # U @ O -> Operator (catches Observable, Involution, plain Operator)
                 from ._compose import compose_operator

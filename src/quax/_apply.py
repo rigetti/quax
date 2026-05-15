@@ -167,6 +167,24 @@ def apply_unitary_to_state_vector(unitary: Unitary, state: StateVector) -> State
 
 
 @jax.jit
+def apply_unitary_to_density_matrix(unitary: Unitary, rho: DensityMatrix) -> DensityMatrix:
+    r"""Apply a unitary operator to a density matrix.
+
+    Computes :math:`\rho' = U \rho U^\dagger`.
+
+    Supports ensemble broadcasting: unitary and rho can have different ensemble sizes,
+    and standard NumPy broadcasting rules apply.
+
+    :param unitary: Unitary operator
+    :param rho: Density matrix
+    :return: Transformed density matrix
+    """
+    unitary, rho = promote_hilbert_space(unitary, rho)
+    subsystem = tuple(range(len(rho.dims)))
+    return targeted_apply_unitary_to_density_matrix(unitary, rho, subsystem)
+
+
+@jax.jit
 def apply_kraus_to_state_vector(kraus_map: Operator, state: StateVector) -> DensityMatrix:
     """Apply a Kraus map to a state vector, resulting in a density matrix."""
     raise NotImplementedError("Applying Kraus operators to state vectors is not yet implemented.")
@@ -542,6 +560,35 @@ def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: Tuple[
     return StateVector(data=output_state_vector, num_qubits=psi.num_qubits)
 
 
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_unitary_to_density_matrix(
+    unitary: Unitary, rho: DensityMatrix, subsystem: Tuple[int, ...]
+) -> DensityMatrix:
+    r"""Apply a unitary to a density matrix on a subsystem. :math:`U \rho U^\dagger`
+
+    Computes :math:`\rho' = U \rho U^\dagger`
+    acting only on the qudits specified by *subsystem*.
+
+    :param unitary: The unitary operator.
+    :param rho: The density matrix.
+    :param subsystem: The qudit indices the operator acts on.
+    :return: A density matrix.
+    """
+    target_dims = tuple(rho.dims[i] for i in subsystem)
+    if unitary.dims[0] != target_dims:
+        unitary = promote(unitary, target_dims)
+    n = len(rho.dims)
+    einsum_str = _generate_unitary_density_matrix_contraction(subsystem, n)
+    output_density_tensor = jnp.einsum(
+        einsum_str,
+        unitary.data,
+        rho.data,
+        jnp.conjugate(unitary.data),
+        optimize="optimal",
+    )
+    return DensityMatrix(data=output_density_tensor, num_qubits=rho.num_qubits)
+
+
 def _batched_categorical(key: Array, logits: Array) -> Array:
     """
     Sample from categorical distribution, supporting both scalar and batched keys.
@@ -792,6 +839,53 @@ def _generate_unitary_contraction(qubits: Tuple[int], n: int) -> str:
         + "->"
         + "..."
         + "".join(CHARS[qubits.index(i)] if i in qubits else CHARS[operator_support + i] for i in range(n))
+    )
+
+
+@lru_cache(maxsize=1000)
+def _generate_unitary_density_matrix_contraction(qubits: Tuple[int, ...], n: int) -> str:
+    r"""Generate the einsum string for :math:`U \rho U^\dagger` on a density tensor.
+
+    The density tensor has ``2*n`` qudit axes (bra then ket).  The unitary acts on
+    the qudits specified by *qubits*, contracting with the corresponding bra (left)
+    and ket (right) indices of the density matrix.
+
+    Three operands: ``U``, ``rho``, ``conj(U)``.
+
+    :param qubits: The qudit indices the operator acts on.
+    :param n: The number of qudits in the density tensor.
+    :return: The einsum string.
+    """
+    d = n * 2
+    operator_support = len(qubits)
+    right_qubits = [q + n for q in qubits]
+    # Index layout (no Kraus index, unlike _generate_kraus_map_contraction):
+    # CHARS[0 : operator_support]                     = U output (bra) indices
+    # CHARS[operator_support + q] for q in qubits     = U input indices (contracted with rho bra)
+    # CHARS[operator_support : operator_support + d]   = rho tensor indices
+    # CHARS[d + operator_support : d + 2*operator_support] = conj(U) output (ket) indices
+    # CHARS[operator_support + q] for q in right_qubits = conj(U) input indices (contracted with rho ket)
+    return (
+        "..."
+        + CHARS[:operator_support]
+        + "".join(CHARS[operator_support + q] for q in qubits)
+        + ","
+        + "..."
+        + CHARS[operator_support : operator_support + d]
+        + ","
+        + "..."
+        + CHARS[d + operator_support : d + 2 * operator_support]
+        + "".join(CHARS[operator_support + q] for q in right_qubits)
+        + "->"
+        + "..."
+        + "".join(
+            CHARS[qubits.index(i)]
+            if i in qubits
+            else CHARS[right_qubits.index(i) + operator_support + d]
+            if i in right_qubits
+            else CHARS[operator_support + i]
+            for i in range(d)
+        )
     )
 
 

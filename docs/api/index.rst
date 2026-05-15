@@ -43,12 +43,17 @@ Apply Operations
    :nosignatures:
 
    apply_unitary_to_state_vector
+   apply_unitary_to_density_matrix
    apply_kraus_to_state_vector
    apply_kraus_to_density_matrix
    apply_choi_to_density_matrix
    apply_pauli_liouville_to_density_matrix
    apply_superop_to_density_matrix
    partial_trace
+   targeted_apply_unitary
+   targeted_apply_unitary_to_density_matrix
+   targeted_apply_kraus_map
+   targeted_apply_superop
 
 Composition
 -----------
