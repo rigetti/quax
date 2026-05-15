@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.3] - 2026-05-15
+
+### Added
+
+- `targeted_apply_unitary_to_density_matrix` applies unitaries to density matrices.
+
+
 ## [0.6.2] - 2026-05-14
 
 ### Added

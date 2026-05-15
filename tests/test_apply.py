@@ -348,6 +348,128 @@ def test_apply_operator_to_state_vector(seed, dims, ensemble_size):
     # assert jnp.allclose(applied_states.data, qobj_applied_ref.data, atol=1e-6), "Applied density matrices don't match"
 
 
+@pytest.mark.parametrize("seed", [58, 3854])
+@pytest.mark.parametrize("dims", [(2,), (2, 2), (2, 2, 2), (3,), (3, 3), (2, 3)])
+@pytest.mark.parametrize(
+    "ensemble_size",
+    [
+        ((), ()),
+        ((5,), (5,)),
+        ((3, 4), (3, 4)),
+        ((3, 4), ()),
+    ],
+)
+def test_apply_unitary_to_density_matrix(seed, dims, ensemble_size):
+    """Test the application of unitaries to density matrices against qutip."""
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+    d = int(np.prod(dims))
+    ensemble_size_0, ensemble_size_1 = ensemble_size
+
+    unitary = qx.random_unitary(dims=(dims, dims), key=key, size=ensemble_size_0)
+    state = qx.random_density_matrix(rank=d, dims=dims, key=subkey, size=ensemble_size_1)
+    ensemble_size = jnp.broadcast_shapes(ensemble_size_0, ensemble_size_1)
+
+    qobj_state = state._to_qobj()
+    qobj_unitary = unitary._to_qobj()
+
+    def qt_apply(U, rho):
+        A = np.asarray(U, dtype=object)
+        B = np.asarray(rho, dtype=object)
+        A, B = np.broadcast_arrays(A, B)
+        out_shape = A.shape
+        mats = [(u * r * u.dag()).full() for u, r in zip(A.ravel(), B.ravel())]
+        dense = np.stack(mats, axis=0)
+        dense = dense.reshape(out_shape + dense.shape[1:])
+        return jnp.asarray(dense)
+
+    qobj_applied_ref = qx.DensityMatrix.from_matrix(qt_apply(qobj_unitary, qobj_state), dims)
+
+    applied_states = qx.apply_unitary_to_density_matrix(unitary, state)
+    assert applied_states.ensemble_size == ensemble_size, "Broadcasted ensemble sizes do not match"
+    assert jnp.allclose(applied_states.matrix, qobj_applied_ref.matrix, atol=1e-6), (
+        "Applied density matrices don't match"
+    )
+
+
+@pytest.mark.parametrize("seed", [58, 3854])
+@pytest.mark.parametrize("dims", [(2, 2), (2, 2, 2), (3, 3), (2, 3, 2)])
+def test_targeted_apply_unitary_to_density_matrix(seed, dims):
+    """Test targeted application of unitaries to density matrix subsystems against qutip."""
+    key = jax.random.key(seed)
+    d_total = int(np.prod(dims))
+    state = qx.random_density_matrix(rank=d_total, dims=dims, key=key)
+
+    for target_idx in range(len(dims)):
+        key, subkey = jax.random.split(key)
+        d_sub = dims[target_idx]
+        unitary = qx.random_unitary(dims=((d_sub,), (d_sub,)), key=subkey)
+
+        # Build full-system reference: pad unitary with identities
+        parts = []
+        for j, dj in enumerate(dims):
+            if j == target_idx:
+                parts.append(unitary)
+            else:
+                parts.append(_identity_unitary(dj))
+        full_unitary = reduce(lambda a, b: a | b, parts)
+
+        # qutip reference: U_full @ rho @ U_full†
+        U_q = full_unitary._to_qobj()
+        rho_q = state._to_qobj()
+        expected = jnp.asarray((U_q * rho_q * U_q.dag()).full())
+
+        rho_targeted = qx.targeted_apply_unitary_to_density_matrix(unitary, state, (target_idx,))
+        assert jnp.allclose(rho_targeted.matrix, expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("seed", [58, 3854])
+@pytest.mark.parametrize(
+    "ensemble_size",
+    [
+        ((), ()),
+        ((3,), ()),
+        ((), (3,)),
+        ((3,), (3,)),
+        ((2, 3), (2, 3)),
+    ],
+)
+def test_targeted_apply_unitary_to_density_matrix_ensemble(seed, ensemble_size):
+    """Test targeted_apply_unitary_to_density_matrix with ensembles against qutip."""
+    key = jax.random.key(seed)
+    key, subkey = jax.random.split(key)
+    ens_u, ens_rho = ensemble_size
+
+    dims = (2, 2, 2)
+    d_total = int(np.prod(dims))
+    state = qx.random_density_matrix(rank=d_total, dims=dims, key=key, size=ens_rho)
+    U_1q = qx.random_unitary(dims=((2,), (2,)), key=subkey, size=ens_u)
+
+    rho_targeted = qx.targeted_apply_unitary_to_density_matrix(U_1q, state, (1,))
+
+    broadcast_ens = jnp.broadcast_shapes(ens_u, ens_rho)
+    assert rho_targeted.ensemble_size == broadcast_ens
+
+    # Build full-system reference via tensor product and qutip
+    eye = _identity_unitary(2)
+    full_unitary = eye | U_1q | eye
+    qobj_U = full_unitary._to_qobj()
+    qobj_rho = state._to_qobj()
+
+    def qt_apply(U, rho):
+        A = np.asarray(U, dtype=object)
+        B = np.asarray(rho, dtype=object)
+        A, B = np.broadcast_arrays(A, B)
+        out_shape = A.shape
+        mats = [(u * r * u.dag()).full() for u, r in zip(A.ravel(), B.ravel())]
+        dense = np.stack(mats, axis=0)
+        dense = dense.reshape(out_shape + dense.shape[1:])
+        return jnp.asarray(dense)
+
+    expected = qx.DensityMatrix.from_matrix(qt_apply(qobj_U, qobj_rho), dims)
+    assert jnp.allclose(rho_targeted.matrix, expected.matrix, atol=1e-6)
+
+
 class TestTargetedApplySuperop:
     """Tests for targeted_apply_superop."""
 
@@ -1365,8 +1487,8 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     n_samples = 5000
     seed = 314
 
-    # Four different noise levels in ensemble
-    noise_levels = jnp.array([0.01, 0.2, 0.05, 0.35])
+    # Two different noise levels in ensemble
+    noise_levels = jnp.array([0.01, 0.2])
     kraus_list = []
     for p in noise_levels:
         s = qx.depolarizing_channel_superoperator(p, dims=(2,))
@@ -1383,7 +1505,7 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     for i in range(n_samples):
         out = qx.targeted_apply_kraus_map_trajectory(kraus_ens, psi, keys[i], (0,))
         results.append(out.data)
-    results = jnp.stack(results)  # (n_samples, ensemble_size, 2)
+    results = jnp.stack(results)  # (n_samples, 2, 2)
 
     # For each ensemble element, compute average density matrix
     for e in range(2):

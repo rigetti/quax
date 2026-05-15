@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.6.2"
+version = "0.6.3"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
