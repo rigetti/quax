@@ -17,20 +17,15 @@
 from functools import reduce
 from operator import mul
 from typing import Tuple
-import jax
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from numpy.linalg import eigh
 import pytest
-
 import qutip as qt
+
 import quax as qx
-from quax._superoperator_transformations import (
-    choi_to_kraus,
-    choi_to_superop,
-    choi_to_pauli_liouville,
-)
 
 # ---------- helpers ----------
 
@@ -297,8 +292,7 @@ def test_promote_operator(seed, current_dims, target_dims, ensemble_size):
     dims = (current_dims, current_dims)
 
     # Create a random operator matrix
-    op = qx.random_operator(dims=dims, key=key, size=ensemble_size)  # for seeding
-    print(op)
+    op = qx.random_operator(dims=dims, key=key, size=ensemble_size)
     promoted = qx.promote(op, target_dims)
 
     # QuTiP comparison
@@ -505,7 +499,53 @@ def test_promote_smaller_dim_raises():
 def test_promote_unsupported_type():
     """Promoting an unsupported type should raise TypeError."""
     with pytest.raises(TypeError, match="promote is not implemented"):
-        qx.promote("not a quantum object", (3,))
+        qx.promote("not a quantum object", (3,))  # type: ignore[call-overload]
+
+
+# ======================== Promote emptiness ========================
+
+
+@pytest.mark.parametrize("seed", [42, 123])
+def test_promote_state_vector_zeros_in_higher_dims(seed):
+    """Promoted state vector should have zero amplitude in higher-dimensional components."""
+    key = jax.random.key(seed)
+    sv = qx.random_state_vector(dims=(2,), key=key)
+    promoted = qx.promote(sv, (4,))
+
+    # Original 2D components preserved
+    assert jnp.allclose(promoted.matrix[:2], sv.matrix, atol=1e-14)
+    # Higher components are zero
+    assert jnp.allclose(promoted.matrix[2:], 0.0, atol=1e-14)
+
+
+@pytest.mark.parametrize("seed", [42, 123])
+def test_promote_density_matrix_zeros_in_higher_dims(seed):
+    """Promoted density matrix should have zero entries in higher-dimensional rows/cols."""
+    key = jax.random.key(seed)
+    dm = qx.random_density_matrix(rank=2, dims=(2,), key=key)
+    promoted = qx.promote(dm, (4,))
+
+    # Original 2x2 block preserved
+    assert jnp.allclose(promoted.matrix[:2, :2], dm.matrix, atol=1e-14)
+    # Higher rows and columns are zero
+    assert jnp.allclose(promoted.matrix[2:, :], 0.0, atol=1e-14)
+    assert jnp.allclose(promoted.matrix[:, 2:], 0.0, atol=1e-14)
+
+
+@pytest.mark.parametrize("seed", [42])
+def test_promote_unitary_identity_in_higher_dims(seed):
+    """Promoted unitary should act as identity on higher-dimensional subspace."""
+    key = jax.random.key(seed)
+    u = qx.random_unitary(dims=((2,), (2,)), key=key)
+    promoted = qx.promote(u, (4,))
+
+    # Original 2x2 block preserved
+    assert jnp.allclose(promoted.matrix[:2, :2], u.matrix, atol=1e-14)
+    # Off-diagonal blocks are zero
+    assert jnp.allclose(promoted.matrix[:2, 2:], 0.0, atol=1e-14)
+    assert jnp.allclose(promoted.matrix[2:, :2], 0.0, atol=1e-14)
+    # Lower-right block is identity
+    assert jnp.allclose(promoted.matrix[2:, 2:], jnp.eye(2, dtype=complex), atol=1e-14)
 
 
 # ======================== JIT compatibility ========================
@@ -558,9 +598,9 @@ def test_promotion_preserves_self_fidelity(seed, current_dims, target_dims):
     choi = qx.random_choi(dims=dims, rank=2, key=key, size=())
 
     # Test all superoperator representations
-    kraus = choi_to_kraus(choi)
-    superop = choi_to_superop(choi)
-    pauli_liouville = choi_to_pauli_liouville(choi)
+    kraus = qx.choi_to_kraus(choi)
+    superop = qx.choi_to_superop(choi)
+    pauli_liouville = qx.choi_to_pauli_liouville(choi)
 
     for obj in [choi, kraus, superop, pauli_liouville]:
         promoted = qx.promote(obj, target_dims)
@@ -647,3 +687,795 @@ def test_promote_hilbert_space_auto_converts_unitary_with_channel(seed, current_
     u_explicit = qx.promote(qx.to_superop(u), target_dims)
     pf = float(qx.process_fidelity(result_u, u_explicit))
     assert pf == pytest.approx(1.0, abs=1e-6), f"Auto-converted Unitary doesn't match explicit conversion: F={pf}"
+
+
+# ======================== Positional Embedding ========================
+
+
+class TestEmbedValidation:
+    """Validation tests for the positions parameter."""
+
+    def test_positions_wrong_length(self):
+        u = qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="positions has length 2"):
+            qx.embed(u, (2, 2, 2), (0, 1))  # 1-qubit, but 2 positions
+
+    def test_positions_wrong_length_too_few(self):
+        u = qx.random_unitary(dims=((2, 2), (2, 2)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="positions has length 1"):
+            qx.embed(u, (2, 2, 2), (0,))  # 2-qubit, but 1 position
+
+    def test_positions_not_distinct(self):
+        u = qx.random_unitary(dims=((2, 2), (2, 2)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="positions must be distinct"):
+            qx.embed(u, (2, 2, 2), (1, 1))
+
+    def test_positions_out_of_range(self):
+        u = qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="out of range"):
+            qx.embed(u, (2, 2), (3,))
+
+    def test_positions_negative(self):
+        u = qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="out of range"):
+            qx.embed(u, (2, 2), (-1,))
+
+    def test_positions_target_dim_too_small(self):
+        u = qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(0))
+        with pytest.raises(ValueError, match="smaller than current dimension"):
+            qx.embed(u, (2, 2, 2), (1,))
+
+
+# ---- Unitary embedding ----
+
+
+@pytest.mark.parametrize("seed", [42, 123])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        # 1-qubit into 2-qubit space
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        # 1-qubit into 3-qubit space
+        ((2,), (2, 2, 2), (0,)),
+        ((2,), (2, 2, 2), (1,)),
+        ((2,), (2, 2, 2), (2,)),
+        # 2-qubit into 3-qubit space
+        ((2, 2), (2, 2, 2), (0, 1)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+        ((2, 2), (2, 2, 2), (1, 2)),
+        # Mixed dims: qubit into qutrit+qubit space
+        ((2,), (3, 2), (1,)),
+        # Combined promote + embed: qubit into 2-qutrit space
+        ((2,), (3, 3), (0,)),
+        ((2,), (3, 3), (1,)),
+        # Pure permutation: 2-qubit, same dims, swapped
+        ((2, 2), (2, 2), (1, 0)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_unitary(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded unitary should be valid."""
+    key = jax.random.key(seed)
+    u = qx.random_unitary(dims=(obj_dims, obj_dims), key=key, size=ensemble_size)
+    embedded = qx.embed(u, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert jnp.all(qx.validate(embedded, atol=1e-10))
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+    ],
+)
+def test_embed_unitary_vs_targeted_apply(seed, obj_dims, target_dims, positions):
+    """Applying embedded unitary should equal targeted apply."""
+    key = jax.random.key(seed)
+    k1, k2 = jax.random.split(key)
+    u = qx.random_unitary(dims=(obj_dims, obj_dims), key=k1)
+    psi = qx.random_state_vector(dims=target_dims, key=k2)
+
+    # Embedded apply
+    embedded = qx.embed(u, target_dims, positions)
+    result_embed = qx.apply_unitary_to_state_vector(embedded, psi)
+
+    # Targeted apply
+    result_targeted = qx.targeted_apply_unitary(u, psi, positions)
+
+    assert result_embed == result_targeted
+
+
+# ---- Operator embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+        ((2,), (3, 3), (1,)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_operator(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded operator should preserve type and dims."""
+    key = jax.random.key(seed)
+    op = qx.random_operator(dims=(obj_dims, obj_dims), key=key, size=ensemble_size)
+    embedded = qx.embed(op, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert isinstance(embedded, qx.Operator)
+
+
+def test_embed_operator_tensor_product():
+    """Embedding operator at position 0 should equal O|I, at position 1 should equal I|O."""
+    key = jax.random.key(42)
+    op = qx.random_operator(dims=((2,), (2,)), key=key)
+    eye = qx.Unitary.from_matrix(jnp.eye(2, dtype=complex), ((2,), (2,)))
+
+    embedded_0 = qx.embed(op, (2, 2), (0,))
+    expected_0 = op | eye
+    assert jnp.allclose(embedded_0.data, expected_0.data, atol=1e-12)
+
+    embedded_1 = qx.embed(op, (2, 2), (1,))
+    expected_1 = eye | op
+    assert jnp.allclose(embedded_1.data, expected_1.data, atol=1e-12)
+
+
+# ---- StateVector embedding ----
+
+
+@pytest.mark.parametrize("seed", [42, 123])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2,), (2, 2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+        ((2,), (3, 3), (0,)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (5,)])
+def test_embed_state_vector(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded state vector should be valid and consistent with DM embedding."""
+    key = jax.random.key(seed)
+    sv = qx.random_state_vector(dims=obj_dims, key=key, size=ensemble_size)
+    embedded = qx.embed(sv, target_dims, positions)
+
+    assert embedded.dims == target_dims
+    assert embedded.ensemble_size == ensemble_size
+    assert jnp.all(qx.validate(embedded, atol=1e-10))
+
+    # Embedding SV then promoting to DM should equal embedding the DM directly
+    if ensemble_size == ():
+        dm = qx.promote_state_vector_to_density_matrix(sv)
+        embedded_dm = qx.embed(dm, target_dims, positions)
+        embedded_sv_as_dm = qx.promote_state_vector_to_density_matrix(embedded)
+        assert embedded_sv_as_dm == embedded_dm
+
+
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_state_vector_known(obj_dims, target_dims, positions):
+    """Test known embedding of |1> into 2-qubit space."""
+    ket1 = qx.StateVector.from_matrix(jnp.array([0.0, 1.0], dtype=complex), (2,))
+    embedded = qx.embed(ket1, target_dims, positions)
+
+    if positions == (0,):
+        # |1> at position 0 → |10> = [0, 0, 1, 0]
+        expected = qx.StateVector.from_matrix(jnp.array([0.0, 0.0, 1.0, 0.0], dtype=complex), (2, 2))
+    else:
+        # |1> at position 1 → |01> = [0, 1, 0, 0]
+        expected = qx.StateVector.from_matrix(jnp.array([0.0, 1.0, 0.0, 0.0], dtype=complex), (2, 2))
+
+    assert embedded == expected
+
+
+def test_embed_state_vector_tensor_product():
+    """Embedding state at position 0 should equal sv|0>, at position 1 should equal |0>|sv."""
+    key = jax.random.key(42)
+    sv = qx.random_state_vector(dims=(2,), key=key)
+    ket0 = qx.states.KET0
+
+    embedded_0 = qx.embed(sv, (2, 2), (0,))
+    expected_0 = sv | ket0
+    assert embedded_0 == expected_0
+
+    embedded_1 = qx.embed(sv, (2, 2), (1,))
+    expected_1 = ket0 | sv
+    assert embedded_1 == expected_1
+
+
+def test_embed_density_matrix_tensor_product():
+    """Embedding DM at position 0 should equal dm|0><0|, at position 1 should equal |0><0||dm."""
+    key = jax.random.key(42)
+    dm = qx.random_density_matrix(rank=2, dims=(2,), key=key)
+    dm0 = qx.zero_state_matrix(dims=(2,))
+
+    embedded_0 = qx.embed(dm, (2, 2), (0,))
+    expected_0 = dm | dm0
+    assert embedded_0 == expected_0
+
+    embedded_1 = qx.embed(dm, (2, 2), (1,))
+    expected_1 = dm0 | dm
+    assert embedded_1 == expected_1
+
+
+# ---- DensityMatrix embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+        ((2,), (3, 2), (1,)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_density_matrix(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded density matrix should be valid."""
+    key = jax.random.key(seed)
+    d_in = reduce(mul, obj_dims, 1)
+    dm = qx.random_density_matrix(rank=d_in, dims=obj_dims, key=key, size=ensemble_size)
+    embedded = qx.embed(dm, target_dims, positions)
+
+    assert embedded.dims == target_dims
+    assert embedded.ensemble_size == ensemble_size
+    assert jnp.all(qx.validate(embedded, atol=1e-10))
+
+
+# ---- SuperOp embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_superop(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded SuperOp should be valid CPTP."""
+    key = jax.random.key(seed)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=key, size=ensemble_size)
+    superop = qx.choi_to_superop(choi)
+    embedded = qx.embed(superop, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert isinstance(embedded, qx.SuperOp)
+
+    if ensemble_size == ():
+        assert qx.validate(embedded, atol=1e-10)
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_superop_vs_targeted_apply(seed, obj_dims, target_dims, positions):
+    """Applying embedded SuperOp should equal targeted apply."""
+    key = jax.random.key(seed)
+    k1, k2 = jax.random.split(key)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=k1)
+    superop = qx.choi_to_superop(choi)
+    d_target = reduce(mul, target_dims, 1)
+    rho = qx.random_density_matrix(rank=d_target, dims=target_dims, key=k2)
+
+    # Embedded apply
+    embedded = qx.embed(superop, target_dims, positions)
+    result_embed = qx.apply_superop_to_density_matrix(embedded, rho)
+
+    # Targeted apply
+    result_targeted = qx.targeted_apply_superop(superop, rho, positions)
+
+    assert result_embed == result_targeted
+
+
+# ---- KrausMap embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_kraus_map(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded KrausMap should be valid CPTP and match manual reference construction."""
+    key = jax.random.key(seed)
+    d_in = reduce(mul, obj_dims, 1)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=d_in, key=key, size=ensemble_size)
+    kraus = qx.choi_to_kraus(choi)
+    embedded = qx.embed(kraus, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert isinstance(embedded, qx.KrausMap)
+
+    # Verify trace-preserving
+    if ensemble_size == ():
+        assert qx.validate(embedded, atol=1e-10)
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_kraus_vs_superop(seed, obj_dims, target_dims, positions):
+    """Embedded KrausMap converted to SuperOp should match embedded SuperOp."""
+    key = jax.random.key(seed)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=key)
+    superop = qx.choi_to_superop(choi)
+    kraus = qx.choi_to_kraus(choi)
+
+    embedded_superop = qx.embed(superop, target_dims, positions)
+    embedded_kraus = qx.embed(kraus, target_dims, positions)
+
+    assert embedded_kraus == embedded_superop
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_kraus_vs_targeted_apply(seed, obj_dims, target_dims, positions):
+    """Applying embedded KrausMap should equal targeted apply."""
+    key = jax.random.key(seed)
+    k1, k2 = jax.random.split(key)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=k1)
+    kraus = qx.choi_to_kraus(choi)
+    d_target = reduce(mul, target_dims, 1)
+    rho = qx.random_density_matrix(rank=d_target, dims=target_dims, key=k2)
+
+    # Embedded apply
+    embedded = qx.embed(kraus, target_dims, positions)
+    result_embed = qx.apply_kraus_to_density_matrix(embedded, rho)
+
+    # Targeted apply
+    result_targeted = qx.targeted_apply_kraus_map(kraus, rho, positions)
+
+    assert result_embed == result_targeted
+
+
+# ---- Choi embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+        ((2, 2), (2, 2, 2), (0, 2)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_choi(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded Choi should be a valid CPTP channel and match manual reference construction."""
+    key = jax.random.key(seed)
+    d_in = reduce(mul, obj_dims, 1)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=d_in, key=key, size=ensemble_size)
+    embedded = qx.embed(choi, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert isinstance(embedded, qx.Choi)
+
+    # Verify CPTP
+    if ensemble_size == ():
+        assert qx.validate(embedded, atol=1e-10)
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_choi_vs_targeted_apply(seed, obj_dims, target_dims, positions):
+    """Applying embedded Choi should equal targeted apply via SuperOp conversion."""
+    key = jax.random.key(seed)
+    k1, k2 = jax.random.split(key)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=k1)
+    d_target = reduce(mul, target_dims, 1)
+    rho = qx.random_density_matrix(rank=d_target, dims=target_dims, key=k2)
+
+    # Embedded apply via Choi
+    embedded = qx.embed(choi, target_dims, positions)
+    result_embed = qx.apply_choi_to_density_matrix(embedded, rho)
+
+    # Targeted apply via SuperOp
+    superop = qx.choi_to_superop(choi)
+    result_targeted = qx.targeted_apply_superop(superop, rho, positions)
+
+    assert result_embed == result_targeted
+
+
+# ---- PauliLiouville embedding ----
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_embed_pauli_liouville(seed, obj_dims, target_dims, positions, ensemble_size):
+    """Embedded PauliLiouville should be valid CPTP."""
+    key = jax.random.key(seed)
+    d_in = reduce(mul, obj_dims, 1)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=d_in, key=key, size=ensemble_size)
+    pl = qx.choi_to_pauli_liouville(choi)
+    embedded = qx.embed(pl, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert embedded.ensemble_size == ensemble_size
+    assert isinstance(embedded, qx.PauliLiouville)
+
+    # Verify CPTP
+    if ensemble_size == ():
+        assert qx.validate(embedded, atol=1e-10)
+
+
+@pytest.mark.parametrize("seed", [42])
+@pytest.mark.parametrize(
+    "obj_dims,target_dims,positions",
+    [
+        ((2,), (2, 2), (0,)),
+        ((2,), (2, 2), (1,)),
+    ],
+)
+def test_embed_pauli_liouville_vs_targeted_apply(seed, obj_dims, target_dims, positions):
+    """Applying embedded PauliLiouville should equal targeted apply via SuperOp conversion."""
+    key = jax.random.key(seed)
+    k1, k2 = jax.random.split(key)
+    dims = (obj_dims, obj_dims)
+    choi = qx.random_choi(dims=dims, rank=2, key=k1)
+    pl = qx.choi_to_pauli_liouville(choi)
+    d_target = reduce(mul, target_dims, 1)
+    rho = qx.random_density_matrix(rank=d_target, dims=target_dims, key=k2)
+
+    # Embedded apply via PauliLiouville
+    embedded = qx.embed(pl, target_dims, positions)
+    result_embed = qx.apply_pauli_liouville_to_density_matrix(embedded, rho)
+
+    # Targeted apply via SuperOp
+    superop = qx.choi_to_superop(choi)
+    result_targeted = qx.targeted_apply_superop(superop, rho, positions)
+
+    assert result_embed == result_targeted
+
+
+# ---- QuantumInstrument embedding ----
+
+
+@pytest.mark.parametrize(
+    "target_dims,positions",
+    [
+        ((2, 2), (0,)),
+        ((2, 2), (1,)),
+    ],
+)
+def test_embed_instrument(target_dims, positions):
+    """Embedded instrument should be CPTP and remap measured_qudits."""
+    measure = qx.gates.MEASURE(dim=2)
+    embedded = qx.embed(measure, target_dims, positions)
+
+    assert embedded.dims == (target_dims, target_dims)
+    assert isinstance(embedded, qx.QuantumInstrument)
+    # measured_qudits should be remapped
+    expected_measured = tuple(positions[m] for m in measure.measured_qudits)
+    assert embedded.measured_qudits == expected_measured
+
+    # Validate the embedded instrument (each outcome CP, sum is TP)
+    assert qx.validate(embedded, atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    "target_dims,positions",
+    [
+        ((2, 2), (0,)),
+        ((2, 2), (1,)),
+    ],
+)
+def test_embed_instrument_vs_targeted_apply(target_dims, positions):
+    """Applying embedded instrument should equal targeted apply."""
+    measure = qx.gates.MEASURE(dim=2)
+    key = jax.random.key(42)
+    d_target = reduce(mul, target_dims, 1)
+    rho = qx.random_density_matrix(rank=d_target, dims=target_dims, key=key)
+
+    # Embedded apply
+    embedded = qx.embed(measure, target_dims, positions)
+    rho_embed, probs_embed = qx.apply_instrument_to_density_matrix(embedded, rho)
+
+    # Targeted apply
+    rho_targeted, probs_targeted = qx.targeted_apply_instrument_to_density_matrix(measure, rho, positions)
+
+    assert jnp.allclose(rho_embed.data, rho_targeted.data, atol=1e-12)
+    assert jnp.allclose(probs_embed, probs_targeted, atol=1e-12)
+
+
+# ---- QuantumInstrument per-subsystem promote ----
+
+
+@pytest.mark.parametrize(
+    "current_dim,target_dims",
+    [
+        (2, (3,)),
+        (2, (4,)),
+    ],
+)
+def test_promote_quantum_instrument(current_dim, target_dims):
+    """Per-subsystem promotion of a quantum instrument should preserve CPTP."""
+    measure = qx.gates.MEASURE(dim=current_dim)
+    promoted = qx.promote(measure, target_dims)
+
+    assert promoted.dims == (target_dims, target_dims)
+    assert qx.validate(promoted, atol=1e-10)
+
+
+# ---- No-op embedding ----
+
+
+def test_embed_noop():
+    """Embedding at identity positions with same dims should be a no-op."""
+    key = jax.random.key(42)
+    u = qx.random_unitary(dims=((2, 2), (2, 2)), key=key)
+    embedded = qx.embed(u, (2, 2), (0, 1))
+
+    assert embedded == u
+
+
+# ---- Pure permutation ----
+
+
+def test_embed_pure_permutation_unitary():
+    """Embedding with swapped positions should permute qudit ordering."""
+    # CNOT acts on qubit 0 (control) and qubit 1 (target)
+    cnot = qx.gates.CNOT
+
+    # Swap: control at position 1, target at position 0
+    swapped = qx.embed(cnot, (2, 2), (1, 0))
+
+    # Verify: swapped CNOT should have qubit 1 as control
+    # |11> with control at position 1 (=1), flip target at position 0: 1->0 → |01>
+    ket_11 = qx.StateVector.from_matrix(jnp.array([0, 0, 0, 1], dtype=complex), (2, 2))
+    result = qx.apply_unitary_to_state_vector(swapped, ket_11)
+    ket_01 = qx.StateVector.from_matrix(jnp.array([0, 1, 0, 0], dtype=complex), (2, 2))
+    assert result == ket_01
+
+
+# ---- permute standalone ----
+
+
+def test_permute_unitary_swap():
+    """permute should swap qudit ordering of a unitary."""
+    cnot = qx.gates.CNOT
+    swapped = qx.permute(cnot, (1, 0))
+
+    # Same check as above: |11> → |01>
+    ket_11 = qx.StateVector.from_matrix(jnp.array([0, 0, 0, 1], dtype=complex), (2, 2))
+    result = qx.apply_unitary_to_state_vector(swapped, ket_11)
+    ket_01 = qx.StateVector.from_matrix(jnp.array([0, 1, 0, 0], dtype=complex), (2, 2))
+    assert result == ket_01
+
+
+def test_permute_state_vector():
+    """permute should swap qudit ordering of a state vector."""
+    # |10> = [0, 0, 1, 0]
+    ket_10 = qx.StateVector.from_matrix(jnp.array([0, 0, 1, 0], dtype=complex), (2, 2))
+    # Swap: qudit 0 → position 1, qudit 1 → position 0 ⇒ |01>
+    swapped = qx.permute(ket_10, (1, 0))
+    ket_01 = qx.StateVector.from_matrix(jnp.array([0, 1, 0, 0], dtype=complex), (2, 2))
+    assert swapped == ket_01
+
+
+def test_permute_identity_is_noop():
+    """Identity permutation should be a no-op."""
+    key = jax.random.key(42)
+    u = qx.random_unitary(dims=((2, 2), (2, 2)), key=key)
+    permuted = qx.permute(u, (0, 1))
+    assert permuted == u
+
+
+def test_permute_3qubit_known_states():
+    """Permuting |0>|1>|+> should rearrange the tensor factors."""
+    ket0 = qx.states.KET0
+    ket1 = qx.states.KET1
+    plus = qx.states.XPLUS
+    psi = ket0 | ket1 | plus  # |0>|1>|+>
+
+    # (0,1,2) -> (1,0,2): swap first two => |1>|0>|+>
+    permuted_102 = qx.permute(psi, (1, 0, 2))
+    expected_102 = ket1 | ket0 | plus
+    assert permuted_102 == expected_102
+
+    # (0,1,2) -> (2,0,1): qudit 0->pos 2, qudit 1->pos 0, qudit 2->pos 1 => |1>|+>|0>
+    permuted_201 = qx.permute(psi, (2, 0, 1))
+    expected_201 = ket1 | plus | ket0
+    assert permuted_201 == expected_201
+
+    # (0,1,2) -> (0,2,1): swap last two => |0>|+>|1>
+    permuted_021 = qx.permute(psi, (0, 2, 1))
+    expected_021 = ket0 | plus | ket1
+    assert permuted_021 == expected_021
+
+
+def test_permute_random_product_states():
+    """Permuting a product state should match re-tensoring in permuted order."""
+    key = jax.random.key(99)
+    k1, k2, k3 = jax.random.split(key, 3)
+    s0 = qx.random_state_vector(dims=(2,), key=k1)
+    s1 = qx.random_state_vector(dims=(2,), key=k2)
+    s2 = qx.random_state_vector(dims=(2,), key=k3)
+    psi = s0 | s1 | s2
+
+    permuted = qx.permute(psi, (2, 0, 1))
+    expected = s1 | s2 | s0
+    assert permuted == expected
+
+
+def test_permute_inverse_recovers_state():
+    """Applying a permutation then its inverse should recover the original state."""
+    key = jax.random.key(77)
+    psi = qx.random_state_vector(dims=(2, 2, 2), key=key)
+
+    perm = (2, 0, 1)
+    inv_perm = (1, 2, 0)  # inverse of (2,0,1)
+    recovered = qx.permute(qx.permute(psi, perm), inv_perm)
+    assert recovered == psi
+
+
+def test_permute_cycle_returns_to_original():
+    """Applying a 3-cycle permutation 3 times should recover the original state."""
+    key = jax.random.key(88)
+    psi = qx.random_state_vector(dims=(2, 2, 2), key=key)
+
+    perm = (1, 2, 0)
+    result = psi
+    for _ in range(3):
+        result = qx.permute(result, perm)
+    assert result == psi
+
+
+# ---- Known gate embeddings ----
+
+
+def test_embed_x_gate_at_position_1():
+    """X gate at position 1 in 2-qubit space should flip qubit 1."""
+    x = qx.gates.X
+    embedded = qx.embed(x, (2, 2), (1,))
+
+    # |00> -> |01>
+    ket_00 = qx.StateVector.from_matrix(jnp.array([1, 0, 0, 0], dtype=complex), (2, 2))
+    result = qx.apply_unitary_to_state_vector(embedded, ket_00)
+    ket_01 = qx.StateVector.from_matrix(jnp.array([0, 1, 0, 0], dtype=complex), (2, 2))
+    assert result == ket_01
+
+
+def test_embed_x_gate_at_position_0():
+    """X gate at position 0 in 2-qubit space should flip qubit 0."""
+    x = qx.gates.X
+    embedded = qx.embed(x, (2, 2), (0,))
+
+    # |00> -> |10>
+    ket_00 = qx.StateVector.from_matrix(jnp.array([1, 0, 0, 0], dtype=complex), (2, 2))
+    result = qx.apply_unitary_to_state_vector(embedded, ket_00)
+    ket_10 = qx.StateVector.from_matrix(jnp.array([0, 0, 1, 0], dtype=complex), (2, 2))
+    assert result == ket_10
+
+
+def test_embed_cnot_positions_0_2():
+    """CNOT on qubits (0,2) in a 3-qubit space."""
+    cnot = qx.gates.CNOT
+    embedded = qx.embed(cnot, (2, 2, 2), (0, 2))
+
+    # |100> -> |101> (control=0 is 1, flip target=2)
+    ket_100 = qx.StateVector.from_matrix(jnp.array([0, 0, 0, 0, 1, 0, 0, 0], dtype=complex), (2, 2, 2))
+    result = qx.apply_unitary_to_state_vector(embedded, ket_100)
+    ket_101 = qx.StateVector.from_matrix(jnp.array([0, 0, 0, 0, 0, 1, 0, 0], dtype=complex), (2, 2, 2))
+    assert result == ket_101
+
+    # |000> -> |000> (control=0 is 0, no flip)
+    ket_000 = qx.StateVector.from_matrix(jnp.array([1, 0, 0, 0, 0, 0, 0, 0], dtype=complex), (2, 2, 2))
+    result2 = qx.apply_unitary_to_state_vector(embedded, ket_000)
+    assert result2 == ket_000
+
+
+# ---- JIT compatibility for positional embedding ----
+
+
+def test_embed_jit_unitary():
+    """Verify positional embedding works under jax.jit."""
+    key = jax.random.key(42)
+    u = qx.random_unitary(dims=((2,), (2,)), key=key)
+
+    @jax.jit
+    def do_embed(u):
+        return qx.embed(u, (2, 2), (1,))
+
+    embedded = do_embed(u)
+    assert embedded.dims == ((2, 2), (2, 2))
+    assert embedded.matrix.shape == (4, 4)
+
+
+def test_embed_jit_state_vector():
+    """Verify positional embedding of StateVector works under jax.jit."""
+    key = jax.random.key(42)
+    sv = qx.random_state_vector(dims=(2,), key=key)
+
+    @jax.jit
+    def do_embed(sv):
+        return qx.embed(sv, (2, 2), (0,))
+
+    embedded = do_embed(sv)
+    assert embedded.dims == (2, 2)
+    assert embedded.matrix.shape == (4,)
+
+
+# ---- Combined promote + embed ----
+
+
+@pytest.mark.parametrize("seed", [42])
+def test_embed_with_dim_promotion(seed):
+    """Embedding a qubit into a qutrit space should promote and embed."""
+    key = jax.random.key(seed)
+    u = qx.random_unitary(dims=((2,), (2,)), key=key)
+
+    # Embed 1-qubit unitary into (3, 3) at position 0
+    embedded = qx.embed(u, (3, 3), (0,))
+
+    assert embedded.dims == ((3, 3), (3, 3))
+    assert qx.validate(embedded, atol=1e-10)
