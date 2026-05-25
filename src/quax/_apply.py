@@ -665,13 +665,13 @@ def state_vector_reduced_density_matrix(psi: StateVector, subsystem: Tuple[int, 
 
 
 @jax.jit(static_argnames=("subsystem",))
-def targeted_apply_kraus_map_trajectory(
+def _sample_kraus_map_trajectory(
     kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
-) -> StateVector:
+) -> tuple[StateVector, Array]:
     """
-    Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
+    Sample and apply one Kraus operator to a state vector trajectory.
 
-    This function computes Born probabilities via the subsystem
+    This computes Born probabilities via the subsystem
     reduced density matrix instead of materializing all K_i|ψ⟩ simultaneously.
 
     Algorithm:
@@ -693,7 +693,9 @@ def targeted_apply_kraus_map_trajectory(
     :param psi: The state vector with data shape (*ens_s, d0, d1, ...).
     :param key: A JAX PRNG key (scalar or ensemble of keys) for sampling.
     :param subsystem: The qubit indices the operator acts on.
-    :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
+    :return: ``(state, sampled_idx)`` where *state* has data shape
+        ``(*broadcast_ens, d0, d1, ...)`` and *sampled_idx* has shape
+        ``(*broadcast_ens,)``.
     """
     target_dims = tuple(psi.dims[i] for i in subsystem)
     if kraus_map.dims[0] != target_dims:
@@ -778,7 +780,27 @@ def targeted_apply_kraus_map_trajectory(
     norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
     selected_state = selected_state / norm.reshape(norm.shape + (1,) * num_qubits)
 
-    return StateVector(data=selected_state, num_qubits=psi.num_qubits)
+    return StateVector(data=selected_state, num_qubits=psi.num_qubits), sampled_idx
+
+
+@jax.jit(static_argnames=("subsystem",))
+def targeted_apply_kraus_map_trajectory(
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+) -> StateVector:
+    """
+    Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
+
+    This function computes Born probabilities via the subsystem
+    reduced density matrix instead of materializing all K_i|ψ⟩ simultaneously.
+
+    :param kraus_map: The Kraus map with data shape (*ens_k, n_kraus, d_out..., d_in...).
+    :param psi: The state vector with data shape (*ens_s, d0, d1, ...).
+    :param key: A JAX PRNG key (scalar or ensemble of keys) for sampling.
+    :param subsystem: The qubit indices the operator acts on.
+    :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
+    """
+    state, _ = _sample_kraus_map_trajectory(kraus_map, psi, key, subsystem)
+    return state
 
 
 @lru_cache(maxsize=1000)
@@ -1070,11 +1092,7 @@ def targeted_apply_instrument_to_state_vector(
     :param subsystem: The qudit indices the instrument acts on.
     :return: ``(psi_out, outcome)``.
     """
-    n = len(psi.dims)
     n_outcomes = instrument.num_outcomes
-    d_out, d_in = instrument.d
-    n_kraus_per_outcome = d_out * d_in
-    n_total_kraus = n_outcomes * n_kraus_per_outcome
 
     # Convert instrument SuperOp data → KrausMap (outcome axis sits in the ensemble)
     kraus_map = superop_to_kraus(SuperOp(instrument.data, instrument.num_qubits))
@@ -1090,35 +1108,13 @@ def targeted_apply_instrument_to_state_vector(
     kraus_data = kraus_map.data
     n_ens_i = len(instrument.ensemble_size)
     shape = kraus_data.shape
+    n_kraus_per_outcome = shape[n_ens_i + 1]
+    n_total_kraus = n_outcomes * n_kraus_per_outcome
     kraus_data = kraus_data.reshape(shape[:n_ens_i] + (n_total_kraus,) + shape[n_ens_i + 2 :])
 
-    einsum_str = _generate_kraus_trajectory_contraction(subsystem, n)
-    all_outcomes = jnp.einsum(einsum_str, kraus_data, psi.data, optimize="optimal")
-
-    # Expand all_outcomes so its ensemble dims broadcast with the key.
-    n_ens_outcomes = all_outcomes.ndim - (n + 1)
-    if key.ndim > n_ens_outcomes:
-        n_extra = key.ndim - n_ens_outcomes
-        expand_axes = tuple(range(n_ens_outcomes, n_ens_outcomes + n_extra))
-        all_outcomes = jnp.expand_dims(all_outcomes, axis=expand_axes)
-
-    # Born-rule probabilities
-    qubit_axes = tuple(range(-n, 0))
-    per_kraus_probs = jnp.sum(jnp.abs(all_outcomes) ** 2, axis=qubit_axes)
-
-    # Sample, select, normalize
-    logits = jnp.log(jnp.clip(per_kraus_probs, min=1e-30))
-    sampled_kraus_idx = _batched_categorical(key, logits)
-
-    one_hot = jax.nn.one_hot(sampled_kraus_idx, n_total_kraus).reshape(
-        jax.nn.one_hot(sampled_kraus_idx, n_total_kraus).shape + (1,) * n
-    )
-    selected = jnp.sum(all_outcomes * one_hot, axis=-(n + 1))
-
-    p_selected = jnp.sum(per_kraus_probs * jax.nn.one_hot(sampled_kraus_idx, n_total_kraus), axis=-1)
-    norm = jnp.sqrt(jnp.clip(p_selected, min=1e-30))
-    selected = selected / norm.reshape(norm.shape + (1,) * n)
+    merged_kraus_map = KrausMap(data=kraus_data, num_qubits=kraus_map.num_qubits)
+    selected_state, sampled_kraus_idx = _sample_kraus_map_trajectory(merged_kraus_map, psi, key, subsystem)
 
     sampled_outcome = sampled_kraus_idx // n_kraus_per_outcome
 
-    return StateVector(data=selected, num_qubits=psi.num_qubits), sampled_outcome
+    return selected_state, sampled_outcome
