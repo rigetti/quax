@@ -24,6 +24,7 @@ def _require_plotly() -> None:
     if not _PLOTLY_INSTALLED:
         raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
 
+
 from ._operator_basis import _xz_pairs
 from ._quantum_objects import (
     DensityMatrix,
