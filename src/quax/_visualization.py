@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from functools import singledispatch
 from itertools import product
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import jax.numpy as jnp
 
@@ -8,10 +10,19 @@ try:
     import plotly.colors as pc
     import plotly.express as px
     import plotly.graph_objects as go
-    from plotly.graph_objs import Figure
     from plotly.subplots import make_subplots
-except ImportError as e:
-    raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]") from e
+
+    _PLOTLY_INSTALLED = True
+except ImportError:
+    _PLOTLY_INSTALLED = False
+
+if TYPE_CHECKING:
+    from plotly.graph_objs import Figure
+
+
+def _require_plotly() -> None:
+    if not _PLOTLY_INSTALLED:
+        raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
 
 from ._operator_basis import _xz_pairs
 from ._quantum_objects import (
@@ -297,6 +308,7 @@ def _plot_state_vector(
     :param area_proportional: If ``True``, the area of each annular sector is
         proportional to the amplitude magnitude rather than the radial extent.
     """
+    _require_plotly()
     if state_vector.ensemble_size != ():
         raise ValueError("plot(StateVector) does not support ensemble dimensions")
     colourscale = [
@@ -442,6 +454,7 @@ def _plot_density_matrix(
     :param density_matrix: A :class:`DensityMatrix` (no ensemble dimensions).
     :param range_color: Symmetric normalisation range. If ``None``, adapts to the data.
     """
+    _require_plotly()
     if density_matrix.ensemble_size != ():
         raise ValueError("plot(DensityMatrix) does not support ensemble dimensions")
 
@@ -571,6 +584,7 @@ def _plot_operator(
     :param operator: Any :class:`Operator` subclass (Unitary, Observable, …).
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
+    _require_plotly()
     if operator.ensemble_size != ():
         raise ValueError("plot(Operator) does not support ensemble dimensions")
     pauli_liouville = to_pauli_liouville(operator)
@@ -588,6 +602,7 @@ def _plot_superoperator(
     :param superoperator: Any :class:`SuperOperator` subclass (SuperOp, Choi, KrausMap, PauliLiouville, …).
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
+    _require_plotly()
     pauli_liouville = to_pauli_liouville(superoperator)
     return _plot_pauli_transfer_matrix(pauli_liouville, range_color=range_color)
 
@@ -604,6 +619,7 @@ def _plot_quantum_instrument(
 
     :param instrument: A :class:`QuantumInstrument`.
     """
+    _require_plotly()
     n = instrument.num_outcomes
 
     # Layout: n rows, 2 columns. Left column spans all rows (total channel).
