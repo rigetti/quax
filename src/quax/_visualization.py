@@ -19,12 +19,6 @@ except ImportError:
 if TYPE_CHECKING:
     from plotly.graph_objs import Figure
 
-
-def _require_plotly() -> None:
-    if not _PLOTLY_INSTALLED:
-        raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
-
-
 from ._operator_basis import _xz_pairs
 from ._quantum_objects import (
     DensityMatrix,
@@ -36,6 +30,11 @@ from ._quantum_objects import (
     SuperOperator,
 )
 from ._superoperator_transformations import to_pauli_liouville
+
+
+def _require_plotly() -> None:
+    if not _PLOTLY_INSTALLED:
+        raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
 
 
 def _computational_basis_labels(dims: Tuple[int, ...]) -> List[str]:
