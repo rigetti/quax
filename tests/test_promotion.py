@@ -21,7 +21,6 @@ from typing import Tuple
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.linalg import eigh
 import pytest
 import qutip as qt
 
@@ -126,7 +125,9 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
 
     # Eigendecomposition for canonical Kraus (same algorithm as quax choi_to_kraus)
     J_herm = 0.5 * (J + J.conj().T)
-    eigvals, eigvecs = eigh(J_herm)
+    eigvals, eigvecs = jnp.linalg.eigh(jnp.array(J_herm))
+    eigvals = np.array(eigvals)
+    eigvecs = np.array(eigvecs)
 
     # Sort descending
     order = np.argsort(eigvals)[::-1]
@@ -475,6 +476,114 @@ def test_promote_pauli_liouville(seed, current_dims, target_dims, ensemble_size)
 
     assert promoted_pauli_liouville.dims == (target_dims, target_dims)
     assert promoted_pauli_liouville.ensemble_size == ensemble_size
+
+
+# ======================== Incoherent (promote_incoherent) ========================
+
+
+@pytest.mark.parametrize(
+    "promote_fn,to_superop_fn",
+    [
+        (
+            lambda ch, dims: qx.kraus_to_superop(qx.promote_incoherent(ch, dims)),
+            "kraus",
+        ),
+        (
+            lambda ch, dims: qx.promote_incoherent(qx.kraus_to_superop(ch), dims),
+            "superop",
+        ),
+        (
+            lambda ch, dims: qx.choi_to_superop(qx.promote_incoherent(qx.kraus_to_choi(ch), dims)),
+            "choi",
+        ),
+        (
+            lambda ch, dims: qx.pauli_liouville_to_superop(
+                qx.promote_incoherent(qx.kraus_to_pauli_liouville(ch), dims)
+            ),
+            "pauli_liouville",
+        ),
+    ],
+    ids=["KrausMap", "SuperOp", "Choi", "PauliLiouville"],
+)
+def test_incoherent_promotion_destroys_cross_coherences(promote_fn, to_superop_fn):
+    """promote_incoherent should destroy cross-subspace coherences."""
+    # Build a depolarizing channel on a single qubit (d=2) and promote to d=3.
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+
+    promoted_superop = promote_fn(kraus, (3,))
+
+    # Apply to (|1⟩ + |2⟩)/√2 — has cross-subspace coherence ρ_12.
+    psi = jnp.array([0.0, 1.0, 1.0], dtype=complex) / jnp.sqrt(2.0)
+    rho = jnp.outer(psi, psi.conj())
+    rho_vec = rho.ravel()
+    rho_out_vec = promoted_superop.matrix @ rho_vec
+    rho_out = rho_out_vec.reshape(3, 3)
+
+    # Cross-subspace coherence ρ_12 should be destroyed.
+    assert jnp.abs(rho_out[0, 2]) < 1e-12, f"ρ_02 = {rho_out[0, 2]} should be 0"
+    assert jnp.abs(rho_out[1, 2]) < 1e-12, f"ρ_12 = {rho_out[1, 2]} should be 0"
+
+    # Within-subspace block (0:2, 0:2) should match the original channel
+    # applied to the within-subspace part of the input: ρ_sub = ρ[:2,:2].
+    orig_superop = qx.kraus_to_superop(kraus)
+    rho_in_sub = rho[:2, :2]
+    rho_sub_out = (orig_superop.matrix @ rho_in_sub.ravel()).reshape(2, 2)
+    assert jnp.allclose(rho_out[:2, :2], rho_sub_out, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "rep",
+    ["superop", "kraus", "choi", "pauli_liouville"],
+)
+def test_incoherent_promotion_is_cptp(rep):
+    """promote_incoherent should produce a valid CPTP channel."""
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+
+    if rep == "superop":
+        ch = qx.kraus_to_superop(kraus)
+    elif rep == "kraus":
+        ch = kraus
+    elif rep == "choi":
+        ch = qx.kraus_to_choi(kraus)
+    elif rep == "pauli_liouville":
+        ch = qx.kraus_to_pauli_liouville(kraus)
+
+    promoted = qx.promote_incoherent(ch, (3,))
+    assert qx.validate(promoted)
+
+
+def test_incoherent_promotion_all_reps_agree():
+    """All representations should produce the same result for promote_incoherent."""
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+    target = (3,)
+
+    s_from_kraus = qx.kraus_to_superop(qx.promote_incoherent(kraus, target))
+    s_from_superop = qx.promote_incoherent(qx.kraus_to_superop(kraus), target)
+    s_from_choi = qx.choi_to_superop(qx.promote_incoherent(qx.kraus_to_choi(kraus), target))
+    s_from_pl = qx.pauli_liouville_to_superop(qx.promote_incoherent(qx.kraus_to_pauli_liouville(kraus), target))
+
+    assert jnp.allclose(s_from_kraus.matrix, s_from_superop.matrix, atol=1e-12)
+    assert jnp.allclose(s_from_kraus.matrix, s_from_choi.matrix, atol=1e-12)
+    assert jnp.allclose(s_from_kraus.matrix, s_from_pl.matrix, atol=1e-12)
+
+
+def test_promote_incoherent_rejects_non_superoperator():
+    """promote_incoherent should reject non-superoperator types."""
+    key = jax.random.key(42)
+    sv = qx.random_state_vector(dims=(2,), key=key)
+    with pytest.raises(TypeError, match="promote_incoherent is not implemented"):
+        qx.promote_incoherent(sv, (3,))
+
+
+def test_promoted_superop_self_fidelity():
+    """Process fidelity of a promoted superoperator with itself should be 1."""
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+    promoted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
+    assert jnp.isclose(qx.process_fidelity(promoted, promoted), 1.0, atol=1e-12)
 
 
 # ======================== Validation ========================

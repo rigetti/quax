@@ -36,11 +36,13 @@ from ._quantum_objects import (
 from ._state import zero_state_matrix, zero_state_vector
 from ._superoperator_transformations import (
     choi_to_kraus,
+    choi_to_superop,
     kraus_to_choi,
     kraus_to_pauli_liouville,
     kraus_to_superop,
     pauli_liouville_to_kraus,
     pauli_liouville_to_superop,
+    superop_to_choi,
     superop_to_kraus,
     superop_to_pauli_liouville,
     unitary_to_superop,
@@ -94,6 +96,12 @@ def promote(obj, dims: Tuple[int, ...]):
     be >= the corresponding current dimension.  For states, higher
     dimensions are zero-padded.  For operators and channels, the
     promoted object acts as identity on the higher basis states.
+
+    For channels (SuperOp, KrausMap, Choi, PauliLiouville) the coherent
+    Kraus extension is used, which preserves cross-subspace coherences.
+    Use :func:`promote_incoherent` for the incoherent extension that
+    destroys cross-subspace coherences (appropriate for measurements
+    and resets).
 
     :param obj: A quax quantum object (StateVector, DensityMatrix,
         Unitary, Operator, SuperOp, KrausMap, Choi, PauliLiouville,
@@ -225,30 +233,45 @@ def _promote_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...]) -> Pauli
 @promote.register(QuantumInstrument)
 @jax.jit(static_argnames=("dims",))
 def _promote_quantum_instrument(inst: QuantumInstrument, dims: Tuple[int, ...]) -> QuantumInstrument:
-    """Embed a quantum instrument in a larger Hilbert space via coherent Kraus extension.
+    """Embed a quantum instrument in a larger Hilbert space via incoherent Kraus extension.
 
-    Each outcome's CP map is promoted independently.  The complement
-    projector (identity on higher basis states) is added to the first
-    Kraus operator of the *first* outcome only, so that the sum over
-    outcomes remains CPTP.
+    Each outcome's CP map is zero-padded into the larger space.  The
+    complement projector (identity on higher basis states) is added as
+    a **separate** Kraus operator to the *last* outcome, so that the
+    sum over outcomes remains CPTP while cross-subspace coherences are
+    fully decohered.
+
+    For a measurement instrument this means higher basis states (e.g.
+    the transmon |2⟩ level) are assigned to the highest-index
+    computational outcome — matching the typical dispersive-readout
+    behaviour where leakage IQ points land near the |1⟩ blob — but
+    coherences between the original and complement subspaces are
+    destroyed, as a physical measurement would.
     """
     current_dims = inst.dims[0]
     _validate_promote_dims(current_dims, dims)
 
     n_outcomes = inst.num_outcomes
 
+    # Complement projector superoperator: P_perp ⊗ P_perp* (incoherent).
+    D = reduce(mul, dims, 1)
+    complement = jnp.eye(D, dtype=complex)
+    d = reduce(mul, current_dims, 1)
+    complement = complement.at[:d, :d].set(0.0)
+    complement_superop = jnp.kron(complement, complement.conj())
+
     promoted_outcome_mats = []
     for k in range(n_outcomes):
         superop_k, _ = inst.outcome_superop(k)
         kraus_k = superop_to_kraus(superop_k)
 
-        if k == 0:
-            promoted_kraus_k = _promote_kraus_map(kraus_k, dims)
-        else:
-            promoted_kraus_k = _zero_pad_kraus(kraus_k, dims)
+        promoted_kraus_k = _zero_pad_kraus(kraus_k, dims)
+        promoted_superop_k = kraus_to_superop(promoted_kraus_k).matrix
 
-        promoted_superop_k = kraus_to_superop(promoted_kraus_k)
-        promoted_outcome_mats.append(promoted_superop_k.matrix)
+        if k == n_outcomes - 1:
+            promoted_superop_k = promoted_superop_k + complement_superop
+
+        promoted_outcome_mats.append(promoted_superop_k)
 
     result_mat = jnp.stack(promoted_outcome_mats, axis=-3)
     return QuantumInstrument.from_matrix(result_mat, (dims, dims), inst.measured_qudits)
@@ -260,6 +283,104 @@ def _zero_pad_kraus(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
     n_ensemble = len(kraus.ensemble_size)
     pw = [(0, 0)] * (n_ensemble + 1) + [(0, D - d) for d, D in zip(current_dims + current_dims, dims + dims)]
     return KrausMap(jnp.pad(kraus.data, pw), num_qubits=len(dims))
+
+
+# ---------------------------------------------------------------------------
+# Incoherent promotion: ``promote_incoherent``
+# ---------------------------------------------------------------------------
+
+
+@singledispatch
+def promote_incoherent(obj, dims: Tuple[int, ...]):
+    """Promote a superoperator to a larger Hilbert space via incoherent extension.
+
+    Unlike :func:`promote`, which uses the coherent Kraus extension that
+    preserves cross-subspace coherences, this function destroys all
+    coherences between the original and complement subspaces.  This is
+    the physically correct extension for measurements and resets, where
+    the higher basis states do not maintain coherence with the
+    computational subspace.
+
+    Only dispatches on superoperator types: :class:`SuperOp`,
+    :class:`KrausMap`, :class:`Choi`, and :class:`PauliLiouville`.
+
+    :param obj: A quax superoperator object.
+    :param dims: Target per-subsystem dimensions.
+    :return: A new object of the same type with the given *dims*.
+    :raises TypeError: If *obj* is not a supported superoperator type.
+    :raises ValueError: If *dims* is incompatible.
+    """
+    raise TypeError(
+        f"promote_incoherent is not implemented for {type(obj).__name__}. "
+        f"Only superoperator types (SuperOp, KrausMap, Choi, PauliLiouville) are supported."
+    )
+
+
+@promote_incoherent.register(SuperOp)
+@jax.jit(static_argnames=("dims",))
+def _promote_incoherent_superop(superop: SuperOp, dims: Tuple[int, ...]) -> SuperOp:
+    """Incoherent extension of a superoperator: ``E S E† + P_⊥ ⊗ P_⊥*``."""
+    current_dims = superop.dims[0]
+    _validate_promote_dims(current_dims, dims)
+    d = reduce(mul, current_dims, 1)
+    D = reduce(mul, dims, 1)
+    # Embedding isometry E: D×d
+    E = jnp.eye(D, d, dtype=complex)
+    # For row-vectorized superops: E_vec = E* ⊗ E
+    E_vec = jnp.kron(E.conj(), E)
+    padded = E_vec @ superop.matrix @ E_vec.conj().T
+    # Complement projector superoperator
+    complement = jnp.eye(D, dtype=complex)
+    complement = complement.at[:d, :d].set(0.0)
+    complement_superop = jnp.kron(complement, complement.conj())
+    padded = padded + complement_superop
+    return SuperOp.from_matrix(padded, (dims, dims))
+
+
+@promote_incoherent.register(KrausMap)
+@jax.jit(static_argnames=("dims",))
+def _promote_incoherent_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
+    """Incoherent extension of Kraus operators: zero-pad + P_⊥ as separate operator."""
+    current_dims = kraus.dims[0]
+    _validate_promote_dims(current_dims, dims)
+
+    batch_shape = kraus.ensemble_size
+    n_ensemble = len(batch_shape)
+
+    # Zero-pad each existing Kraus operator.
+    pw = [(0, 0)] * (n_ensemble + 1) + [(0, D - d) for d, D in zip(current_dims + current_dims, dims + dims)]
+    padded = jnp.pad(kraus.data, pw)
+
+    # Complement projector as a separate Kraus operator.
+    D = reduce(mul, dims, 1)
+    complement = jnp.eye(D, dtype=complex).reshape(dims + dims)
+    orig_slices = tuple(slice(0, d) for d in current_dims) * 2
+    complement = complement.at[orig_slices].set(0.0)
+    complement_shape = batch_shape + (1,) + dims + dims
+    complement_op = jnp.broadcast_to(complement, complement_shape)
+    padded = jnp.concatenate([padded, complement_op], axis=n_ensemble)
+
+    return KrausMap(padded, num_qubits=len(dims))
+
+
+@promote_incoherent.register(Choi)
+@jax.jit(static_argnames=("dims",))
+def _promote_incoherent_choi(choi: Choi, dims: Tuple[int, ...]) -> Choi:
+    """Incoherent extension of a Choi matrix (via SuperOp round-trip)."""
+    _validate_promote_dims(choi.dims[0], dims)
+    superop = choi_to_superop(choi)
+    promoted_superop = _promote_incoherent_superop(superop, dims)
+    return superop_to_choi(promoted_superop)
+
+
+@promote_incoherent.register(PauliLiouville)
+@jax.jit(static_argnames=("dims",))
+def _promote_incoherent_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...]) -> PauliLiouville:
+    """Incoherent extension of a Pauli-Liouville matrix (via SuperOp round-trip)."""
+    _validate_promote_dims(pl.dims[0], dims)
+    superop = pauli_liouville_to_superop(pl)
+    promoted_superop = _promote_incoherent_superop(superop, dims)
+    return superop_to_pauli_liouville(promoted_superop)
 
 
 # ---------------------------------------------------------------------------
