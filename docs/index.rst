@@ -69,6 +69,7 @@ Automatic Promotion
    quickstart
    quantum-objects
    quantum-instruments
+   promotion
    examples/quantum-objects
    examples/hamiltonians
    examples/quantum-volume

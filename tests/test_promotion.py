@@ -110,11 +110,14 @@ def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[in
 
 def _qt_embed_superoperator(qt_superop, d_in, d_target):
     """
-    Build a reference coherent extension of a QuTiP superoperator.
+    Build a reference weighted extension of a QuTiP superoperator.
 
-    Uses the same strategy as our promotion: eigendecomposition of the
-    Choi matrix for a canonical Kraus decomposition, then zero-pad each
-    operator per subsystem and add the complement projector to the first.
+    Uses the same strategy as our default promotion: eigendecomposition
+    of the Choi matrix for a canonical Kraus decomposition, then zero-pad
+    each operator per subsystem and add ``alpha_i * P_perp`` to every
+    operator, where ``alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2)`` and
+    ``P_perp`` is the complement projector (identity on the higher basis
+    states).
     """
     d_in_total = reduce(mul, d_in, 1)
     d_target_total = reduce(mul, d_target, 1)
@@ -142,6 +145,11 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
     W = eigvecs * coeffs[None, :]
     n = d_in_total * d_in_total
 
+    # Frobenius-norm weights: ||K_i||_F = coeffs[i], normalized to unit total.
+    norms = coeffs
+    total = np.sqrt(np.sum(norms**2))
+    alphas = norms / total
+
     # Build complement projector in tensor form: identity on target with original zeroed
     complement_tensor = np.eye(d_target_total, dtype=complex).reshape(tuple(d_target) + tuple(d_target))
     orig_slices = tuple(slice(0, d) for d in d_in) * 2
@@ -157,8 +165,8 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
         pw = [(0, D - d) for d, D in zip(d_in + d_in, d_target + d_target)]
         padded_tensor = np.pad(k_tensor, pw)
 
-        if i == 0:
-            padded_tensor = padded_tensor + complement_tensor
+        # Weighted extension: add alpha_i * P_perp to every Kraus operator.
+        padded_tensor = padded_tensor + alphas[i] * complement_tensor
 
         padded = padded_tensor.reshape(d_target_total, d_target_total)
         promoted_kraus.append(qt.Qobj(padded, dims=[[list(d_target)], [list(d_target)]]))
@@ -584,6 +592,103 @@ def test_promoted_superop_self_fidelity():
     kraus = qx.depolarizing_operators(p)
     promoted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
     assert jnp.isclose(qx.process_fidelity(promoted, promoted), 1.0, atol=1e-12)
+
+
+# ======================== Weighted (default promote) ========================
+
+
+def test_weighted_promotion_preserves_leaked_state_all_branches():
+    """Every promoted Kraus operator should preserve the leaked |2⟩ state.
+
+    For depolarizing noise promoted from a qubit (d=2) to a qutrit (d=3),
+    each promoted Kraus operator K̃_i must satisfy K̃_i|2⟩ = alpha_i|2⟩
+    with alpha_0 = √(1-p) and alpha_{1,2,3} = √(p/3).  This is the key
+    property that decouples leakage survival from the gate trajectory:
+    the leaked state rides through *every* branch, not just the leading
+    one.
+    """
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+    promoted = qx.promote(kraus, (3,))
+
+    K = promoted.matrix  # (n_kraus, 3, 3)
+    expected_alphas = jnp.array([jnp.sqrt(1.0 - p)] + [jnp.sqrt(p / 3.0)] * 3)
+
+    for i in range(K.shape[0]):
+        alpha_i = expected_alphas[i]
+        # K̃_i|2⟩ = alpha_i|2⟩: the last column is alpha_i * e_2.
+        assert jnp.allclose(K[i, :, 2], jnp.array([0.0, 0.0, alpha_i]), atol=1e-12)
+        # ⟨2|K̃_i = alpha_i⟨2|: the last row is alpha_i * e_2.
+        assert jnp.allclose(K[i, 2, :], jnp.array([0.0, 0.0, alpha_i]), atol=1e-12)
+        # The computational block is the original (zero-padded) Kraus op.
+        assert jnp.allclose(K[i, :2, :2], kraus.matrix[i], atol=1e-12)
+
+
+def test_weighted_promotion_alphas_are_normalized():
+    """The complement weights should satisfy sum_i |alpha_i|^2 = 1 (CPTP)."""
+    p = 0.25
+    kraus = qx.depolarizing_operators(p)
+    promoted = qx.promote(kraus, (3,))
+
+    # alpha_i is the (2, 2) entry of each promoted Kraus operator.
+    alphas = promoted.matrix[:, 2, 2]
+    assert jnp.isclose(jnp.sum(jnp.abs(alphas) ** 2), 1.0, atol=1e-12)
+
+
+def test_weighted_promotion_unitary_adds_full_complement():
+    """For a unitary (single Kraus op) alpha_0 = 1: the complement is added in full."""
+    key = jax.random.key(7)
+    u = qx.random_unitary(dims=((2,), (2,)), key=key)
+    # A single-operator KrausMap (one Kraus op) representing the unitary channel.
+    kraus = qx.KrausMap.from_matrix(u.matrix[None, :, :], ((2,), (2,)))
+    promoted = qx.promote(kraus, (3,))
+
+    K = promoted.matrix  # (1, 3, 3)
+    assert K.shape[0] == 1
+    # alpha_0 = 1, so the promoted op is the embedded U with identity on |2⟩.
+    assert jnp.isclose(K[0, 2, 2], 1.0, atol=1e-12)
+    assert jnp.allclose(K[0, :2, :2], u.matrix, atol=1e-12)
+
+
+@pytest.mark.parametrize("rep", ["superop", "kraus", "choi", "pauli_liouville"])
+def test_weighted_promotion_is_cptp(rep):
+    """The default (weighted) promotion should produce a valid CPTP channel."""
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+
+    if rep == "superop":
+        ch = qx.kraus_to_superop(kraus)
+    elif rep == "kraus":
+        ch = kraus
+    elif rep == "choi":
+        ch = qx.kraus_to_choi(kraus)
+    elif rep == "pauli_liouville":
+        ch = qx.kraus_to_pauli_liouville(kraus)
+
+    promoted = qx.promote(ch, (3,))
+    assert qx.validate(promoted)
+
+
+def test_weighted_promotion_preserves_cross_coherence():
+    """Unlike incoherent promotion, weighted promotion keeps cross-subspace coherence.
+
+    Applying the promoted channel to (|1⟩ + |2⟩)/√2 should leave a nonzero
+    ρ_12 coherence (the leaked state stays coherent with the computational
+    subspace), whereas promote_incoherent destroys it.
+    """
+    p = 0.1
+    kraus = qx.depolarizing_operators(p)
+    weighted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
+    incoherent = qx.promote_incoherent(qx.kraus_to_superop(kraus), (3,))
+
+    psi = jnp.array([0.0, 1.0, 1.0], dtype=complex) / jnp.sqrt(2.0)
+    rho = jnp.outer(psi, psi.conj())
+
+    rho_w = (weighted.matrix @ rho.ravel()).reshape(3, 3)
+    rho_i = (incoherent.matrix @ rho.ravel()).reshape(3, 3)
+
+    assert jnp.abs(rho_w[1, 2]) > 1e-6, "weighted promotion should preserve ρ_12"
+    assert jnp.abs(rho_i[1, 2]) < 1e-12, "incoherent promotion should destroy ρ_12"
 
 
 # ======================== Validation ========================
