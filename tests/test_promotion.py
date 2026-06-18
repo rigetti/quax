@@ -691,6 +691,94 @@ def test_weighted_promotion_preserves_cross_coherence():
     assert jnp.abs(rho_i[1, 2]) < 1e-12, "incoherent promotion should destroy ρ_12"
 
 
+@pytest.mark.parametrize("seed", [0, 1, 7])
+def test_weighted_promotion_weights_match_frobenius_norms(seed):
+    """The complement weight of each promoted Kraus op is its Frobenius-norm share.
+
+    This is the *defining* property of the weighted extension, checked here
+    for a generic (non-depolarizing) random channel rather than a channel
+    with hand-computed weights.  For every promoted Kraus operator K̃_i the
+    coefficient of the complement projector |2⟩⟨2| must equal
+
+        alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2),
+
+    with the K_i the *original* (unpadded) Kraus operators.  We build a
+    random rank-3 qubit channel via its Choi matrix, take the canonical
+    Choi-eigenvector Kraus set, and compare.
+    """
+    key = jax.random.key(seed)
+    choi = qx.random_choi(dims=((2,), (2,)), rank=3, key=key)
+    kraus = qx.choi_to_kraus(choi)
+
+    promoted = qx.promote(kraus, (3,))
+
+    # Expected weights from the original Kraus operators' Frobenius norms.
+    norms = jnp.sqrt(jnp.sum(jnp.abs(kraus.matrix) ** 2, axis=(-2, -1)))
+    expected_alphas = norms / jnp.sqrt(jnp.sum(norms**2))
+
+    # Observed complement weight is the (2, 2) entry of each promoted op.
+    observed_alphas = promoted.matrix[:, 2, 2]
+
+    # The weights are real and nonnegative by construction.
+    assert jnp.allclose(observed_alphas.imag, 0.0, atol=1e-12)
+    assert jnp.allclose(observed_alphas.real, expected_alphas, atol=1e-10)
+
+    # Each promoted op acts as alpha_i on the leaked level and as the
+    # zero-padded original on the computational block.
+    for i in range(promoted.matrix.shape[0]):
+        alpha_i = observed_alphas[i]
+        assert jnp.allclose(promoted.matrix[i, :, 2], jnp.array([0.0, 0.0, alpha_i]), atol=1e-10)
+        assert jnp.allclose(promoted.matrix[i, 2, :], jnp.array([0.0, 0.0, alpha_i]), atol=1e-10)
+        assert jnp.allclose(promoted.matrix[i, :2, :2], kraus.matrix[i], atol=1e-10)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 7])
+def test_weighted_promotion_distinct_from_coherent_extension(seed):
+    """The weighted extension differs from the coherent (K_0-only) extension.
+
+    Both are valid CPTP members of the family K̃_i = pad(K_i) + alpha_i P_⊥
+    with sum_i |alpha_i|^2 = 1, and both agree exactly on the computational
+    block, but they distribute the complement differently and therefore
+    induce different superoperators.  The coherent extension puts the whole
+    complement on K_0 (alpha_0 = 1, alpha_{i>0} = 0); the weighted extension
+    spreads it by Frobenius norm.  For any channel with more than one Kraus
+    operator of nonzero weight these must differ.
+    """
+    key = jax.random.key(seed)
+    choi = qx.random_choi(dims=((2,), (2,)), rank=3, key=key)
+    kraus = qx.choi_to_kraus(choi)
+    n_kraus = kraus.matrix.shape[0]
+
+    weighted_superop = qx.kraus_to_superop(qx.promote(kraus, (3,)))
+
+    # Build the coherent reference: zero-pad every Kraus op, then add the
+    # full complement projector P_⊥ = |2⟩⟨2| to the leading operator only.
+    P_perp = jnp.zeros((3, 3), dtype=complex).at[2, 2].set(1.0)
+    coherent_ops = []
+    for i in range(n_kraus):
+        padded = jnp.zeros((3, 3), dtype=complex).at[:2, :2].set(kraus.matrix[i])
+        if i == 0:
+            padded = padded + P_perp
+        coherent_ops.append(padded)
+    coherent_kraus = qx.KrausMap.from_matrix(jnp.stack(coherent_ops), ((3,), (3,)))
+    coherent_superop = qx.kraus_to_superop(coherent_kraus)
+
+    # Both are valid CPTP channels.
+    assert qx.validate(weighted_superop)
+    assert qx.validate(coherent_kraus)
+
+    # They agree on the computational block: apply to a computational-subspace
+    # input |0⟩⟨0| (promoted) and compare the 2x2 computational output block.
+    rho_in = jnp.zeros((3, 3), dtype=complex).at[0, 0].set(1.0)
+    rho_w = (weighted_superop.matrix @ rho_in.ravel()).reshape(3, 3)
+    rho_c = (coherent_superop.matrix @ rho_in.ravel()).reshape(3, 3)
+    assert jnp.allclose(rho_w[:2, :2], rho_c[:2, :2], atol=1e-10)
+
+    # But the full superoperators differ — the complement is distributed
+    # differently, so the two extensions are genuinely distinct channels.
+    assert not jnp.allclose(weighted_superop.matrix, coherent_superop.matrix, atol=1e-6)
+
+
 # ======================== Validation ========================
 
 
