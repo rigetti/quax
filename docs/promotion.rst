@@ -15,13 +15,23 @@ operation **promotion** and exposes it through a single dispatched entry point,
 Throughout, fix a system of :math:`n` subsystems with computational dimensions
 :math:`(d_1, \dots, d_n)` that we promote to larger dimensions
 :math:`(D_1, \dots, D_n)` with :math:`D_k \ge d_k`. Write :math:`d = \prod_k d_k`
-and :math:`D = \prod_k D_k` for the total dimensions. For each subsystem the
-**embedding isometry** :math:`E_k \in \mathbb{C}^{D_k \times d_k}` is the
-zero-padded identity :math:`(E_k)_{ab} = \delta_{ab}` for :math:`a < d_k`, and the
-full isometry is the tensor product :math:`E = \bigotimes_k E_k \in
-\mathbb{C}^{D \times d}`. It satisfies :math:`E^\dagger E = I_d` and
-:math:`P = E E^\dagger` is the projector onto the embedded computational subspace,
-with complement :math:`P_\perp = I_D - P` projecting onto the leaked levels.
+and :math:`D = \prod_k D_k` for the total dimensions, and let :math:`E` be the
+embedding isometry that injects the computational space into the promoted one,
+defined in the note below.
+
+.. note::
+
+   **Embedding isometry.** For each subsystem the embedding isometry
+   :math:`E_k \in \mathbb{C}^{D_k \times d_k}` is the zero-padded identity,
+   :math:`(E_k)_{ab} = \delta_{ab}` for :math:`a < d_k` (it copies the
+   computational basis states :math:`|0\rangle, \dots, |d_k - 1\rangle` into the
+   first :math:`d_k` levels of the larger space and sends nothing to the leaked
+   levels). The full isometry is the tensor product
+   :math:`E = \bigotimes_k E_k \in \mathbb{C}^{D \times d}`. It satisfies
+   :math:`E^\dagger E = I_d` (it preserves inner products, so it is an isometry but
+   not unitary), while :math:`P = E E^\dagger` is the projector onto the embedded
+   computational subspace and :math:`P_\perp = I_D - P` projects onto the leaked
+   levels.
 
 The behaviour of :func:`~quax.promote` depends on what is being promoted: states
 are zero-padded, unitaries and operators are identity-extended, channels use a
@@ -112,7 +122,57 @@ computational block changes.
    promoted = qx.promote(u, (3,))   # block-diag(U, 1): identity on |2>
 
 
-4. Promotion of superoperators
+4. Promotion of quantum instruments
+-----------------------------------
+
+A :class:`~quax.QuantumInstrument` describes a measurement (or other
+classically-conditioned process) as a collection of completely positive maps
+:math:`\{\mathcal{I}_m\}`, one per classical outcome :math:`m`, whose sum
+:math:`\sum_m \mathcal{I}_m` is trace preserving. A measurement *destroys*
+coherence between the computational and leaked subspaces, so an instrument is
+promoted by the **incoherent** extension (the channel case, where that coherence
+is instead retained, is treated in Section 5).
+
+Each outcome map is zero-padded into the larger space,
+:math:`\hat{\mathcal{I}}_m(\rho) = \sum_i \hat{K}_{m,i}\,\rho\,\hat{K}_{m,i}^\dagger`,
+and the complement is restored by appending the projector :math:`P_\perp` as a
+*separate* Kraus operator to a single outcome. Quax assigns it to the
+highest-index outcome :math:`M`:
+
+.. math::
+   :label: eq-promote-instrument
+
+   \tilde{\mathcal{I}}_m(\rho) =
+   \begin{cases}
+     \hat{\mathcal{I}}_m(\rho), & m < M, \\[4pt]
+     \hat{\mathcal{I}}_M(\rho) + P_\perp\,\rho\,P_\perp, & m = M.
+   \end{cases}
+
+Summing over outcomes restores :math:`\sum_m \tilde{\mathcal{I}}_m` to a CPTP map
+(the padded maps supply :math:`P` and the appended projector supplies
+:math:`P_\perp`), while the separate :math:`P_\perp\,\rho\,P_\perp` term destroys
+all coherence between the computational and complement subspaces. For dispersive
+readout this matches the typical experimental behaviour: a leaked :math:`|2\rangle`
+lands near the :math:`|1\rangle` IQ blob and is recorded as the highest
+computational outcome, with no residual coherence to the measured subspace.
+
+Why the incoherent extension here rather than the weighted one used for channels?
+The distinction is physical, not merely conventional. A measurement extracts
+classical information: recording an outcome collapses the state and severs any
+coherence between the subspace that was "read out" and the leaked levels, exactly
+the decoherence that the separate :math:`P_\perp\,\rho\,P_\perp` term enforces. The
+weighted extension, by contrast, is built to *preserve* a computational
+:math:`\leftrightarrow` complement coherence (Eq. :eq:`eq-family` with
+:math:`\alpha_i P_\perp` folded back into each Kraus operator); applied to an
+instrument it would leave a coherent superposition between a definite measured
+outcome and a leaked level, which a projective or dispersive readout cannot
+sustain. Put differently, the weighted choice is the right one when the leaked
+population must ride coherently *through* a gate, whereas a measurement is meant to
+collapse it — so the incoherent extension, which also underlies resets, is the
+faithful model.
+
+
+5. Promotion of superoperators
 ------------------------------
 
 Promoting a noise channel is the substantive case, because there is no longer a
@@ -130,6 +190,21 @@ We want an embedded channel :math:`\tilde{\mathcal{E}}` on the
 computational subspace and (ii) **acts as the identity** on the complement, since
 a gate-level noise process should not by itself disturb a state that has already
 leaked.
+
+Why can we not simply mirror the unitary embedding of Eq. :eq:`eq-promote-unitary`?
+For a unitary the prescription "act as :math:`U` inside, as the identity outside"
+is unambiguous because a unitary is a *single* operator with a single,
+well-defined action on the complement. A channel is instead an operator *sum*, and
+the trace-preservation constraint :math:`\sum_i K_i^\dagger K_i = I_d` couples the
+Kraus operators together — there is no single object to identity-extend. The
+naive superoperator analogue, conjugating the channel by the embedding isometry
+(:math:`\tilde{\mathcal{E}} = E \mathcal{E} E^\dagger` at the map level), runs into
+exactly the obstruction below: it annihilates the complement and is not trace
+preserving. Repairing it forces a *choice* of how the restored complement
+correlates with the channel's action — coherently, incoherently, or somewhere in
+between — and that choice lives in the operator-sum representation. We therefore
+work with Kraus operators, where the freedom is explicit and the CPTP constraint
+is easy to enforce.
 
 Embedding each Kraus operator by zero-padding, :math:`\hat{K}_i = E K_i E^\dagger`,
 satisfies requirement (i) but **not** trace preservation:
@@ -174,66 +249,56 @@ Quax resolves this freedom with the **weighted** extension (the default for
 :class:`~quax.SuperOp`, :class:`~quax.KrausMap`, :class:`~quax.Choi`, and
 :class:`~quax.PauliLiouville`), distributing the complement across every Kraus
 operator in proportion to its Frobenius norm. The full family and the three
-canonical choices are discussed in :ref:`Section 6 <promotion-choices>`; the
-rationale for the weighted default is the subject of
-:ref:`Section 7 <promotion-trajectories>`.
+canonical choices are discussed under :ref:`Promotion choices <promotion-choices>`
+below; the rationale for the weighted default is taken up under
+:ref:`Use in Kraus-trajectory simulations <promotion-trajectories>` that follows.
 
 .. note::
 
-   The weighting depends on the Kraus decomposition. A :class:`~quax.KrausMap` is
-   promoted using *its own* operators, whereas :class:`~quax.SuperOp`,
-   :class:`~quax.Choi`, and :class:`~quax.PauliLiouville` are first decomposed into
-   the canonical Choi-eigenvector Kraus set. The resulting channels are CPTP and
-   identical on the computational subspace, but their complement-coherence blocks
-   (and hence their trajectory unravellings) reflect the chosen decomposition.
+   **Why the Kraus decomposition matters.** The weighting depends on which set of
+   Kraus operators represents the channel, and that set is not unique: any two
+   Kraus sets of the same channel are related by an isometry,
+   :math:`K'_i = \sum_j u_{ij} K_j` with :math:`u^\dagger u = I` (the
+   Stinespring/unitary-of-Kraus freedom). Common choices include:
 
+   * the **canonical (Choi-eigenvector) decomposition**, the spectral
+     decomposition of the Choi matrix. Its operators are mutually orthogonal,
+     :math:`\operatorname{Tr}(K_i^\dagger K_j) \propto \delta_{ij}`, minimal in
+     number (equal to the Choi rank), and satisfy
+     :math:`\lVert K_i \rVert_F^2 = \lambda_i`, which is what makes the weighted
+     probabilities :math:`|\alpha_i|^2 = q_i` of Eq. :eq:`eq-weighted-prob` come
+     out exactly. This is what Quax uses internally;
+   * a **physically motivated decomposition**, such as the Pauli operators
+     :math:`\{\sqrt{1-p}\,I, \sqrt{p/3}\,X, Y, Z\}` for depolarizing noise or the
+     standard two-operator form for amplitude damping. These are typically *not*
+     orthogonal and need not be minimal, but they carry a direct error-channel
+     interpretation;
+   * an **over-complete or randomly mixed decomposition** obtained by applying a
+     rectangular :math:`u` above, which splits the channel into more operators
+     than the Choi rank.
 
-5. Promotion of quantum instruments
------------------------------------
-
-A :class:`~quax.QuantumInstrument` describes a measurement (or other
-classically-conditioned process) as a collection of completely positive maps
-:math:`\{\mathcal{I}_m\}`, one per classical outcome :math:`m`, whose sum
-:math:`\sum_m \mathcal{I}_m` is trace preserving. Promoting an instrument is
-different from promoting a channel: a measurement *destroys* coherence between the
-computational and leaked subspaces, so the **incoherent** extension is the
-physically correct one.
-
-Each outcome map is zero-padded into the larger space,
-:math:`\hat{\mathcal{I}}_m(\rho) = \sum_i \hat{K}_{m,i}\,\rho\,\hat{K}_{m,i}^\dagger`,
-and the complement is restored by appending the projector :math:`P_\perp` as a
-*separate* Kraus operator to a single outcome. Quax assigns it to the
-highest-index outcome :math:`M`:
-
-.. math::
-   :label: eq-promote-instrument
-
-   \tilde{\mathcal{I}}_m(\rho) =
-   \begin{cases}
-     \hat{\mathcal{I}}_m(\rho), & m < M, \\[4pt]
-     \hat{\mathcal{I}}_M(\rho) + P_\perp\,\rho\,P_\perp, & m = M.
-   \end{cases}
-
-Summing over outcomes restores :math:`\sum_m \tilde{\mathcal{I}}_m` to a CPTP map
-(the padded maps supply :math:`P` and the appended projector supplies
-:math:`P_\perp`), while the separate :math:`P_\perp\,\rho\,P_\perp` term destroys
-all coherence between the computational and complement subspaces. For dispersive
-readout this matches the typical experimental behaviour: a leaked :math:`|2\rangle`
-lands near the :math:`|1\rangle` IQ blob and is recorded as the highest
-computational outcome, with no residual coherence to the measured subspace.
+   Because the promoted channels all share the same computational block and remain
+   CPTP, they describe the *same average dynamics*; they differ only in the
+   complement-coherence block and therefore in how individual trajectories are
+   unravelled. Promoting a :class:`~quax.KrausMap` honours *its own* operators
+   (e.g. the physical Pauli set), whereas :class:`~quax.SuperOp`,
+   :class:`~quax.Choi`, and :class:`~quax.PauliLiouville` are first reduced to the
+   canonical Choi-eigenvector set. If a specific operator-sum unravelling matters
+   for your simulation, supply it explicitly as a :class:`~quax.KrausMap` rather
+   than relying on the canonical reduction.
 
 
 .. _promotion-choices:
 
-6. Superoperator promotion choices
-----------------------------------
+Promotion choices
+~~~~~~~~~~~~~~~~~~
 
-Section 4 showed that every weight assignment :math:`\{\alpha_i\}` with
-:math:`\sum_i |\alpha_i|^2 = 1` in Eq. :eq:`eq-family` gives a valid CPTP
+The family in Eq. :eq:`eq-family` shows that every weight assignment
+:math:`\{\alpha_i\}` with :math:`\sum_i |\alpha_i|^2 = 1` gives a valid CPTP
 extension. Three points in this family are of particular interest.
 
 Coherent extension
-~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^
 
 Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
 :math:`\alpha_{i>0} = 0`:
@@ -252,7 +317,7 @@ in a trajectory simulation: the leaked state survives **only** along the
 spuriously correlated with which gate-error trajectory was sampled.
 
 Incoherent extension
-~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^
 
 Add :math:`P_\perp` as a *separate* Kraus operator rather than folding it into an
 existing one:
@@ -266,11 +331,11 @@ existing one:
 This destroys all coherence between the computational and complement subspaces. It
 is the physically correct extension for **measurements and resets**, where the
 leaked levels genuinely decohere from the computational state, and is what Quax
-uses when promoting a :class:`~quax.QuantumInstrument` (Section 5). It is exposed
+uses when promoting a :class:`~quax.QuantumInstrument` (Section 4). It is exposed
 directly as :func:`~quax.promote_incoherent`.
 
 Weighted extension
-~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^
 
 Distribute the complement across *every* Kraus operator in proportion to its
 Frobenius norm,
@@ -301,8 +366,8 @@ This is the default extension used by :func:`~quax.promote` for channel types.
 
 .. _promotion-trajectories:
 
-7. Promoted superoperators in Kraus-trajectory simulations
-----------------------------------------------------------
+Use in Kraus-trajectory simulations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The motivation for the weighted default is the dominant use case for these
 promoted channels: **Kraus-trajectory (Monte-Carlo wavefunction) simulation**. In
@@ -340,7 +405,7 @@ for those, as Quax does automatically when promoting a
 :class:`~quax.QuantumInstrument`.
 
 Worked example: depolarizing noise on a transmon
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Consider single-qubit depolarizing noise,
 
