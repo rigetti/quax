@@ -124,8 +124,8 @@ def _qt_lindblad_channel(H_mat: np.ndarray, jump_mats: list, t: float = 1.0, dim
     qt_dims = [dims, dims]
     H_qt = qt.Qobj(H_mat, dims=qt_dims)
     c_ops = [qt.Qobj(L, dims=qt_dims) for L in jump_mats]
-    L_super = qt.liouvillian(H_qt, c_ops)
-    return qt.propagator(L_super, t)
+    L_super: qt.Qobj = qt.liouvillian(H_qt, c_ops)  # type: ignore[assignment]
+    return qt.propagator(L_super, float(t))  # type: ignore[arg-type]
 
 
 def _qt_embed_superoperator(qt_superop, d_in, d_target):
