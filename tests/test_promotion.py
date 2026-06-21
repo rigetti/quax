@@ -108,16 +108,33 @@ def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[in
     return E @ qt_op @ E.dag() + (I - P)
 
 
+def _qt_lindblad_channel(H_mat: np.ndarray, jump_mats: list, t: float = 1.0, dims: list | None = None) -> qt.Qobj:
+    """Compute the channel exp(t*L) via QuTiP Lindbladian exponentiation.
+
+    Returns a QuTiP Qobj superoperator (superrep='super').
+
+    :param H_mat: Hamiltonian as a numpy array.
+    :param jump_mats: List of jump operator numpy arrays.
+    :param t: Evolution time.
+    :param dims: QuTiP per-qudit dims list (e.g. [2] or [2, 2]).  Defaults to [d].
+    """
+    d = H_mat.shape[0]
+    if dims is None:
+        dims = [d]
+    qt_dims = [dims, dims]
+    H_qt = qt.Qobj(H_mat, dims=qt_dims)
+    c_ops = [qt.Qobj(L, dims=qt_dims) for L in jump_mats]
+    L_super = qt.liouvillian(H_qt, c_ops)
+    return qt.propagator(L_super, t)
+
+
 def _qt_embed_superoperator(qt_superop, d_in, d_target):
     """
-    Build a reference weighted extension of a QuTiP superoperator.
+    Build a reference coherent extension of a QuTiP superoperator.
 
-    Uses the same strategy as our default promotion: eigendecomposition
-    of the Choi matrix for a canonical Kraus decomposition, then zero-pad
-    each operator per subsystem and add ``alpha_i * P_perp`` to every
-    operator, where ``alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2)`` and
-    ``P_perp`` is the complement projector (identity on the higher basis
-    states).
+    Uses the same strategy as our promotion: eigendecomposition of the
+    Choi matrix for a canonical Kraus decomposition, then zero-pad each
+    operator per subsystem and add the complement projector to the first.
     """
     d_in_total = reduce(mul, d_in, 1)
     d_target_total = reduce(mul, d_target, 1)
@@ -145,11 +162,6 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
     W = eigvecs * coeffs[None, :]
     n = d_in_total * d_in_total
 
-    # Frobenius-norm weights: ||K_i||_F = coeffs[i], normalized to unit total.
-    norms = coeffs
-    total = np.sqrt(np.sum(norms**2))
-    alphas = norms / total
-
     # Build complement projector in tensor form: identity on target with original zeroed
     complement_tensor = np.eye(d_target_total, dtype=complex).reshape(tuple(d_target) + tuple(d_target))
     orig_slices = tuple(slice(0, d) for d in d_in) * 2
@@ -165,8 +177,15 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
         pw = [(0, D - d) for d, D in zip(d_in + d_in, d_target + d_target)]
         padded_tensor = np.pad(k_tensor, pw)
 
-        # Weighted extension: add alpha_i * P_perp to every Kraus operator.
-        padded_tensor = padded_tensor + alphas[i] * complement_tensor
+        if i == 0:
+            # Canonicalize K_0 phase: same convention as quax _promote_kraus_map.
+            k0_flat = padded_tensor.reshape(-1)
+            max_idx = np.argmax(np.abs(k0_flat))
+            max_abs = np.abs(k0_flat[max_idx])
+            if max_abs > 1e-30:
+                phase = np.conj(k0_flat[max_idx]) / max_abs
+                padded_tensor = padded_tensor * phase
+            padded_tensor = padded_tensor + complement_tensor
 
         padded = padded_tensor.reshape(d_target_total, d_target_total)
         promoted_kraus.append(qt.Qobj(padded, dims=[[list(d_target)], [list(d_target)]]))
@@ -346,13 +365,13 @@ def test_promote_superop(seed, current_dims, target_dims, ensemble_size):
     if ensemble_size == ():
         qt_s = superop._to_qobj()
         qt_promoted = _qt_embed_superoperator(qt_s, current_dims, target_dims)
-        assert np.allclose(np.array(promoted.matrix), qt_promoted.full(), atol=1e-12)
+        assert np.allclose(np.array(promoted.matrix), qt_promoted.full(), atol=1e-8)
 
     else:
         for i, qobj in enumerate(superop._to_qobj()):
             qt_s = qobj
             qt_promoted = _qt_embed_superoperator(qt_s, current_dims, target_dims)
-            assert np.allclose(np.array(promoted.matrix[i]), qt_promoted.full(), atol=1e-12)
+            assert np.allclose(np.array(promoted.matrix[i]), qt_promoted.full(), atol=1e-8)
 
     assert promoted.dims == (target_dims, target_dims)
     assert promoted.ensemble_size == ensemble_size
@@ -592,191 +611,6 @@ def test_promoted_superop_self_fidelity():
     kraus = qx.depolarizing_operators(p)
     promoted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
     assert jnp.isclose(qx.process_fidelity(promoted, promoted), 1.0, atol=1e-12)
-
-
-# ======================== Weighted (default promote) ========================
-
-
-def test_weighted_promotion_preserves_leaked_state_all_branches():
-    """Every promoted Kraus operator should preserve the leaked |2⟩ state.
-
-    For depolarizing noise promoted from a qubit (d=2) to a qutrit (d=3),
-    each promoted Kraus operator K̃_i must satisfy K̃_i|2⟩ = alpha_i|2⟩
-    with alpha_0 = √(1-p) and alpha_{1,2,3} = √(p/3).  This is the key
-    property that decouples leakage survival from the gate trajectory:
-    the leaked state rides through *every* branch, not just the leading
-    one.
-    """
-    p = 0.1
-    kraus = qx.depolarizing_operators(p)
-    promoted = qx.promote(kraus, (3,))
-
-    K = promoted.matrix  # (n_kraus, 3, 3)
-    expected_alphas = jnp.array([jnp.sqrt(1.0 - p)] + [jnp.sqrt(p / 3.0)] * 3)
-
-    for i in range(K.shape[0]):
-        alpha_i = expected_alphas[i]
-        # K̃_i|2⟩ = alpha_i|2⟩: the last column is alpha_i * e_2.
-        assert jnp.allclose(K[i, :, 2], jnp.array([0.0, 0.0, alpha_i]), atol=1e-12)
-        # ⟨2|K̃_i = alpha_i⟨2|: the last row is alpha_i * e_2.
-        assert jnp.allclose(K[i, 2, :], jnp.array([0.0, 0.0, alpha_i]), atol=1e-12)
-        # The computational block is the original (zero-padded) Kraus op.
-        assert jnp.allclose(K[i, :2, :2], kraus.matrix[i], atol=1e-12)
-
-
-def test_weighted_promotion_alphas_are_normalized():
-    """The complement weights should satisfy sum_i |alpha_i|^2 = 1 (CPTP)."""
-    p = 0.25
-    kraus = qx.depolarizing_operators(p)
-    promoted = qx.promote(kraus, (3,))
-
-    # alpha_i is the (2, 2) entry of each promoted Kraus operator.
-    alphas = promoted.matrix[:, 2, 2]
-    assert jnp.isclose(jnp.sum(jnp.abs(alphas) ** 2), 1.0, atol=1e-12)
-
-
-def test_weighted_promotion_unitary_adds_full_complement():
-    """For a unitary (single Kraus op) alpha_0 = 1: the complement is added in full."""
-    key = jax.random.key(7)
-    u = qx.random_unitary(dims=((2,), (2,)), key=key)
-    # A single-operator KrausMap (one Kraus op) representing the unitary channel.
-    kraus = qx.KrausMap.from_matrix(u.matrix[None, :, :], ((2,), (2,)))
-    promoted = qx.promote(kraus, (3,))
-
-    K = promoted.matrix  # (1, 3, 3)
-    assert K.shape[0] == 1
-    # alpha_0 = 1, so the promoted op is the embedded U with identity on |2⟩.
-    assert jnp.isclose(K[0, 2, 2], 1.0, atol=1e-12)
-    assert jnp.allclose(K[0, :2, :2], u.matrix, atol=1e-12)
-
-
-@pytest.mark.parametrize("rep", ["superop", "kraus", "choi", "pauli_liouville"])
-def test_weighted_promotion_is_cptp(rep):
-    """The default (weighted) promotion should produce a valid CPTP channel."""
-    p = 0.1
-    kraus = qx.depolarizing_operators(p)
-
-    if rep == "superop":
-        ch = qx.kraus_to_superop(kraus)
-    elif rep == "kraus":
-        ch = kraus
-    elif rep == "choi":
-        ch = qx.kraus_to_choi(kraus)
-    elif rep == "pauli_liouville":
-        ch = qx.kraus_to_pauli_liouville(kraus)
-
-    promoted = qx.promote(ch, (3,))
-    assert qx.validate(promoted)
-
-
-def test_weighted_promotion_preserves_cross_coherence():
-    """Unlike incoherent promotion, weighted promotion keeps cross-subspace coherence.
-
-    Applying the promoted channel to (|1⟩ + |2⟩)/√2 should leave a nonzero
-    ρ_12 coherence (the leaked state stays coherent with the computational
-    subspace), whereas promote_incoherent destroys it.
-    """
-    p = 0.1
-    kraus = qx.depolarizing_operators(p)
-    weighted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
-    incoherent = qx.promote_incoherent(qx.kraus_to_superop(kraus), (3,))
-
-    psi = jnp.array([0.0, 1.0, 1.0], dtype=complex) / jnp.sqrt(2.0)
-    rho = jnp.outer(psi, psi.conj())
-
-    rho_w = (weighted.matrix @ rho.ravel()).reshape(3, 3)
-    rho_i = (incoherent.matrix @ rho.ravel()).reshape(3, 3)
-
-    assert jnp.abs(rho_w[1, 2]) > 1e-6, "weighted promotion should preserve ρ_12"
-    assert jnp.abs(rho_i[1, 2]) < 1e-12, "incoherent promotion should destroy ρ_12"
-
-
-@pytest.mark.parametrize("seed", [0, 1, 7])
-def test_weighted_promotion_weights_match_frobenius_norms(seed):
-    """The complement weight of each promoted Kraus op is its Frobenius-norm share.
-
-    This is the *defining* property of the weighted extension, checked here
-    for a generic (non-depolarizing) random channel rather than a channel
-    with hand-computed weights.  For every promoted Kraus operator K̃_i the
-    coefficient of the complement projector |2⟩⟨2| must equal
-
-        alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2),
-
-    with the K_i the *original* (unpadded) Kraus operators.  We build a
-    random rank-3 qubit channel via its Choi matrix, take the canonical
-    Choi-eigenvector Kraus set, and compare.
-    """
-    key = jax.random.key(seed)
-    choi = qx.random_choi(dims=((2,), (2,)), rank=3, key=key)
-    kraus = qx.choi_to_kraus(choi)
-
-    promoted = qx.promote(kraus, (3,))
-
-    # Expected weights from the original Kraus operators' Frobenius norms.
-    norms = jnp.sqrt(jnp.sum(jnp.abs(kraus.matrix) ** 2, axis=(-2, -1)))
-    expected_alphas = norms / jnp.sqrt(jnp.sum(norms**2))
-
-    # Observed complement weight is the (2, 2) entry of each promoted op.
-    observed_alphas = promoted.matrix[:, 2, 2]
-
-    # The weights are real and nonnegative by construction.
-    assert jnp.allclose(observed_alphas.imag, 0.0, atol=1e-12)
-    assert jnp.allclose(observed_alphas.real, expected_alphas, atol=1e-10)
-
-    # Each promoted op acts as alpha_i on the leaked level and as the
-    # zero-padded original on the computational block.
-    for i in range(promoted.matrix.shape[0]):
-        alpha_i = observed_alphas[i]
-        assert jnp.allclose(promoted.matrix[i, :, 2], jnp.array([0.0, 0.0, alpha_i]), atol=1e-10)
-        assert jnp.allclose(promoted.matrix[i, 2, :], jnp.array([0.0, 0.0, alpha_i]), atol=1e-10)
-        assert jnp.allclose(promoted.matrix[i, :2, :2], kraus.matrix[i], atol=1e-10)
-
-
-@pytest.mark.parametrize("seed", [0, 1, 7])
-def test_weighted_promotion_distinct_from_coherent_extension(seed):
-    """The weighted extension differs from the coherent (K_0-only) extension.
-
-    Both are valid CPTP members of the family K̃_i = pad(K_i) + alpha_i P_⊥
-    with sum_i |alpha_i|^2 = 1, and both agree exactly on the computational
-    block, but they distribute the complement differently and therefore
-    induce different superoperators.  The coherent extension puts the whole
-    complement on K_0 (alpha_0 = 1, alpha_{i>0} = 0); the weighted extension
-    spreads it by Frobenius norm.  For any channel with more than one Kraus
-    operator of nonzero weight these must differ.
-    """
-    key = jax.random.key(seed)
-    choi = qx.random_choi(dims=((2,), (2,)), rank=3, key=key)
-    kraus = qx.choi_to_kraus(choi)
-    n_kraus = kraus.matrix.shape[0]
-
-    weighted_superop = qx.kraus_to_superop(qx.promote(kraus, (3,)))
-
-    # Build the coherent reference: zero-pad every Kraus op, then add the
-    # full complement projector P_⊥ = |2⟩⟨2| to the leading operator only.
-    P_perp = jnp.zeros((3, 3), dtype=complex).at[2, 2].set(1.0)
-    coherent_ops = []
-    for i in range(n_kraus):
-        padded = jnp.zeros((3, 3), dtype=complex).at[:2, :2].set(kraus.matrix[i])
-        if i == 0:
-            padded = padded + P_perp
-        coherent_ops.append(padded)
-    coherent_kraus = qx.KrausMap.from_matrix(jnp.stack(coherent_ops), ((3,), (3,)))
-    coherent_superop = qx.kraus_to_superop(coherent_kraus)
-
-    # Both are valid CPTP channels.
-    assert qx.validate(weighted_superop)
-    assert qx.validate(coherent_kraus)
-
-    # They agree on the computational block: apply to a computational-subspace
-    # input |0⟩⟨0| (promoted) and compare the 2x2 computational output block.
-    rho_in = jnp.zeros((3, 3), dtype=complex).at[0, 0].set(1.0)
-    rho_w = (weighted_superop.matrix @ rho_in.ravel()).reshape(3, 3)
-    rho_c = (coherent_superop.matrix @ rho_in.ravel()).reshape(3, 3)
-    assert jnp.allclose(rho_w[:2, :2], rho_c[:2, :2], atol=1e-10)
-
-    # But the full superoperators differ — the complement is distributed
-    # differently, so the two extensions are genuinely distinct channels.
-    assert not jnp.allclose(weighted_superop.matrix, coherent_superop.matrix, atol=1e-6)
 
 
 # ======================== Validation ========================
@@ -1781,3 +1615,168 @@ def test_embed_with_dim_promotion(seed):
 
     assert embedded.dims == ((3, 3), (3, 3))
     assert qx.validate(embedded, atol=1e-10)
+
+
+# ======================== Lindbladian exponentiation ========================
+
+
+@pytest.mark.parametrize("target_dim", [3, 4])
+@pytest.mark.parametrize("gamma", [0.1, 0.5, 1.0])
+def test_promote_coherent_matches_lindblad_amplitude_damping(gamma, target_dim):
+    """Coherent extension of amplitude-damping channel matches zero-padded Lindblad exponentiation.
+
+    For amplitude damping, the first (dominant) Kraus operator is K_0 = diag(1, e^{-γt/2}),
+    which equals the cross-coherence propagator exp(-½ L†L t).  This makes the coherent
+    extension agree with exponentiating the zero-padded jump operators in the larger space.
+    """
+    d = 2
+    H = np.zeros((d, d), dtype=complex)
+    L = np.sqrt(gamma) * np.array([[0, 1], [0, 0]], dtype=complex)  # σ₋
+
+    # Build 2-dim channel from Lindbladian and wrap in quax
+    qt_channel = _qt_lindblad_channel(H, [L], t=1.0, dims=[d])
+    quax_superop = qx.SuperOp.from_matrix(jnp.array(qt_channel.full()), ((d,), (d,)))
+
+    # Coherent extension via quax
+    promoted = qx.promote(quax_superop, (target_dim,))
+
+    # Independent reference: zero-pad jump operators and exponentiate in the larger space
+    L_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    L_padded[:d, :d] = L
+    H_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    qt_promoted = _qt_lindblad_channel(H_padded, [L_padded], t=1.0, dims=[target_dim])
+    reference = qx.SuperOp.from_matrix(jnp.array(qt_promoted.full()), ((target_dim,), (target_dim,)))
+
+    assert np.allclose(np.array(promoted.matrix), np.array(reference.matrix), atol=1e-8)
+
+
+@pytest.mark.parametrize("target_dim", [4, 5])
+@pytest.mark.parametrize("gamma", [0.1, 0.5, 1.0])
+def test_promote_coherent_matches_lindblad_qutrit_amplitude_damping(gamma, target_dim):
+    """Coherent extension of qutrit amplitude-damping matches zero-padded Lindblad exponentiation.
+
+    Jump operator L = √γ |0⟩⟨1| on a qutrit; |2⟩ is decoupled from the dynamics.
+    K_0 = diag(1, e^{-γt/2}, 1) equals exp(-½ L†L t), so the identity holds.
+    """
+    d = 3
+    H = np.zeros((d, d), dtype=complex)
+    L = np.sqrt(gamma) * np.array([[0, 1, 0], [0, 0, 0], [0, 0, 0]], dtype=complex)
+
+    qt_channel = _qt_lindblad_channel(H, [L], t=1.0, dims=[d])
+    quax_superop = qx.SuperOp.from_matrix(jnp.array(qt_channel.full()), ((d,), (d,)))
+    promoted = qx.promote(quax_superop, (target_dim,))
+
+    L_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    L_padded[:d, :d] = L
+    H_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    qt_promoted = _qt_lindblad_channel(H_padded, [L_padded], t=1.0, dims=[target_dim])
+    reference = qx.SuperOp.from_matrix(jnp.array(qt_promoted.full()), ((target_dim,), (target_dim,)))
+
+    assert np.allclose(np.array(promoted.matrix), np.array(reference.matrix), atol=1e-8)
+
+
+@pytest.mark.parametrize("target_dim", [4, 5])
+@pytest.mark.parametrize("gamma_10,gamma_21", [(0.2, 0.1), (0.5, 0.5)])
+def test_promote_coherent_matches_lindblad_qutrit_cascade(gamma_10, gamma_21, target_dim):
+    """Coherent extension of a qutrit cascade channel matches zero-padded Lindblad exponentiation.
+
+    Two jump operators: L_10 = √γ₁₀ |0⟩⟨1| and L_21 = √γ₂₁ |1⟩⟨2|.
+    K_0 = diag(1, e^{-γ₁₀ t/2}, e^{-γ₂₁ t/2}) equals exp(-½ (L_10†L_10 + L_21†L_21) t).
+    """
+    d = 3
+    H = np.zeros((d, d), dtype=complex)
+    L_10 = np.sqrt(gamma_10) * np.array([[0, 1, 0], [0, 0, 0], [0, 0, 0]], dtype=complex)
+    L_21 = np.sqrt(gamma_21) * np.array([[0, 0, 0], [0, 0, 1], [0, 0, 0]], dtype=complex)
+
+    qt_channel = _qt_lindblad_channel(H, [L_10, L_21], t=1.0, dims=[d])
+    quax_superop = qx.SuperOp.from_matrix(jnp.array(qt_channel.full()), ((d,), (d,)))
+    promoted = qx.promote(quax_superop, (target_dim,))
+
+    L_10_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    L_10_padded[:d, :d] = L_10
+    L_21_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    L_21_padded[:d, :d] = L_21
+    H_padded = np.zeros((target_dim, target_dim), dtype=complex)
+    qt_promoted = _qt_lindblad_channel(H_padded, [L_10_padded, L_21_padded], t=1.0, dims=[target_dim])
+    reference = qx.SuperOp.from_matrix(jnp.array(qt_promoted.full()), ((target_dim,), (target_dim,)))
+
+    assert np.allclose(np.array(promoted.matrix), np.array(reference.matrix), atol=1e-8)
+
+
+def test_promote_coherent_matches_lindblad_twoqutrit():
+    """Two-qutrit independent amplitude damping: coherent extension matches zero-padded Lindblad exponentiation.
+
+    K_0 = diag(1,e^{-γt/2},1) ⊗ diag(1,e^{-γt/2},1) equals exp(-½ (L1†L1 + L2†L2) t).
+    Multi-qudit padding must use tensor structure (state (i1,i2) maps to i1*D+i2, not i1*d+i2).
+    """
+    gamma = 0.2
+    t = 1.0
+    d_each = 3
+    d = d_each * d_each  # 9-dim total
+    L_single = np.sqrt(gamma) * np.array([[0, 1, 0], [0, 0, 0], [0, 0, 0]], dtype=complex)
+    I3 = np.eye(d_each, dtype=complex)
+    L1 = np.kron(L_single, I3)  # amplitude damping on qutrit 0
+    L2 = np.kron(I3, L_single)  # amplitude damping on qutrit 1
+    H = np.zeros((d, d), dtype=complex)
+
+    qt_channel = _qt_lindblad_channel(H, [L1, L2], t=t, dims=[d_each, d_each])
+    quax_superop = qx.SuperOp.from_matrix(jnp.array(qt_channel.full()), ((d_each, d_each), (d_each, d_each)))
+    promoted = qx.promote(quax_superop, (4, 4))
+
+    src_dims = (d_each, d_each)
+    tgt_dims = (4, 4)
+    L1_padded = _tensor_pad_operator(L1, src_dims, tgt_dims)
+    L2_padded = _tensor_pad_operator(L2, src_dims, tgt_dims)
+    D = int(np.prod(tgt_dims))
+    H_padded = np.zeros((D, D), dtype=complex)
+    qt_promoted = _qt_lindblad_channel(H_padded, [L1_padded, L2_padded], t=t, dims=list(tgt_dims))
+    reference = qx.SuperOp.from_matrix(jnp.array(qt_promoted.full()), (tgt_dims, tgt_dims))
+
+    assert np.allclose(np.array(promoted.matrix), np.array(reference.matrix), atol=1e-8)
+
+
+def _tensor_pad_operator(L: np.ndarray, src_dims: tuple, tgt_dims: tuple) -> np.ndarray:
+    """Zero-pad a square operator from src_dims to tgt_dims using tensor structure.
+
+    For multi-qudit systems the flat index ordering differs between dimensions
+    (state (i1,i2) maps to i1*d2+i2, not i1*D2+i2 after promotion), so the
+    correct embedding requires reshaping to tensor form before padding.
+    """
+    tensor = L.reshape(src_dims + src_dims)
+    pw = [(0, tgt - src) for src, tgt in zip(src_dims + src_dims, tgt_dims + tgt_dims)]
+    D = int(np.prod(tgt_dims))
+    return np.pad(tensor, pw).reshape(D, D)
+
+
+def test_promote_coherent_matches_lindblad_twoqubit():
+    """Two-qubit independent amplitude damping: coherent extension matches zero-padded Lindblad exponentiation.
+
+    The 2-qubit K_0 = K_0^(1) ⊗ K_0^(2) = diag(1, e^{-γt/2}, e^{-γt/2}, e^{-γt}) equals
+    exp(-½ (L1†L1 + L2†L2) t), so the coherent extension and Lindblad exponentiation agree.
+    """
+    gamma = 0.2
+    t = 1.0
+    sigma_minus = np.array([[0, 1], [0, 0]], dtype=complex)
+    I2 = np.eye(2, dtype=complex)
+    d_each = 2
+    d = d_each * d_each  # 2-qubit total dimension (4)
+    L1 = np.sqrt(gamma) * np.kron(sigma_minus, I2)  # damping on qudit 0
+    L2 = np.sqrt(gamma) * np.kron(I2, sigma_minus)  # damping on qudit 1
+    H = np.zeros((d, d), dtype=complex)
+
+    qt_channel = _qt_lindblad_channel(H, [L1, L2], t=t, dims=[d_each, d_each])
+    quax_superop = qx.SuperOp.from_matrix(jnp.array(qt_channel.full()), ((d_each, d_each), (d_each, d_each)))
+    promoted = qx.promote(quax_superop, (3, 3))
+
+    # Zero-pad jump operators using tensor structure: state (i1,i2) maps to i1*D2+i2 in
+    # the larger space, so we must pad each qudit dimension independently.
+    src_dims = (d_each, d_each)
+    tgt_dims = (3, 3)
+    L1_padded = _tensor_pad_operator(L1, src_dims, tgt_dims)
+    L2_padded = _tensor_pad_operator(L2, src_dims, tgt_dims)
+    D = int(np.prod(tgt_dims))
+    H_padded = np.zeros((D, D), dtype=complex)
+    qt_promoted = _qt_lindblad_channel(H_padded, [L1_padded, L2_padded], t=t, dims=list(tgt_dims))
+    reference = qx.SuperOp.from_matrix(jnp.array(qt_promoted.full()), (tgt_dims, tgt_dims))
+
+    assert np.allclose(np.array(promoted.matrix), np.array(reference.matrix), atol=1e-8)

@@ -34,11 +34,11 @@ defined in the note below.
    levels.
 
 The behaviour of :func:`~quax.promote` depends on what is being promoted: states
-are zero-padded, unitaries and operators are identity-extended, channels use a
-**weighted** Kraus extension, and quantum instruments use an **incoherent**
+are zero-padded, unitaries and operators are identity-extended, channels use the
+**coherent** Kraus extension, and quantum instruments use an **incoherent**
 extension. The sections below treat each in turn, then discuss the family of
-superoperator extensions and why the weighted choice is the natural default for
-the Kraus-trajectory simulations this library targets.
+superoperator extensions, the Lindbladian justification for the coherent default,
+and the important caveats that every user of channel promotion must understand.
 
 
 1. Promotion of state vectors
@@ -156,20 +156,11 @@ readout this matches the typical experimental behaviour: a leaked :math:`|2\rang
 lands near the :math:`|1\rangle` IQ blob and is recorded as the highest
 computational outcome, with no residual coherence to the measured subspace.
 
-Why the incoherent extension here rather than the weighted one used for channels?
+Why the incoherent extension here rather than the coherent one used for channels?
 The distinction is physical, not merely conventional. A measurement extracts
 classical information: recording an outcome collapses the state and severs any
 coherence between the subspace that was "read out" and the leaked levels, exactly
-the decoherence that the separate :math:`P_\perp\,\rho\,P_\perp` term enforces. The
-weighted extension, by contrast, is built to *preserve* a computational
-:math:`\leftrightarrow` complement coherence (Eq. :eq:`eq-family` with
-:math:`\alpha_i P_\perp` folded back into each Kraus operator); applied to an
-instrument it would leave a coherent superposition between a definite measured
-outcome and a leaked level, which a projective or dispersive readout cannot
-sustain. Put differently, the weighted choice is the right one when the leaked
-population must ride coherently *through* a gate, whereas a measurement is meant to
-collapse it — so the incoherent extension, which also underlies resets, is the
-faithful model.
+the decoherence that the separate :math:`P_\perp\,\rho\,P_\perp` term enforces.
 
 
 5. Promotion of superoperators
@@ -242,50 +233,16 @@ So **every** weight assignment :math:`\{\alpha_i\}` with :math:`\sum_i |\alpha_i
 = 1` yields a completely positive, trace-preserving (CPTP) extension that meets
 both requirements. The freedom in :math:`\{\alpha_i\}` is precisely the freedom in
 *how the leaked subspace is correlated with the channel's Kraus (trajectory)
-decomposition*. Different choices produce nearly identical average density
-matrices but markedly different behaviour under a trajectory unravelling.
+decomposition*. Different choices produce identical average density matrices in the
+computational and complement blocks, but differ in the cross-block
+(computational :math:`\leftrightarrow` complement) coherences.
 
-Quax resolves this freedom with the **weighted** extension (the default for
+Quax resolves this freedom with the **coherent** extension (the default for
 :class:`~quax.SuperOp`, :class:`~quax.KrausMap`, :class:`~quax.Choi`, and
-:class:`~quax.PauliLiouville`), distributing the complement across every Kraus
-operator in proportion to its Frobenius norm. The full family and the three
-canonical choices are discussed under :ref:`Promotion choices <promotion-choices>`
-below; the rationale for the weighted default is taken up under
-:ref:`Use in Kraus-trajectory simulations <promotion-trajectories>` that follows.
-
-.. note::
-
-   **Why the Kraus decomposition matters.** The weighting depends on which set of
-   Kraus operators represents the channel, and that set is not unique: any two
-   Kraus sets of the same channel are related by an isometry,
-   :math:`K'_i = \sum_j u_{ij} K_j` with :math:`u^\dagger u = I` (the
-   Stinespring/unitary-of-Kraus freedom). Common choices include:
-
-   * the **canonical (Choi-eigenvector) decomposition**, the spectral
-     decomposition of the Choi matrix. Its operators are mutually orthogonal,
-     :math:`\operatorname{Tr}(K_i^\dagger K_j) \propto \delta_{ij}`, minimal in
-     number (equal to the Choi rank), and satisfy
-     :math:`\lVert K_i \rVert_F^2 = \lambda_i`, which is what makes the weighted
-     probabilities :math:`|\alpha_i|^2 = q_i` of Eq. :eq:`eq-weighted-prob` come
-     out exactly. This is what Quax uses internally;
-   * a **physically motivated decomposition**, such as the Pauli operators
-     :math:`\{\sqrt{1-p}\,I, \sqrt{p/3}\,X, Y, Z\}` for depolarizing noise or the
-     standard two-operator form for amplitude damping. These are typically *not*
-     orthogonal and need not be minimal, but they carry a direct error-channel
-     interpretation;
-   * an **over-complete or randomly mixed decomposition** obtained by applying a
-     rectangular :math:`u` above, which splits the channel into more operators
-     than the Choi rank.
-
-   Because the promoted channels all share the same computational block and remain
-   CPTP, they describe the *same average dynamics*; they differ only in the
-   complement-coherence block and therefore in how individual trajectories are
-   unravelled. Promoting a :class:`~quax.KrausMap` honours *its own* operators
-   (e.g. the physical Pauli set), whereas :class:`~quax.SuperOp`,
-   :class:`~quax.Choi`, and :class:`~quax.PauliLiouville` are first reduced to the
-   canonical Choi-eigenvector set. If a specific operator-sum unravelling matters
-   for your simulation, supply it explicitly as a :class:`~quax.KrausMap` rather
-   than relying on the canonical reduction.
+:class:`~quax.PauliLiouville`), which places the entire complement weight on the
+first Kraus operator :math:`K_0`. The physical justification for this choice and
+its important limitations are discussed in detail under
+:ref:`Promotion choices <promotion-choices>` below.
 
 
 .. _promotion-choices:
@@ -297,8 +254,8 @@ The family in Eq. :eq:`eq-family` shows that every weight assignment
 :math:`\{\alpha_i\}` with :math:`\sum_i |\alpha_i|^2 = 1` gives a valid CPTP
 extension. Three points in this family are of particular interest.
 
-Coherent extension
-^^^^^^^^^^^^^^^^^^
+Coherent extension (default)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
 :math:`\alpha_{i>0} = 0`:
@@ -308,13 +265,99 @@ Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
 
    \tilde{K}_0 = \hat{K}_0 + P_\perp, \qquad \tilde{K}_{i>0} = \hat{K}_i .
 
-This fully preserves coherence between the computational and complement subspaces
-and is *exact* for a unitary channel — which has a single Kraus operator, so the
-coherent extension reduces to Eq. :eq:`eq-promote-unitary`. Its drawback appears
-in a trajectory simulation: the leaked state survives **only** along the
-:math:`K_0` branch; every other branch (e.g. an :math:`X`, :math:`Y`, or
-:math:`Z` error) annihilates it. The fate of the leaked population thereby becomes
-spuriously correlated with which gate-error trajectory was sampled.
+This is the **default extension** used by :func:`~quax.promote` for channel types,
+on the basis of the Lindbladian argument below. It fully preserves coherence
+between the computational and complement subspaces and is *exact* for a unitary
+channel — which has a single Kraus operator, so the coherent extension reduces
+exactly to Eq. :eq:`eq-promote-unitary`.
+
+**The Lindbladian justification.** The most physically transparent way to promote
+a channel is to work at the level of the underlying microscopic model rather than
+the channel itself. Suppose the qubit channel arises from a Lindbladian master
+equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
+supported within the :math:`d`-dimensional computational subspace, so the
+:math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
+operator:
+
+.. math::
+   :label: eq-lindblad-promote
+
+   \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
+
+Because the zero-padded operators have no matrix elements coupling the leaked
+levels to the computational subspace, the Lindbladian evolution of an initially
+leaked state is governed entirely by :math:`P_\perp`. Exponentiating gives a
+promoted channel :math:`\hat{\mathcal{E}}_t` that leaves the complement untouched
+and reproduces the qubit channel on the computational subspace. For many
+physically relevant channels — amplitude damping, cascade decay, thermal
+relaxation — this zero-padded Lindbladian approach agrees *exactly* with the
+coherent extension. The agreement holds whenever the first Kraus operator
+:math:`K_0` from the canonical (Choi-eigenvector) decomposition equals the no-jump
+propagator :math:`\exp\!\bigl(-\tfrac{1}{2}\sum_k L_k^\dagger L_k\, t\bigr)`.
+This can be verified analytically for a broad class of channels and is confirmed by
+the tests in ``tests/test_promotion.py``.
+
+**The depolarizing argument.** The coherent extension also has a direct physical
+interpretation in terms of Kraus trajectories. Consider depolarizing noise on the
+computational subspace. In a trajectory unravelling, a jump event corresponds to
+one of the Pauli error operators :math:`X`, :math:`Y`, or :math:`Z` firing. These
+operators are zero-padded and therefore have *zero amplitude on any leaked state*:
+:math:`\hat{K}_X |2\rangle = \hat{K}_Y |2\rangle = \hat{K}_Z |2\rangle = 0`. So
+observing a jump event in the computational-subspace error channel necessarily
+implies the system was *not* in the leaked level at the time of the jump — and
+therefore the post-jump state has **zero probability of being in** :math:`|2\rangle`.
+This is the physically correct conclusion: a depolarizing interaction that acts
+entirely within the qubit subspace only happens *to* a qubit, so a subsequent
+measurement of whether the qubit is leaked must give "no." The coherent extension
+encodes exactly this logic. Only the no-error branch (:math:`K_0`) carries the
+complement projector and therefore preserves any pre-existing leaked population,
+which is also correct: a system that was leaked and experienced no jump simply
+continues to be leaked.
+
+.. _promotion-decomposition-warning:
+
+.. warning::
+
+   **The coherent extension is Kraus-decomposition-dependent. Use it with care.**
+
+   Unlike the incoherent extension, the coherent extension gives a promoted channel
+   that depends on *which* Kraus operator is called :math:`K_0`. Two Kraus
+   representations of the **same** channel can produce **different** promoted
+   channels. The promoted channels have identical action on the computational
+   subspace and on the complement subspace in isolation; they differ only in the
+   cross-block (computational :math:`\leftrightarrow` complement) coherences. This
+   difference is invisible in average density-matrix simulations but shows up in
+   trajectory unravellings and in any observable that mixes the two subspaces.
+
+   **Phase of** :math:`K_0` **also matters.** Because :math:`P_\perp` is a real
+   projector and does not share the global phase of :math:`K_0`, replacing
+   :math:`K_0` by :math:`e^{i\theta} K_0` changes the promoted channel. Quax
+   canonicalizes the phase by requiring that the element of :math:`K_0` with the
+   largest magnitude be real and positive. This convention is applied uniformly —
+   including when inputs are batched — so that results are independent of batch
+   size. Any external code that constructs Kraus operators and feeds them as a
+   :class:`~quax.KrausMap` should be aware that the global phase of the first
+   operator affects the promoted channel.
+
+   **Which decomposition does Quax use?** When you pass a :class:`~quax.SuperOp`,
+   :class:`~quax.Choi`, or :class:`~quax.PauliLiouville` to :func:`~quax.promote`,
+   Quax internally converts to the **canonical Choi-eigenvector decomposition**:
+   :math:`K_0` is the Kraus operator corresponding to the *largest* eigenvalue of
+   the Choi matrix. This is unique (up to the global-phase convention above) and
+   corresponds physically to the dominant no-error branch. When you pass a
+   :class:`~quax.KrausMap` directly, Quax honours **your** :math:`K_0` (the first
+   operator in the map) — so the two paths can yield different promoted channels for
+   the same underlying channel.
+
+   **Practical guidance.** If the channel arises from a known Lindbladian with
+   clearly identified jump operators, the most faithful promotion is via the
+   Lindbladian zero-padding route described above: construct the promoted channel
+   by zero-padding :math:`H` and each :math:`L_k`, then exponentiate. The coherent
+   extension of the canonical Choi-eigenvector decomposition agrees with this for
+   many common channels but should be verified on a case-by-case basis. If in doubt,
+   supply the Lindblad-derived channel directly rather than promoting a pre-computed
+   superoperator.
+
 
 Incoherent extension
 ^^^^^^^^^^^^^^^^^^^^
@@ -332,36 +375,10 @@ This destroys all coherence between the computational and complement subspaces. 
 is the physically correct extension for **measurements and resets**, where the
 leaked levels genuinely decohere from the computational state, and is what Quax
 uses when promoting a :class:`~quax.QuantumInstrument` (Section 4). It is exposed
-directly as :func:`~quax.promote_incoherent`.
+directly as :func:`~quax.promote_incoherent`. The incoherent extension is
+decomposition-independent: the :math:`P_\perp\,\rho\,P_\perp` contribution is the
+same regardless of which Kraus set represents :math:`\mathcal{E}`.
 
-Weighted extension
-^^^^^^^^^^^^^^^^^^
-
-Distribute the complement across *every* Kraus operator in proportion to its
-Frobenius norm,
-
-.. math::
-   :label: eq-weighted
-
-   \alpha_i = \frac{\lVert K_i \rVert_F}{\sqrt{\sum_j \lVert K_j \rVert_F^2}} .
-
-For the canonical Choi-eigenvector decomposition the Frobenius norms satisfy
-:math:`\lVert K_i \rVert_F^2 = \lambda_i` (the Choi eigenvalues) and, by trace
-preservation, :math:`\sum_j \lambda_j = \operatorname{Tr} J = d`. Hence
-
-.. math::
-   :label: eq-weighted-prob
-
-   |\alpha_i|^2 = \frac{\lVert K_i \rVert_F^2}{d}
-   = \operatorname{Tr}\!\Big(K_i\, \tfrac{I_d}{d}\, K_i^\dagger\Big) = q_i ,
-
-which is exactly the probability that the **maximally mixed** computational state
-branches into Kraus operator :math:`i`. Because :math:`\tilde{K}_i|{\perp}\rangle
-= \alpha_i |{\perp}\rangle` for any leaked basis state :math:`|{\perp}\rangle`, the
-leaked state is preserved *identically in every branch*, while branch :math:`i`
-fires with the channel's own intrinsic probability :math:`q_i`. The survival of a
-leaked state is therefore **decoupled** from the computational gate trajectory.
-This is the default extension used by :func:`~quax.promote` for channel types.
 
 
 .. _promotion-trajectories:
@@ -369,39 +386,32 @@ This is the default extension used by :func:`~quax.promote` for channel types.
 Use in Kraus-trajectory simulations
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The motivation for the weighted default is the dominant use case for these
-promoted channels: **Kraus-trajectory (Monte-Carlo wavefunction) simulation**. In
-a trajectory unravelling, a pure state :math:`|\psi\rangle` is propagated through
-the promoted channel by sampling a single Kraus branch :math:`i` with probability
-:math:`p_i = \lVert \tilde{K}_i |\psi\rangle \rVert^2` and renormalizing. Averaging
-over many trajectories reproduces the channel's action on the density matrix. The
-choice of extension is invisible in the *average* but governs the *correlations*
-along individual trajectories, and those correlations are exactly what a leakage
-study measures.
+The choice of extension matters most in **Kraus-trajectory (Monte-Carlo
+wavefunction) simulation**, where a pure state :math:`|\psi\rangle` is propagated
+by sampling a single Kraus branch :math:`i` with probability
+:math:`p_i = \lVert \tilde{K}_i |\psi\rangle \rVert^2` and renormalizing.
+Averaging over many trajectories reproduces the channel's action on the density
+matrix. The extension choice is invisible in the *average* but governs the
+*correlations* along individual trajectories.
 
-The weighted extension is the natural method here for three reasons:
+Under the **coherent extension** (the default):
 
-* **Trajectory decoupling.** A state that has leaked to :math:`|2\rangle` should
-  propagate through the gate independently of the gate's own error channel. The
-  weighted extension guarantees :math:`\tilde{K}_i|2\rangle = \alpha_i|2\rangle` in
-  *every* branch, so the leaked population is never correlated with whether an
-  :math:`I`, :math:`X`, :math:`Y`, or :math:`Z` error was sampled. The coherent
-  extension (Eq. :eq:`eq-coherent`) fails this: it ties leakage survival to the
-  :math:`K_0` branch alone.
+* **Error branches annihilate leaked population.** For noise whose jump operators
+  are zero-padded within the computational subspace (e.g. depolarizing, amplitude
+  damping), each error Kraus :math:`\hat{K}_{i>0}` has no matrix elements for
+  leaked states. Sampling an error branch therefore collapses the leaked probability
+  to zero, which is the physically correct outcome: observing a qubit-subspace
+  interaction implies the system was in the qubit subspace.
+* **The no-error branch preserves leaked population.** :math:`\tilde{K}_0 =
+  \hat{K}_0 + P_\perp` maps any leaked state to itself. A system that was leaked
+  and experienced no jump simply remains leaked, with a norm factor from
+  :math:`\hat{K}_0`.
+* **Exact for unitaries.** A unitary channel has a single Kraus operator, so
+  :math:`K_0 = U` and the coherent extension reduces to
+  Eq. :eq:`eq-promote-unitary`. Promoting ideal gates is unchanged.
 
-* **No regression for gates.** A unitary has a single Kraus operator, so
-  :math:`\alpha_0 = 1` and the weighted extension reduces to the coherent
-  one — i.e. to the identity-extended unitary of Eq. :eq:`eq-promote-unitary`.
-  Embedding ideal gates is therefore unchanged.
-
-* **Correct averages.** Like every member of the family in Eq. :eq:`eq-family`,
-  the weighted extension is CPTP and agrees with the other schemes on the
-  computational and complement blocks of the output density matrix; the schemes
-  differ only in the computational :math:`\leftrightarrow` complement coherence
-  block.
-
-Measurements and resets remain an exception: use :func:`~quax.promote_incoherent`
-for those, as Quax does automatically when promoting a
+Measurements and resets use the **incoherent extension** regardless of this
+setting, as Quax does automatically when promoting a
 :class:`~quax.QuantumInstrument`.
 
 Worked example: depolarizing noise on a transmon
@@ -414,28 +424,19 @@ Consider single-qubit depolarizing noise,
 
    \mathcal{E}(\rho) = (1-p)\,\rho + \frac{p}{3}\big(X\rho X + Y\rho Y + Z\rho Z\big),
 
-with Kraus operators :math:`K_0 = \sqrt{1-p}\,I` and
-:math:`K_{1,2,3} = \sqrt{p/3}\,\{X, Y, Z\}`. The Frobenius norms are
-:math:`\lVert K_0 \rVert_F^2 = 2(1-p)` and
-:math:`\lVert K_{i} \rVert_F^2 = 2p/3`, summing to :math:`2`. The weights
-(Eq. :eq:`eq-weighted`) are therefore
-
-.. math::
-   :label: eq-depol-alphas
-
-   \alpha_0 = \sqrt{1-p}, \qquad \alpha_1 = \alpha_2 = \alpha_3 = \sqrt{p/3} .
-
-Promoting to a qutrit (:math:`d = 2 \to D = 3`) with :math:`P_\perp =
-|2\rangle\!\langle 2|` gives four Kraus operators
+with canonical Choi-eigenvector Kraus operators :math:`K_0 = \sqrt{1-p}\,I` and
+:math:`K_{1,2,3} = \sqrt{p/3}\,\{Z, X, Y\}`. Promoting to a qutrit
+(:math:`d = 2 \to D = 3`) with :math:`P_\perp = |2\rangle\!\langle 2|` via the
+coherent extension gives
 
 .. math::
    :label: eq-depol-promoted
 
-   \tilde{K}_i =
-   \begin{pmatrix} K_i & 0 \\ 0 & \alpha_i \end{pmatrix},
+   \tilde{K}_0 = \begin{pmatrix} \sqrt{1-p}\,I & 0 \\ 0 & 1 \end{pmatrix}, \qquad
+   \tilde{K}_{i>0} = \begin{pmatrix} K_i & 0 \\ 0 & 0 \end{pmatrix}.
 
-so each branch leaves :math:`|2\rangle` in place, scaled by :math:`\alpha_i`, while
-acting as the bare Pauli on the computational block. In Quax:
+The no-error branch preserves :math:`|2\rangle`, while the error branches
+(:math:`Z`, :math:`X`, :math:`Y`) annihilate it. In Quax:
 
 .. code-block:: python
 
@@ -443,47 +444,80 @@ acting as the bare Pauli on the computational block. In Quax:
    import quax as qx
 
    p = 0.1
-   channel = qx.depolarizing_operators(p)        # qubit KrausMap (d = 2)
+   channel = qx.depolarizing_operators(p)    # qubit KrausMap (d = 2)
+   promoted = qx.promote(channel, (3,))      # coherent extension (default)
 
-   promoted = qx.promote(channel, (3,))          # weighted extension (default)
+   # The no-error branch (K_0) maps |2> to |2> with amplitude 1.
+   # Every error branch (K_1, K_2, K_3) maps |2> to 0.
+   print(promoted.matrix[:, 2, 2])           # [1.0, 0.0, 0.0, 0.0]
 
-   # Each promoted Kraus operator preserves |2> with weight alpha_i:
-   alphas = promoted.matrix[:, 2, 2]
-   print(alphas)                                  # [sqrt(1-p), sqrt(p/3), sqrt(p/3), sqrt(p/3)]
-   print(jnp.sum(jnp.abs(alphas) ** 2))           # 1.0  (CPTP)
+The difference between the two extensions is most directly visible in the
+Weyl-Liouville (generalized Pauli transfer) matrix of the promoted channel.
+The 9×9 Weyl-Liouville matrix of a qutrit superoperator has rows and columns
+labelled by the Weyl–Heisenberg operator basis :math:`\{W_{xz}\}` of the
+three-level system. The :math:`(W_{00}, W_{10}, W_{01}, W_{11})` corner recovers
+the standard qubit Pauli-transfer matrix and is identical for both extensions.
+The rest of the matrix reveals how the two choices treat the leaked subspace and
+its coherences with the computational levels.
 
-Because the weights are normalized, the embedded channel is CPTP, and because the
-leaked weight appears in every Kraus operator, a leaked :math:`|2\rangle` survives
-along all four trajectories with the channel's intrinsic branch probabilities.
+.. figure:: _static/promotion-weyl-coherent.png
+   :align: center
+   :width: 90%
 
-The schemes differ only in how the computational subspace stays coherent with the
-leaked level. Apply the promoted channel to the coherent superposition
-:math:`(|1\rangle + |2\rangle)/\sqrt{2}` and inspect the :math:`\rho_{12}` element:
+   **Coherent extension** of 1-qubit depolarizing (:math:`p = 0.1`) promoted to a
+   qutrit. The matrix is nearly diagonal throughout. The top-left
+   :math:`3 \times 3` block (:math:`W_{00}`, :math:`W_{01}`, :math:`W_{02}` —
+   the population/diagonal operators) is completely decoupled from the remaining
+   :math:`6 \times 6` coherence block. All six coherence operators (:math:`W_{11}`,
+   :math:`W_{22}`, :math:`W_{10}`, :math:`W_{20}`, :math:`W_{21}`,
+   :math:`W_{12}`) decay by the same uniform factor :math:`{\approx}0.92`, with
+   only small numerical off-diagonal entries. This clean structure reflects that
+   the coherent extension treats the qutrit coherences uniformly — each coherence
+   channel evolves independently.
+
+.. figure:: _static/promotion-weyl-incoherent.png
+   :align: center
+   :width: 90%
+
+   **Incoherent extension** of the same channel. The top-left :math:`3 \times 3`
+   population block is identical to the coherent case — the two extensions agree
+   on all population dynamics. The :math:`6 \times 6` coherence block is
+   dramatically different: the diagonal entries fall to :math:`{\approx}0.29` and
+   large off-diagonal entries (up to :math:`{\pm}0.25`) appear throughout. This
+   dense structure arises because projecting out the
+   :math:`|0\rangle\!\langle 2|` and :math:`|1\rangle\!\langle 2|` coherences
+   (as the incoherent :math:`P_\perp\rho P_\perp` term does) strongly mixes the
+   Weyl coherence operators, coupling channels that the coherent extension keeps
+   separate.
+
+Starting from a coherent superposition :math:`(|1\rangle + |2\rangle)/\sqrt{2}`,
+the depolarizing channel decoheres the qubit component while the no-error branch
+maintains cross-subspace coherence:
 
 .. code-block:: python
 
    psi = jnp.array([0.0, 1.0, 1.0], dtype=complex) / jnp.sqrt(2.0)
    rho = jnp.outer(psi, psi.conj())
 
-   weighted = qx.kraus_to_superop(qx.promote(channel, (3,)))
+   coherent  = qx.kraus_to_superop(qx.promote(channel, (3,)))
    incoherent = qx.promote_incoherent(qx.kraus_to_superop(channel), (3,))
 
-   rho_w = (weighted.matrix @ rho.ravel()).reshape(3, 3)
+   rho_c = (coherent.matrix  @ rho.ravel()).reshape(3, 3)
    rho_i = (incoherent.matrix @ rho.ravel()).reshape(3, 3)
 
-   print(abs(rho_w[1, 2]))   # > 0  : weighted keeps the computational<->leaked coherence
+   print(abs(rho_c[1, 2]))   # > 0  : coherent retains computational<->leaked coherence
    print(abs(rho_i[1, 2]))   # = 0  : incoherent destroys it
 
-The weighted (default) extension retains a partial :math:`\rho_{12}` coherence,
-whereas the incoherent extension — appropriate for a measurement — removes it
-entirely.
+The coherent (default) extension retains a partial :math:`\rho_{12}` coherence
+via the no-error Kraus branch, whereas the incoherent extension — appropriate for
+a measurement or reset — removes it entirely.
 
 
 API reference
 -------------
 
 * :func:`~quax.promote` — promote a quantum object: zero-pad states, identity-extend
-  unitaries and operators, apply the **weighted** Kraus extension to channels, and
+  unitaries and operators, apply the **coherent** Kraus extension to channels, and
   apply the **incoherent** extension to quantum instruments.
 * :func:`~quax.promote_incoherent` — the incoherent extension for measurements and
   resets, applied directly to a superoperator.

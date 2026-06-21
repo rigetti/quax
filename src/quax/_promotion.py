@@ -98,13 +98,10 @@ def promote(obj, dims: Tuple[int, ...]):
     promoted object acts as identity on the higher basis states.
 
     For channels (SuperOp, KrausMap, Choi, PauliLiouville) the
-    **weighted** Kraus extension is used: the complement projector is
-    distributed across every Kraus operator in proportion to its
-    Frobenius norm.  This keeps the complement subspace (e.g. a leaked
-    transmon ``|2>`` level) preserved identically in every trajectory
-    branch, decoupling leakage from the gate-error trajectory.  Use
-    :func:`promote_incoherent` for the incoherent extension that destroys
-    cross-subspace coherences (appropriate for measurements and resets).
+    **coherent** Kraus extension is used: the complement projector is
+    distributed entirely to the first Kraus operator. The coherent extension
+    can have unpredictable effects on cross-subspace coherences, please
+    see the docs.
 
     :param obj: A quax quantum object (StateVector, DensityMatrix,
         Unitary, Operator, SuperOp, KrausMap, Choi, PauliLiouville,
@@ -173,36 +170,77 @@ def _promote_operator(op: Operator, dims: Tuple[int, ...]) -> Operator:
 
 
 def _promote_via_kraus(obj, dims, to_kraus, from_kraus):
-    """Promote a channel representation via the (default) weighted Kraus extension."""
+    """Promote a channel representation via the (default) coherent Kraus extension."""
     _validate_promote_dims(obj.dims[0], dims)
-    return from_kraus(_promote_weighted_kraus_map(to_kraus(obj), dims))
+    return from_kraus(_promote_kraus_map(to_kraus(obj), dims))
 
 
 @promote.register(SuperOp)
 @jax.jit(static_argnames=("dims",))
 def _promote_superop(superop: SuperOp, dims: Tuple[int, ...]) -> SuperOp:
-    """Embed a superoperator via the weighted Kraus extension."""
+    """Embed a superoperator via the coherent Kraus extension."""
     return _promote_via_kraus(superop, dims, superop_to_kraus, kraus_to_superop)
 
 
 @promote.register(Choi)
 @jax.jit(static_argnames=("dims",))
 def _promote_choi(choi: Choi, dims: Tuple[int, ...]) -> Choi:
-    """Embed a Choi matrix via the weighted Kraus extension."""
+    """Embed a Choi matrix via the coherent Kraus extension."""
     return _promote_via_kraus(choi, dims, choi_to_kraus, kraus_to_choi)
 
 
 @promote.register(KrausMap)
 @jax.jit(static_argnames=("dims",))
 def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
-    """Embed Kraus operators via the weighted Kraus extension."""
-    return _promote_weighted_kraus_map(kraus, dims)
+    """Embed Kraus operators in a larger Hilbert space via coherent extension.
+
+    Each Kraus operator K_i is zero-padded in the larger tensor space.
+    The complement projector (identity on higher basis states) is added
+    to the first Kraus operator K_0, preserving coherences between the
+    original and complement subspaces.
+    """
+    current_dims = kraus.dims[0]
+    _validate_promote_dims(current_dims, dims)
+
+    batch_shape = kraus.ensemble_size
+    n_ensemble = len(batch_shape)
+
+    # Zero-pad each existing Kraus operator in tensor form.
+    # Kraus tensor: (*ensemble, n_kraus, *dims_out, *dims_in)
+    pw = [(0, 0)] * (n_ensemble + 1) + [(0, D - d) for d, D in zip(current_dims + current_dims, dims + dims)]
+    padded = jnp.pad(kraus.data, pw)
+
+    # Complement projector: identity on the target space with the original sub-block zeroed out.
+    D = reduce(mul, dims, 1)
+    complement = jnp.eye(D, dtype=complex).reshape(dims + dims)
+    orig_slices = tuple(slice(0, d) for d in current_dims) * 2
+    complement = complement.at[orig_slices].set(0.0)
+
+    # Canonicalize the phase of K_0 before adding P_⊥.  Batched jnp.linalg.eigh can
+    # return eigenvectors with different global phases than per-element eigh on the same
+    # matrix, which would otherwise make the promoted channel depend on batch size.
+    # We fix this by rotating K_0 so its largest-magnitude element is real and positive.
+    k0_slices = tuple([slice(None)] * n_ensemble + [0])
+    k0 = padded[k0_slices]  # (*batch_shape, *dims, *dims)
+    k0_flat = k0.reshape(*batch_shape, -1)  # (*batch_shape, D²)
+    max_idx = jnp.argmax(jnp.abs(k0_flat), axis=-1, keepdims=True)  # (*batch_shape, 1)
+    max_elem = jnp.take_along_axis(k0_flat, max_idx, axis=-1)  # (*batch_shape, 1)
+    max_abs = jnp.abs(max_elem)
+    phase = jnp.where(max_abs > 1e-30, jnp.conj(max_elem) / max_abs, jnp.ones_like(max_elem))
+    phase_shape = batch_shape + (1,) * len(dims + dims)
+    k0 = k0 * phase.reshape(phase_shape)
+    padded = padded.at[k0_slices].set(k0)
+
+    # Add complement projector to K_0 (coherent extension).
+    padded = padded.at[k0_slices].add(complement)
+
+    return KrausMap(padded, num_qubits=len(dims))
 
 
 @promote.register(PauliLiouville)
 @jax.jit(static_argnames=("dims",))
 def _promote_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...]) -> PauliLiouville:
-    """Embed a Pauli-Liouville matrix via the weighted Kraus extension."""
+    """Embed a Pauli-Liouville matrix via the coherent Kraus extension."""
     return _promote_via_kraus(pl, dims, pauli_liouville_to_kraus, kraus_to_pauli_liouville)
 
 
@@ -357,72 +395,6 @@ def _promote_incoherent_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...
     superop = pauli_liouville_to_superop(pl)
     promoted_superop = _promote_incoherent_superop(superop, dims)
     return superop_to_pauli_liouville(promoted_superop)
-
-
-# ---------------------------------------------------------------------------
-# Weighted Kraus extension (the default for channels, used by ``promote``)
-# ---------------------------------------------------------------------------
-
-
-@jax.jit(static_argnames=("dims",))
-def _promote_weighted_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
-    """Weighted extension of Kraus operators: zero-pad + ``alpha_i * P_⊥`` on each operator.
-
-    This is the extension used by :func:`promote` for channel types.  Each
-    Kraus operator ``K_i`` is zero-padded into the larger space and the
-    complement projector ``P_⊥`` (identity on the higher basis states) is
-    added to *every* Kraus operator scaled by
-
-        ``alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2)``.
-
-    Because the padded operators and ``P_⊥`` have disjoint support, the
-    cross terms ``pad(K_i)† P_⊥`` vanish and any unit-norm weight
-    distribution (``sum_i |alpha_i|^2 = 1``) yields a CPTP map.  The
-    Frobenius-norm weighting makes ``|alpha_i|^2`` equal to the channel's
-    intrinsic branching probability for the maximally mixed computational
-    state, so the complement subspace is preserved *identically* in every
-    trajectory branch.  This decouples the survival of a leaked state
-    (e.g. a transmon ``|2>`` level) from the gate-error trajectory, which
-    is the physically correct behaviour for Monte-Carlo unravellings.  For
-    a unitary channel (a single Kraus operator) ``alpha_0 = 1``, so the
-    complement projector is added in full and the embedding is exact.
-    """
-    current_dims = kraus.dims[0]
-    _validate_promote_dims(current_dims, dims)
-
-    batch_shape = kraus.ensemble_size
-    n_ensemble = len(batch_shape)
-
-    # Zero-pad each existing Kraus operator in tensor form.
-    # Kraus tensor: (*ensemble, n_kraus, *dims_out, *dims_in)
-    pw = [(0, 0)] * (n_ensemble + 1) + [(0, D - d) for d, D in zip(current_dims + current_dims, dims + dims)]
-    padded = jnp.pad(kraus.data, pw)
-
-    # Complement projector: identity on the target space with the original sub-block zeroed out.
-    D = reduce(mul, dims, 1)
-    complement = jnp.eye(D, dtype=complex).reshape(dims + dims)
-    orig_slices = tuple(slice(0, d) for d in current_dims) * 2
-    complement = complement.at[orig_slices].set(0.0)
-
-    # Frobenius-norm weights: alpha_i = ||K_i||_F / sqrt(sum_j ||K_j||_F^2).
-    # (Zero-padding preserves the norm, so padded and original norms agree.)
-    op_axes = tuple(range(n_ensemble + 1, padded.ndim))
-    sq_norms = jnp.sum(jnp.abs(padded) ** 2, axis=op_axes)  # (*ensemble, n_kraus)
-    total = jnp.sqrt(jnp.sum(sq_norms, axis=-1, keepdims=True))  # (*ensemble, 1)
-    alphas = jnp.sqrt(sq_norms) / total  # (*ensemble, n_kraus)
-
-    # Add alpha_i * P_⊥ to each Kraus operator.  Reshape alphas so the
-    # per-operator scalar broadcasts against the (*dims, *dims) projector.
-    alpha_b = alphas.reshape(alphas.shape + (1,) * (2 * len(dims)))
-    weighted = padded + alpha_b * complement
-
-    return KrausMap(weighted, num_qubits=len(dims))
-
-
-def _promote_weighted_via_kraus(obj, dims, to_kraus, from_kraus):
-    """Promote a channel representation via the weighted Kraus extension."""
-    _validate_promote_dims(obj.dims[0], dims)
-    return from_kraus(_promote_weighted_kraus_map(to_kraus(obj), dims))
 
 
 # ---------------------------------------------------------------------------
