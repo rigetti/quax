@@ -696,7 +696,7 @@ class DensityMatrix(State):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the density matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import density_matrix_power
+        from ._exponentiation import density_matrix_power
 
         return density_matrix_power(self, exponent)
 
@@ -875,7 +875,7 @@ class Unitary(Operator):
 
     def __pow__(self, exponent: float) -> "Unitary":
         """Exponentiation of the unitary using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_unitary
+        from ._exponentiation import power_unitary
 
         return power_unitary(self, exponent)
 
@@ -1064,7 +1064,7 @@ class Observable(Operator):
 
         Supports both integer and fractional exponents via eigendecomposition.
         """
-        from ._power import power_observable
+        from ._exponentiation import power_observable
 
         return power_observable(self, exponent)
 
@@ -1235,7 +1235,7 @@ class Involution(Observable, Unitary):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return Involution.from_matrix(new_data, self.dims)
 
-        from ._power import power_unitary
+        from ._exponentiation import power_unitary
 
         return power_unitary(self, exponent)
 
@@ -1333,7 +1333,7 @@ class SuperOp(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the superoperator using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_superop
+        from ._exponentiation import power_superop
 
         return power_superop(self, exponent)
 
@@ -1514,7 +1514,7 @@ class KrausMap(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the Kraus channel using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_kraus
+        from ._exponentiation import power_kraus
 
         return power_kraus(self, exponent)
 
@@ -1679,7 +1679,7 @@ class Choi(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the Choi matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_choi
+        from ._exponentiation import power_choi
 
         return power_choi(self, exponent)
 
@@ -1936,7 +1936,7 @@ class PauliLiouville(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the Pauli-Liouville matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_pauli_liouville
+        from ._exponentiation import power_pauli_liouville
 
         return power_pauli_liouville(self, exponent)
 
@@ -2048,6 +2048,179 @@ class PauliLiouville(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+
+# ======================================================================
+# Lindbladian
+# ======================================================================
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class Lindbladian(QuantumObject):
+    """Lindbladian generator of a quantum dynamical semigroup.
+
+    Stores the d²×d² generator matrix :math:`\\mathcal{L}` of the GKSL master equation.
+    Exponentiating via :func:`evolve` produces a CPTP quantum channel for :math:`t \\geq 0`.
+
+    This is NOT a CPTP map — it is the generator. Use :func:`evolve` to obtain the channel.
+
+    Tensor shape: ``(*ensemble, d0_out_bra, d1_out_bra, ..., d0_out_ket, d1_out_ket, ..., d0_in_bra, d1_in_bra, ..., d0_in_ket, d1_in_ket, ...)``
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)``
+    """
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 4 * self.num_qubits
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) qudit dimensions, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        dims_out = qudit_shape[:n_qudits]
+        dims_in = qudit_shape[2 * n_qudits : 3 * n_qudits]
+        return (dims_out, dims_in)
+
+    @property
+    def matrix(self) -> Array:
+        """Returns the matrix representation ``(*ensemble, d_out^2, d_in^2)`` of the generator."""
+        ensemble_shape = self.data.shape[: self.num_ensemble_dims]
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        d_out = reduce(mul, qudit_shape[:n_qudits], 1) * reduce(mul, qudit_shape[n_qudits : 2 * n_qudits], 1)
+        d_in = reduce(mul, qudit_shape[2 * n_qudits : 3 * n_qudits], 1) * reduce(mul, qudit_shape[3 * n_qudits :], 1)
+        return self.data.reshape(ensemble_shape + (d_out, d_in))
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> "Lindbladian":
+        """Construct from matrix representation.
+
+        :param matrix: Array with shape ``(*ensemble, d_out^2, d_in^2)``
+        :param dims: Tuple of (dims_out, dims_in) where each is a tuple of qudit dimensions
+        :return: Lindbladian with tensor data
+        """
+        num_qubits = len(dims[0])
+        ensemble_shape = matrix.shape[:-2]
+        tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
+        tensor = matrix.reshape(ensemble_shape + tensor_shape)
+        return cls(data=tensor, num_qubits=num_qubits)
+
+    def __add__(self, other: Any) -> "Lindbladian":
+        """Add two Lindbladian generators. Returns a Lindbladian.
+
+        Adding generators corresponds to combining independent noise sources acting in parallel.
+        """
+        if isinstance(other, Lindbladian) and self.dims == other.dims:
+            return Lindbladian.from_matrix(self.matrix + other.matrix, self.dims)
+        return NotImplemented
+
+    def __radd__(self, other: Any) -> "Lindbladian":
+        """Right-hand addition of two Lindbladian generators."""
+        if isinstance(other, Lindbladian) and self.dims == other.dims:
+            return Lindbladian.from_matrix(other.matrix + self.matrix, self.dims)
+        return NotImplemented
+
+    def __sub__(self, other: Any) -> "Lindbladian":
+        """Subtract two Lindbladian generators."""
+        if isinstance(other, Lindbladian) and self.dims == other.dims:
+            return Lindbladian.from_matrix(self.matrix - other.matrix, self.dims)
+        return NotImplemented
+
+    def __pow__(self, alpha: float) -> "Lindbladian":
+        """Scale the generator rate by ``alpha``, returning a new Lindbladian.
+
+        ``L ** alpha`` is equivalent to ``alpha * L``. Use ``evolve(L ** alpha, t)``
+        or equivalently ``evolve(L, alpha * t)`` to obtain the channel.
+        """
+        return Lindbladian.from_matrix(alpha * self.matrix, self.dims)
+
+    def __or__(self, other: Any) -> "Lindbladian":
+        """Tensor product of two Lindbladian generators (independent subsystems).
+
+        ``L_A | L_B`` gives the combined generator for the joint system A⊗B:
+        ``L_AB = L_A ⊗_quax I_B + I_A ⊗_quax L_B``
+
+        Uses quax's index interleaving convention so that
+        ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
+        """
+        if not isinstance(other, Lindbladian):
+            return NotImplemented
+        if self.num_ensemble_dims != 0 or other.num_ensemble_dims != 0:
+            raise NotImplementedError("__or__ is not yet implemented for ensemble Lindbladians.")
+
+        qA, qB = self.dims[0], other.dims[0]
+        nA, nB = len(qA), len(qB)
+        dA2 = self.matrix.shape[-1]
+        dB2 = other.matrix.shape[-1]
+
+        I_A = jnp.eye(dA2, dtype=complex).reshape(qA + qA + qA + qA)
+        I_B = jnp.eye(dB2, dtype=complex).reshape(qB + qB + qB + qB)
+
+        # Outer product then interleave the 4 groups of qudit indices.
+        # After tensordot(X_A, Y_B, axes=0): shape (*4*nA dims of A, *4*nB dims of B).
+        # Interleave: group g -> (A indices g, B indices g).
+        perm = []
+        for g in range(4):
+            perm.extend(range(g * nA, (g + 1) * nA))
+            perm.extend(range(4 * nA + g * nB, 4 * nA + (g + 1) * nB))
+
+        T_A = jnp.transpose(jnp.tensordot(self.data, I_B, axes=0), perm)
+        T_B = jnp.transpose(jnp.tensordot(I_A, other.data, axes=0), perm)
+
+        combined_dims = (qA + qB, qA + qB)
+        return Lindbladian.from_matrix((T_A + T_B).reshape(dA2 * dB2, dA2 * dB2), combined_dims)
+
+    @classmethod
+    def from_operators(
+        cls,
+        hamiltonian: "Observable | None",
+        jump_operators: "Operator",
+    ) -> "Lindbladian":
+        """Construct the GKSL Lindbladian generator from a Hamiltonian and jump operators.
+
+        Rates must be pre-absorbed into ``jump_operators``: pass ``sqrt(γ) * L_physical``.
+        Stack multiple jump operators along a leading ``n_ops`` axis.
+
+        :param hamiltonian: The Hamiltonian (``Observable``), or ``None`` for pure dissipation.
+        :param jump_operators: An ``Operator`` with shape ``(*ensemble, n_ops, d, d)``.
+        :return: The Lindbladian generator as a :class:`Lindbladian`.
+        """
+        return _build_lindbladian(hamiltonian, jump_operators)
+
+    def __eq__(self, other: Any) -> bool:
+        """Element-wise equality check with numerical tolerance."""
+        if not isinstance(other, Lindbladian):
+            return NotImplemented
+        if self.dims != other.dims:
+            return False
+        return bool(jnp.allclose(self.matrix, other.matrix))
+
+
+@jax.jit
+def _build_lindbladian(hamiltonian: "Observable | None", jump_operators: "Operator") -> Lindbladian:
+    """GKSL generator: -i[H,ρ] + Σ_k D[L_k]. Rates pre-absorbed into jump_operators."""
+    dims = jump_operators.dims
+    d = reduce(mul, dims[1], 1)
+    I = jnp.eye(d, dtype=complex)
+    L = jump_operators.matrix  # (*ensemble, n_ops, d, d)
+    ensemble_shape = L.shape[:-3]
+
+    G = jnp.einsum("...kca,...kcb->...ab", jnp.conj(L), L)
+    sandwich = jnp.einsum("...kab,...kcd->...acbd", jnp.conj(L), L)
+    G_rho = jnp.einsum("ab,...cd->...acbd", I, G)
+    rho_G = jnp.einsum("...ab,cd->...acbd", jnp.conj(G), I)
+    gen_data = sandwich - 0.5 * G_rho - 0.5 * rho_G
+
+    if hamiltonian is not None:
+        H = hamiltonian.matrix
+        H_rho = jnp.einsum("ab,...cd->...acbd", I, H)
+        rho_H = jnp.einsum("...ab,cd->...acbd", jnp.conj(H), I)
+        gen_data = gen_data + (-1j * (H_rho - rho_H))
+
+    return Lindbladian.from_matrix(gen_data.reshape(ensemble_shape + (d * d, d * d)), (dims[1], dims[1]))
 
 
 # ======================================================================

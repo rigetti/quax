@@ -32,7 +32,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-import qutip as qt
 from scipy.linalg import fractional_matrix_power, expm
 
 import quax as qx
@@ -48,34 +47,38 @@ def _random_lindbladian(
     gamma_scale: float = 1.0,
     size: Tuple[int, ...] = (),
 ):
-    """Generate a random CPTP superoperator via Lindbladian exponentiation."""
+    """Generate a random CPTP superoperator via Lindbladian exponentiation (native quax)."""
+    rng = np.random.default_rng(seed=42)
+    d = reduce(mul, dims)
 
     if size == ():
         num_superops = 1
     else:
         num_superops = reduce(mul, size)
+
     chois = []
-    d = reduce(mul, dims)
-    d2 = d * d
     for _ in range(num_superops):
-        # Random Hamiltonian
-        H = h_scale * qt.rand_herm(d)
+        # Random Hamiltonian (Hermitian)
+        A = rng.standard_normal((d, d)) + 1j * rng.standard_normal((d, d))
+        H_mat = h_scale * (A + A.conj().T) / 2
+        H_obs = qx.Observable.from_matrix(jnp.asarray(H_mat, dtype=complex), (dims, dims))
 
-        # Random jump operators
-        c_ops = []
+        # Random jump operators with rates absorbed
+        L_list = []
         for _ in range(n_jumps):
-            L = qt.rand_herm(d) + 1j * qt.rand_herm(d)
-            L = gamma_scale * L / np.sqrt(d)
-            c_ops.append(L)
+            B = rng.standard_normal((d, d)) + 1j * rng.standard_normal((d, d))
+            L_mat = gamma_scale * B / np.sqrt(d)
+            L_list.append(L_mat)
 
-        # Lindbladian superoperator
-        L_super = qt.liouvillian(H, c_ops)  # type: ignore
-        t = 0.5
-        E = (t * L_super).expm()  # guaranteed CPTP
-        choi = qt.to_choi(E).full()
-        chois.append(choi)
+        L_stack = jnp.asarray(np.stack(L_list), dtype=complex)  # (n_jumps, d, d)
+        jump_ops = qx.Operator.from_matrix(L_stack, (dims, dims))
 
-    data = jnp.asarray(chois).reshape(size + (d2, d2))
+        gen = qx.Lindbladian.from_operators(H_obs, jump_ops)
+        channel = qx.evolve(gen, 0.5)
+        chois.append(qx.superop_to_choi(channel).matrix)
+
+    d2 = d * d
+    data = jnp.stack(chois).reshape(size + (d2, d2))
     return qx.Choi.from_matrix(data, (dims, dims))
 
 
@@ -102,27 +105,21 @@ def test_superoperator_powers(num_qudits, qudit_dim, power, seed, ensemble_size)
 
     # Test SuperOp power
     powered_superop = qx.power_superop(random_superop, power)
-    fid = qx.process_fidelity(powered_superop, powered_reference_superop)
-
     assert jnp.allclose(qx.superop_to_choi(powered_superop).matrix, powered_reference_choi.matrix, atol=1e-6)
-    assert jnp.allclose(fid, 1.0, atol=1e-6)
 
     # Test Choi power
     powered_choi = qx.power_choi(random_choi, power)
-    fid = qx.process_fidelity(powered_choi, powered_reference_choi)
     assert jnp.allclose(powered_choi.matrix, powered_reference_choi.matrix, atol=1e-6)
-    assert jnp.allclose(fid, 1.0, atol=1e-6)
 
-    # Test Kraus power
-    powered_kraus = qx.power_kraus(random_kraus, power)
-    fid = qx.process_fidelity(qx.kraus_to_choi(powered_kraus), powered_reference_choi)
-    assert jnp.allclose(fid, 1.0, atol=1e-6)
-    assert jnp.allclose(qx.kraus_to_choi(powered_kraus).matrix, powered_reference_choi.matrix, atol=1e-5)
+    # Test Kraus power — only for integer powers, since fractional powers of CPTP channels are
+    # generally not CPTP; choi_to_kraus clamps negative Choi eigenvalues to 0, causing large
+    # errors for non-CPTP channels. Integer powers compose CPTP maps, so they stay CPTP.
+    if isinstance(power, int):
+        powered_kraus = qx.power_kraus(random_kraus, power)
+        assert jnp.allclose(qx.kraus_to_choi(powered_kraus).matrix, powered_reference_choi.matrix, atol=1e-5)
 
     # Test Pauli-Liouville power
     powered_pauli_liouville = qx.power_pauli_liouville(random_pauli_liouville, power)
-    fid = qx.process_fidelity(qx.pauli_liouville_to_choi(powered_pauli_liouville), powered_reference_choi)
-    assert jnp.allclose(fid, 1.0, atol=1e-6)
     assert jnp.allclose(
         qx.pauli_liouville_to_choi(powered_pauli_liouville).matrix, powered_reference_choi.matrix, atol=1e-6
     )

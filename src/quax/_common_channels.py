@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax import Array, jit
 
 from ._compose import compose_superop
-from ._quantum_objects import Choi, KrausMap, Operator, QuantumInstrument, SuperOp, Unitary, _extract_measured_index
+from ._quantum_objects import Choi, KrausMap, Lindbladian, Operator, QuantumInstrument, SuperOp, Unitary, _extract_measured_index
 from ._superoperator_transformations import (
     choi_to_superop,
     unitary_to_superop,
@@ -532,3 +532,141 @@ def instrument_from_axis(
 
     matrices = jnp.stack([superop_plus, superop_minus], axis=0)
     return QuantumInstrument.from_matrix(matrices, ((2,), (2,)), (0,))
+
+
+# ===========================================================================
+# Lindbladian factories (GKSL generators for open-system dynamics)
+# ===========================================================================
+
+# Qubit operators
+_SIGMA_MINUS = Operator.from_matrix(jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex), ((2,), (2,)))
+
+# Qutrit operators
+_SIGMA_12 = Operator.from_matrix(
+    jnp.array([[0, 0, 0], [0, 0, 0], [0, 1, 0]], dtype=complex), ((3,), (3,))
+)  # |2⟩⟨1| — leakage out of computational subspace
+_SIGMA_21 = Operator.from_matrix(
+    jnp.array([[0, 0, 0], [0, 0, 1], [0, 0, 0]], dtype=complex), ((3,), (3,))
+)  # |1⟩⟨2| — seepage back into computational subspace
+
+
+def amplitude_damping_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for the amplitude damping (T1 relaxation) channel.
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|0\\rangle\\langle 1|`.
+
+    The resulting CPTP channel ``evolve(L, t)`` matches
+    ``relaxation_operators(1 - exp(-gamma * t))`` converted to a SuperOp.
+
+    :param gamma: Relaxation rate (1/T1). Must be non-negative.
+    :return: Lindbladian generator for the amplitude damping channel.
+    """
+    L = jnp.sqrt(gamma) * _SIGMA_MINUS.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((2,), (2,))))
+
+
+def dephasing_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for the dephasing channel.
+
+    Jump operator: :math:`L = \\sqrt{\\gamma/2}\\,Z`.
+
+    The resulting CPTP channel ``evolve(L, t)`` matches
+    ``dephasing_operators(1 - exp(-gamma * t))`` converted to a SuperOp.
+
+    :param gamma: Dephasing rate. Must be non-negative.
+    :return: Lindbladian generator for the dephasing channel.
+    """
+    L = jnp.sqrt(gamma / 2.0) * Z.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((2,), (2,))))
+
+
+def depolarizing_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for the depolarizing channel.
+
+    Jump operators: :math:`L_k = \\sqrt{\\gamma/3}\\,\\sigma_k` for k ∈ {X, Y, Z}.
+
+    The resulting CPTP channel ``evolve(L, t)`` matches
+    ``depolarizing_operators(p)`` with ``p = 3/4 * (1 - exp(-4*gamma*t/3))``
+    converted to a SuperOp.
+
+    :param gamma: Depolarizing rate. Must be non-negative.
+    :return: Lindbladian generator for the depolarizing channel.
+    """
+    scale = jnp.sqrt(gamma / 3.0)
+    L_stack = jnp.stack([scale * X.matrix, scale * Y.matrix, scale * Z.matrix])
+    return Lindbladian.from_operators(None, Operator.from_matrix(L_stack, ((2,), (2,))))
+
+
+def thermal_relaxation_lindbladian(t1: float, tphi: float) -> Lindbladian:
+    """Lindbladian generator for the thermal relaxation channel.
+
+    Combines amplitude damping (1/T1) and pure dephasing (1/Tφ):
+
+    - :math:`L_1 = \\sqrt{1/T_1}\\,|0\\rangle\\langle 1|`
+    - :math:`L_2 = \\sqrt{1/T_\\varphi}\\,Z/\\sqrt{2}`
+
+    The resulting channel ``evolve(L, t)`` matches
+    ``thermal_relaxation_choi([t1], [tphi], t)`` converted to a SuperOp.
+
+    :param t1: T1 relaxation time (energy decay).
+    :param tphi: Pure dephasing time (Tφ, not T2).
+    :return: Lindbladian generator for the thermal relaxation channel.
+    """
+    L_stack = jnp.stack([
+        jnp.sqrt(1.0 / t1) * _SIGMA_MINUS.matrix,
+        jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0) * Z.matrix,
+    ])
+    return Lindbladian.from_operators(None, Operator.from_matrix(L_stack, ((2,), (2,))))
+
+
+def bit_flip_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for the bit-flip channel.
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,X`.
+
+    :param gamma: Bit-flip rate. Must be non-negative.
+    :return: Lindbladian generator for the bit-flip channel.
+    """
+    L = jnp.sqrt(gamma) * X.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((2,), (2,))))
+
+
+def phase_flip_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for the phase-flip channel.
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,Z`.
+
+    :param gamma: Phase-flip rate. Must be non-negative.
+    :return: Lindbladian generator for the phase-flip channel.
+    """
+    L = jnp.sqrt(gamma) * Z.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((2,), (2,))))
+
+
+def leakage_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for leakage out of the computational subspace (qutrit).
+
+    Models population loss from :math:`|1\\rangle` to the leakage state :math:`|2\\rangle`:
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|2\\rangle\\langle 1|`.
+
+    :param gamma: Leakage rate. Must be non-negative.
+    :return: Lindbladian generator for the leakage channel (qutrit space).
+    """
+    L = jnp.sqrt(gamma) * _SIGMA_12.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((3,), (3,))))
+
+
+def seepage_lindbladian(gamma: float) -> Lindbladian:
+    """Lindbladian generator for seepage back into the computational subspace (qutrit).
+
+    Models population return from the leakage state :math:`|2\\rangle` to :math:`|1\\rangle`:
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|1\\rangle\\langle 2|`.
+
+    :param gamma: Seepage rate. Must be non-negative.
+    :return: Lindbladian generator for the seepage channel (qutrit space).
+    """
+    L = jnp.sqrt(gamma) * _SIGMA_21.matrix
+    return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((3,), (3,))))
+

@@ -119,7 +119,7 @@ Specialized gates / internal utility gates:
 
 import jax.numpy as jnp
 from ._quantum_objects import Involution, Observable, Operator, SuperOp, Unitary, QuantumInstrument
-from ._power import cis
+from ._exponentiation import cis
 
 I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
 

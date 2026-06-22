@@ -92,7 +92,17 @@ from ._operator_basis import (
     weyl_basis_labels,
 )
 from ._observables import bitstring_probability, probabilities
-from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
+from ._common_channels import (
+    amplitude_damping_lindbladian,
+    dephasing_lindbladian,
+    depolarizing_lindbladian,
+    thermal_relaxation_lindbladian,
+    bit_flip_lindbladian,
+    phase_flip_lindbladian,
+    leakage_lindbladian,
+    seepage_lindbladian,
+)
+from ._exponentiation import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis, evolve
 from ._promotion import (
     embed,
     permute,
@@ -108,6 +118,7 @@ from ._quantum_objects import (
     DensityMatrix,
     Involution,
     KrausMap,
+    Lindbladian,
     Observable,
     Operator,
     PauliLiouville,
@@ -303,6 +314,7 @@ __all__ = [
     "State",
     "QuantumInstrument",
     "Operator",
+    "Lindbladian",
     # Instrument fidelity functions
     "classification_fidelity",
     "instrument_fidelity",
@@ -351,7 +363,7 @@ __all__ = [
     # Observables
     "bitstring_probability",
     "probabilities",
-    # Power functions
+    # Power / evolution functions
     "power_choi",
     "power_kraus",
     "power_pauli_liouville",
@@ -359,6 +371,17 @@ __all__ = [
     "power_unitary",
     "exp",
     "cis",
+    "evolve",
+    # Lindbladian generators
+    "Lindbladian",
+    "amplitude_damping_lindbladian",
+    "dephasing_lindbladian",
+    "depolarizing_lindbladian",
+    "thermal_relaxation_lindbladian",
+    "bit_flip_lindbladian",
+    "phase_flip_lindbladian",
+    "leakage_lindbladian",
+    "seepage_lindbladian",
     # Visualization
     "plot",
     # Submodules

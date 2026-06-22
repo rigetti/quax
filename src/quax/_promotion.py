@@ -25,6 +25,7 @@ from ._quantum_objects import (
     Choi,
     DensityMatrix,
     KrausMap,
+    Lindbladian,
     Operator,
     PauliLiouville,
     QuantumInstrument,
@@ -240,6 +241,22 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
     padded = padded.at[k0_slices].add(complement)
 
     return KrausMap(padded, num_qubits=len(dims))
+
+
+@promote.register(Lindbladian)
+@jax.jit(static_argnames=("dims",))
+def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
+    """Embed a Lindbladian generator in a larger Hilbert space (zero-padded).
+
+    The added dimensions evolve trivially: no Hamiltonian and no jump operators act on them.
+    """
+    current_dims = generator.dims[0]
+    _validate_promote_dims(current_dims, dims)
+    n_ensemble = generator.num_ensemble_dims
+    # Lindbladian tensor has 4*n_qudits qudit indices (bra/ket for out/in, twice)
+    pw = [(0, 0)] * n_ensemble + [(0, D - d) for d, D in zip(current_dims * 4, dims * 4)]
+    promoted = jnp.pad(generator.data, pw)
+    return Lindbladian(promoted, num_qubits=len(dims))
 
 
 @promote.register(PauliLiouville)
