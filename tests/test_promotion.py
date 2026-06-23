@@ -657,46 +657,152 @@ def test_promote_unsupported_type():
 
 
 @pytest.mark.parametrize("seed", [42, 123])
-def test_promote_state_vector_zeros_in_higher_dims(seed):
-    """Promoted state vector should have zero amplitude in higher-dimensional components."""
-    key = jax.random.key(seed)
-    sv = qx.random_state_vector(dims=(2,), key=key)
-    promoted = qx.promote(sv, (4,))
+@pytest.mark.parametrize(
+    "current_dims,target_dims",
+    [
+        # Single qudit
+        ((2,), (4,)),
+        # Multi-qubit
+        ((2, 2), (3, 3)),
+        ((2, 2), (4, 4)),
+        # Mixed-dimension qudit register
+        ((2, 3), (4, 5)),
+        ((3, 2), (4, 3)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (5,)])
+def test_promote_state_vector_zeros_in_higher_dims(seed, current_dims, target_dims, ensemble_size):
+    """Promoted state vector should have zero amplitude in higher-dimensional components.
 
-    # Original 2D components preserved
-    assert jnp.allclose(promoted.matrix[:2], sv.matrix, atol=1e-14)
-    # Higher components are zero
-    assert jnp.allclose(promoted.matrix[2:], 0.0, atol=1e-14)
+    Checks in tensor (`.data`) format so the assertion generalises to any number of
+    qudits and to batched states without reshaping the flat matrix.
+    """
+    key = jax.random.key(seed)
+    sv = qx.random_state_vector(dims=current_dims, key=key, size=ensemble_size)
+    promoted = qx.promote(sv, target_dims)
+
+    n = len(current_dims)
+
+    # Computational-subspace block is preserved
+    orig_slices = tuple(slice(0, d) for d in current_dims)
+    assert jnp.allclose(promoted.data[(...,) + orig_slices], sv.data, atol=1e-14)
+
+    # For each qudit axis, entries whose index falls in the complement (>= original dim) are zero
+    for axis_idx, (d_in, d_out) in enumerate(zip(current_dims, target_dims)):
+        if d_out > d_in:
+            slices = [slice(None)] * n
+            slices[axis_idx] = slice(d_in, None)
+            assert jnp.allclose(promoted.data[(...,) + tuple(slices)], 0.0, atol=1e-14)
 
 
 @pytest.mark.parametrize("seed", [42, 123])
-def test_promote_density_matrix_zeros_in_higher_dims(seed):
-    """Promoted density matrix should have zero entries in higher-dimensional rows/cols."""
-    key = jax.random.key(seed)
-    dm = qx.random_density_matrix(rank=2, dims=(2,), key=key)
-    promoted = qx.promote(dm, (4,))
+@pytest.mark.parametrize(
+    "current_dims,target_dims",
+    [
+        # Single qudit (original case)
+        ((2,), (4,)),
+        # Multi-qubit: homogeneous
+        ((2, 2), (3, 3)),
+        ((2, 2), (4, 4)),
+        # Mixed-dimension qudit register
+        ((2, 3), (4, 5)),
+        ((3, 2), (4, 3)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (5,)])
+def test_promote_density_matrix_zeros_in_higher_dims(seed, current_dims, target_dims, ensemble_size):
+    """Promoted density matrix should have zero entries in higher-dimensional rows/cols.
 
-    # Original 2x2 block preserved
-    assert jnp.allclose(promoted.matrix[:2, :2], dm.matrix, atol=1e-14)
-    # Higher rows and columns are zero
-    assert jnp.allclose(promoted.matrix[2:, :], 0.0, atol=1e-14)
-    assert jnp.allclose(promoted.matrix[:, 2:], 0.0, atol=1e-14)
+    Checks in tensor (`.data`) format where the first n axes are output (ket) qudit
+    indices and the last n axes are input (bra) qudit indices.  This generalises the
+    single-qudit matrix-slice check to multi-qudit and batched density matrices.
+    """
+    key = jax.random.key(seed)
+    dm = qx.random_density_matrix(rank=2, dims=current_dims, key=key, size=ensemble_size)
+    promoted = qx.promote(dm, target_dims)
+
+    n = len(current_dims)
+    orig_slices = tuple(slice(0, d) for d in current_dims)
+
+    # Computational-subspace block is preserved (first n axes = ket, last n = bra)
+    block_idx = (...,) + orig_slices + orig_slices
+    assert jnp.allclose(promoted.data[block_idx], dm.data, atol=1e-14)
+
+    # For each qudit axis, entries whose index falls in the complement are zero
+    # on both the ket (output) side and the bra (input) side.
+    for axis_idx, (d_in, d_out) in enumerate(zip(current_dims, target_dims)):
+        if d_out > d_in:
+            # Ket (output) axis: first n tensor axes
+            slices = [slice(None)] * (2 * n)
+            slices[axis_idx] = slice(d_in, None)
+            assert jnp.allclose(promoted.data[(...,) + tuple(slices)], 0.0, atol=1e-14)
+
+            # Bra (input) axis: last n tensor axes
+            slices = [slice(None)] * (2 * n)
+            slices[n + axis_idx] = slice(d_in, None)
+            assert jnp.allclose(promoted.data[(...,) + tuple(slices)], 0.0, atol=1e-14)
 
 
 @pytest.mark.parametrize("seed", [42])
-def test_promote_unitary_identity_in_higher_dims(seed):
-    """Promoted unitary should act as identity on higher-dimensional subspace."""
-    key = jax.random.key(seed)
-    u = qx.random_unitary(dims=((2,), (2,)), key=key)
-    promoted = qx.promote(u, (4,))
+@pytest.mark.parametrize(
+    "current_dims,target_dims",
+    [
+        # Single qudit
+        ((2,), (4,)),
+        # Multi-qubit: homogeneous
+        ((2, 2), (3, 3)),
+        # Mixed-dimension qudit register
+        ((2, 3), (4, 5)),
+    ],
+)
+@pytest.mark.parametrize("ensemble_size", [(), (3,)])
+def test_promote_unitary_identity_in_higher_dims(seed, current_dims, target_dims, ensemble_size):
+    """Promoted unitary should act as identity on higher-dimensional (complement) subspace.
 
-    # Original 2x2 block preserved
-    assert jnp.allclose(promoted.matrix[:2, :2], u.matrix, atol=1e-14)
-    # Off-diagonal blocks are zero
-    assert jnp.allclose(promoted.matrix[:2, 2:], 0.0, atol=1e-14)
-    assert jnp.allclose(promoted.matrix[2:, :2], 0.0, atol=1e-14)
-    # Lower-right block is identity
-    assert jnp.allclose(promoted.matrix[2:, 2:], jnp.eye(2, dtype=complex), atol=1e-14)
+    Three structural properties are verified in tensor (`.data`) format so the
+    assertions generalise to any number of qudits and to batched unitaries:
+
+    1. The computational-subspace block is preserved.
+    2. Cross blocks (complement on one side, computational subspace on the other)
+       are zero, checked per qudit axis.
+    3. The complement subspace receives the identity: U_tilde P_perp = P_perp,
+       where P_perp = I - E E† is built from the embedding isometry E = ⊗_k E_k.
+    """
+    key = jax.random.key(seed)
+    u = qx.random_unitary(dims=(current_dims, current_dims), key=key, size=ensemble_size)
+    promoted = qx.promote(u, target_dims)
+
+    n = len(current_dims)
+    orig_slices = tuple(slice(0, d) for d in current_dims)
+
+    # 1. Computational block preserved (first n data axes = output qudits, last n = input qudits)
+    block_idx = (...,) + orig_slices + orig_slices
+    assert jnp.allclose(promoted.data[block_idx], u.data, atol=1e-14)
+
+    # 2. Cross blocks are zero: per-axis check for complement-on-one-side / computational-on-the-other
+    for axis_idx, (d_in, d_out) in enumerate(zip(current_dims, target_dims)):
+        if d_out > d_in:
+            # Complement on this output axis, full computational subspace on all input axes
+            out_slices = [slice(None)] * n
+            out_slices[axis_idx] = slice(d_in, None)
+            assert jnp.allclose(promoted.data[(...,) + tuple(out_slices) + orig_slices], 0.0, atol=1e-14)
+            # Full computational subspace on all output axes, complement on this input axis
+            in_slices = [slice(None)] * n
+            in_slices[axis_idx] = slice(d_in, None)
+            assert jnp.allclose(promoted.data[(...,) + orig_slices + tuple(in_slices)], 0.0, atol=1e-14)
+
+    # 3. Complement subspace receives identity: U_tilde P_perp = P_perp.
+    # Build E = ⊗_k E_k where each E_k embeds d_k dims into D_k dims (zero-padded identity).
+    D_total = reduce(mul, target_dims, 1)
+    E_factors = [np.eye(D, dtype=complex)[:, :d] for D, d in zip(target_dims, current_dims)]
+    E = reduce(np.kron, E_factors)
+    P_perp = np.eye(D_total, dtype=complex) - E @ E.conj().T
+
+    mats = np.array(promoted.matrix)
+    if ensemble_size == ():
+        mats = mats[None]  # add batch dim for uniform loop
+    for mat in mats:
+        assert np.allclose(mat @ P_perp, P_perp, atol=1e-14)
 
 
 # ======================== JIT compatibility ========================
