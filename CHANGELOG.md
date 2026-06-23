@@ -14,15 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
-## [0.6.4] - 2026-06-07
+## [0.6.4] - 2026-06-23
 
 ### Added
 
-- Documentation page on promotion explaining the theory, the available extension schemes, and the rationale for the weighted default, with a worked qutrit example.
-
-### Changed
-
-- The default `promote` for channels (`SuperOp`, `KrausMap`, `Choi`, `PauliLiouville`) now uses the weighted extension instead of the coherent extension. The weighted extension distributes the complement projector across every Kraus operator in proportion to its Frobenius norm, preserving a leaked state identically across all Kraus trajectories and decoupling leakage from the gate-error trajectory in Monte-Carlo simulations. Promotion is unchanged for unitaries (where the weighted and coherent extensions coincide) and for `QuantumInstrument` (which continues to use the incoherent extension).
+- `promote`, `embed` and `permute` for promoting, embeding and permuting quantum objects.
 
 ## [0.6.3] - 2026-05-15
 
