@@ -34,7 +34,7 @@ defined in the note below.
    levels.
 
 The behaviour of :func:`~quax.promote` depends on what is being promoted: states
-are zero-padded, unitaries and operators are identity-extended, channels use the
+and operators are zero-padded, unitaries are identity-extended, channels use the
 **coherent** Kraus extension, and quantum instruments use an **incoherent**
 extension. The sections below treat each in turn, then discuss the family of
 superoperator extensions, the Lindbladian justification for the coherent default,
@@ -152,7 +152,7 @@ classically-conditioned process) as a collection of completely positive maps
 :math:`\sum_m \mathcal{I}_m` is trace preserving. A measurement *destroys*
 coherence between the computational and leaked subspaces, so an instrument is
 promoted by the **incoherent** extension (the channel case, where that coherence
-is instead retained, is treated in Section 5).
+is instead retained, is treated in Section 6).
 
 Each outcome map is zero-padded into the larger space,
 :math:`\hat{\mathcal{I}}_m(\rho) = \sum_i \hat{K}_{m,i}\,\rho\,\hat{K}_{m,i}^\dagger`,
@@ -212,11 +212,14 @@ Kraus operators together — there is no single object to identity-extend. The
 naive superoperator analogue, conjugating the channel by the embedding isometry
 (:math:`\tilde{\mathcal{E}} = E \mathcal{E} E^\dagger` at the map level), runs into
 exactly the obstruction below: it annihilates the complement and is not trace
-preserving. Repairing it forces a *choice* of how the restored complement
+preserving. This forces a *choice* of how the restored complement
 correlates with the channel's action — coherently, incoherently, or somewhere in
 between — and that choice lives in the operator-sum representation. We therefore
 work with Kraus operators, where the freedom is explicit and the CPTP constraint
-is easy to enforce.
+is easy to enforce. We note that this choice is fundamentally ambiguous for
+a superoperator in isolation. A more rigorous approach is to specify the subspace
+coherences exactly, which can be done if the channel arises from a known
+Lindbladian generator.
 
 Embedding each Kraus operator by zero-padding, :math:`\hat{K}_i = E K_i E^\dagger`,
 satisfies requirement (i) but **not** trace preservation:
@@ -258,11 +261,14 @@ decomposition*. Different choices produce identical average density matrices in 
 computational and complement blocks, but differ in the cross-block
 (computational :math:`\leftrightarrow` complement) coherences.
 
-Quax resolves this freedom with the **coherent** extension (the default for
+To resolve this freedom, Quax chooses the **coherent** extension (the default for
 :class:`~quax.SuperOp`, :class:`~quax.KrausMap`, :class:`~quax.Choi`, and
 :class:`~quax.PauliLiouville`), which places the entire complement weight on the
-first Kraus operator :math:`K_0`. The physical justification for this choice and
-its important limitations are discussed in detail under
+first Kraus operator :math:`K_0`. This is fundamentally an arbitrary choice, as
+the subspace coherences are not specified by the superoperator alone. However,
+for many physically relevant channels, the coherent extension gives intuitive
+results. The physical justification for this choice and its important limitations
+are discussed in detail under
 :ref:`Promotion choices <promotion-choices>` below.
 
 
@@ -286,11 +292,10 @@ Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
 
    \tilde{K}_0 = \hat{K}_0 + P_\perp, \qquad \tilde{K}_{i>0} = \hat{K}_i .
 
-This is the **default extension** used by :func:`~quax.promote` for channel types,
-on the basis of the Lindbladian argument below. It fully preserves coherence
-between the computational and complement subspaces and is *exact* for a unitary
-channel — which has a single Kraus operator, so the coherent extension reduces
-exactly to Eq. :eq:`eq-promote-unitary`.
+This is the **default extension** used by :func:`~quax.promote` for channel types. 
+It fully preserves coherence between the computational and complement subspaces 
+and is *exact* for a unitary channel — which has a single Kraus operator, so the 
+coherent extension reduces exactly to Eq. :eq:`eq-promote-unitary`.
 
 **The Lindbladian justification.** The most physically transparent way to promote
 a channel is to work at the level of the underlying microscopic model rather than
@@ -398,7 +403,7 @@ existing one:
 This destroys all coherence between the computational and complement subspaces. It
 is the physically correct extension for **measurements and resets**, where the
 leaked levels genuinely decohere from the computational state, and is what Quax
-uses when promoting a :class:`~quax.QuantumInstrument` (Section 4). It is exposed
+uses when promoting a :class:`~quax.QuantumInstrument` (Section 5). It is exposed
 directly as :func:`~quax.promote_incoherent`. The incoherent extension is
 decomposition-independent: the :math:`P_\perp\,\rho\,P_\perp` contribution is the
 same regardless of which Kraus set represents :math:`\mathcal{E}`.
@@ -523,7 +528,7 @@ maintains cross-subspace coherence:
    psi = jnp.array([0.0, 1.0, 1.0], dtype=complex) / jnp.sqrt(2.0)
    rho = jnp.outer(psi, psi.conj())
 
-   coherent  = qx.kraus_to_superop(qx.promote(channel, (3,)))
+   coherent = qx.kraus_to_superop(qx.promote(channel, (3,)))
    incoherent = qx.promote_incoherent(qx.kraus_to_superop(channel), (3,))
 
    rho_c = (coherent.matrix  @ rho.ravel()).reshape(3, 3)
@@ -540,8 +545,8 @@ a measurement or reset — removes it entirely.
 API reference
 -------------
 
-* :func:`~quax.promote` — promote a quantum object: zero-pad states, identity-extend
-  unitaries and operators, apply the **coherent** Kraus extension to channels, and
+* :func:`~quax.promote` — promote a quantum object: zero-pad states and operators,
+  identity-extend unitaries, apply the **coherent** Kraus extension to channels, and
   apply the **incoherent** extension to quantum instruments.
 * :func:`~quax.promote_incoherent` — the incoherent extension for measurements and
   resets, applied directly to a superoperator.
