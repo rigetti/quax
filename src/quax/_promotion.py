@@ -142,8 +142,8 @@ def _promote_density_matrix(dm: DensityMatrix, dims: Tuple[int, ...]) -> Density
     return DensityMatrix(promoted, num_qubits=len(dims))
 
 
-def _promote_operator_like(obj, dims: Tuple[int, ...]):
-    """Embed an operator-like object in a larger Hilbert space (identity on higher states)."""
+def _promote_unitary_like(obj, dims: Tuple[int, ...]):
+    """Embed a unitary-like object in a larger Hilbert space (identity on higher states)."""
     current_dims = obj.dims[0]
     _validate_promote_dims(current_dims, dims)
     batch_shape = obj.ensemble_size
@@ -159,14 +159,19 @@ def _promote_operator_like(obj, dims: Tuple[int, ...]):
 @jax.jit(static_argnames=("dims",))
 def _promote_unitary(unitary: Unitary, dims: Tuple[int, ...]) -> Unitary:
     """Embed a unitary in a larger Hilbert space (identity on higher states)."""
-    return _promote_operator_like(unitary, dims)
+    return _promote_unitary_like(unitary, dims)
 
 
 @promote.register(Operator)
 @jax.jit(static_argnames=("dims",))
 def _promote_operator(op: Operator, dims: Tuple[int, ...]) -> Operator:
-    """Embed an operator in a larger Hilbert space (identity on higher states)."""
-    return _promote_operator_like(op, dims)
+    """Embed an operator in a larger Hilbert space (zero-padded)."""
+    current_dims = op.dims[0]
+    _validate_promote_dims(current_dims, dims)
+    n_ensemble = len(op.ensemble_size)
+    pw = [(0, 0)] * n_ensemble + [(0, D - d) for d, D in zip(current_dims + current_dims, dims + dims)]
+    promoted = jnp.pad(op.data, pw)
+    return Operator(promoted, num_qubits=len(dims))
 
 
 def _promote_via_kraus(obj, dims, to_kraus, from_kraus):

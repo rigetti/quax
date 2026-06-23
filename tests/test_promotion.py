@@ -108,6 +108,21 @@ def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[in
     return E @ qt_op @ E.dag() + (I - P)
 
 
+def _qt_embed_operator_zero(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ...]) -> qt.Qobj:
+    """Zero-pad a QuTiP operator into a larger space: E @ op @ E†.
+
+    Unlike :func:`_qt_embed_operator`, no identity is added on the complement
+    subspace. This is the reference for generic (non-unitary) operator promotion.
+
+    :param qt_op: The QuTiP operator to embed.
+    :param d_in: The input dimensions of the operator.
+    :param d_target: The target dimension to promote.
+    """
+    Ei = [qt.Qobj(jnp.diag(jnp.ones(dout))[:, :din], dims=[[dout], [din]]) for din, dout in zip(d_in, d_target)]
+    E = reduce(qt.tensor, Ei)
+    return E @ qt_op @ E.dag()
+
+
 def _qt_lindblad_channel(H_mat: np.ndarray, jump_mats: list, t: float = 1.0, dims: list | None = None) -> qt.Qobj:
     """Compute the channel exp(t*L) via QuTiP Lindbladian exponentiation.
 
@@ -326,13 +341,13 @@ def test_promote_operator(seed, current_dims, target_dims, ensemble_size):
     # QuTiP comparison
     if ensemble_size == ():
         qt_op = op._to_qobj()
-        qt_promoted = _qt_embed_operator(qt_op, current_dims, target_dims)
+        qt_promoted = _qt_embed_operator_zero(qt_op, current_dims, target_dims)
         assert np.allclose(np.array(promoted.matrix), qt_promoted.full(), atol=1e-12)
 
     else:
         for i, qobj in enumerate(op._to_qobj()):
             qt_op = qobj
-            qt_promoted = _qt_embed_operator(qt_op, current_dims, target_dims)
+            qt_promoted = _qt_embed_operator_zero(qt_op, current_dims, target_dims)
             assert np.allclose(np.array(promoted.matrix[i]), qt_promoted.full(), atol=1e-12)
 
     assert promoted.dims == (target_dims, target_dims)

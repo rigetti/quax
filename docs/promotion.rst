@@ -97,9 +97,8 @@ state supported entirely on the computational subspace.
 -------------------------
 
 States are *padded* with zeros, but a gate must leave any already-leaked
-population untouched. A unitary :math:`U` (or a generic :class:`~quax.Operator`)
-is therefore promoted by acting as :math:`U` on the computational subspace and as
-the **identity** on the complement,
+population untouched. A unitary :math:`U` is therefore promoted by acting as
+:math:`U` on the computational subspace and as the **identity** on the complement,
 
 .. math::
    :label: eq-promote-unitary
@@ -112,9 +111,7 @@ result is unitary on the whole space: since :math:`E U E^\dagger` and
 :math:`P_\perp` have orthogonal support, :math:`\tilde{U}^\dagger \tilde{U} =
 E U^\dagger U E^\dagger + P_\perp = P + P_\perp = I_D`. A leaked basis state is an
 eigenvector of eigenvalue one, :math:`\tilde{U}|{\perp}\rangle = |{\perp}\rangle`,
-so the gate neither populates nor depopulates the leaked levels. Promotion of a
-generic (non-unitary) :class:`~quax.Operator` follows the identical rule; only the
-computational block changes.
+so the gate neither populates nor depopulates the leaked levels.
 
 .. code-block:: python
 
@@ -122,7 +119,31 @@ computational block changes.
    promoted = qx.promote(u, (3,))   # block-diag(U, 1): identity on |2>
 
 
-4. Promotion of quantum instruments
+4. Promotion of operators
+--------------------------
+
+A generic :class:`~quax.Operator` (which may be non-unitary or non-Hermitian) is
+**zero-padded** into the larger space:
+
+.. math::
+   :label: eq-promote-operator
+
+   \tilde{A} = E\,A\,E^\dagger
+   = \begin{pmatrix} A & 0 \\ 0 & 0 \end{pmatrix}.
+
+Unlike a unitary, a general operator carries no constraint that forces the
+complement subspace to be left unchanged. Zero-padding — embedding :math:`A` as
+the top-left block of a larger zero matrix — is the natural linear extension: it
+preserves the operator's action on the computational subspace and assigns no
+output to states in the complement.
+
+.. code-block:: python
+
+   op = qx.random_operator(dims=((2,), (2,)), key=jax.random.key(0))
+   promoted = qx.promote(op, (3,))   # 2×2 block preserved, leaked row/col are 0
+
+
+5. Promotion of quantum instruments
 -----------------------------------
 
 A :class:`~quax.QuantumInstrument` describes a measurement (or other
@@ -163,7 +184,7 @@ coherence between the subspace that was "read out" and the leaked levels, exactl
 the decoherence that the separate :math:`P_\perp\,\rho\,P_\perp` term enforces.
 
 
-5. Promotion of superoperators
+6. Promotion of superoperators
 ------------------------------
 
 Promoting a noise channel is the substantive case, because there is no longer a
@@ -284,11 +305,14 @@ operator:
 
    \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
 
-Because the zero-padded operators have no matrix elements coupling the leaked
-levels to the computational subspace, the Lindbladian evolution of an initially
-leaked state is governed entirely by :math:`P_\perp`. Exponentiating gives a
-promoted channel :math:`\hat{\mathcal{E}}_t` that leaves the complement untouched
-and reproduces the qubit channel on the computational subspace. For many
+Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
+P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
+generator has **zero** action on any state supported entirely in the complement:
+:math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
+therefore stationary — their time derivative is identically zero. Exponentiating a
+zero generator gives the identity (not zero) in the complement block, so the
+promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
+untouched while reproducing the qubit channel on the computational subspace. For many
 physically relevant channels — amplitude damping, cascade decay, thermal
 relaxation — this zero-padded Lindbladian approach agrees *exactly* with the
 coherent extension. The agreement holds whenever the first Kraus operator
