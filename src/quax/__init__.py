@@ -93,7 +93,14 @@ from ._operator_basis import (
 )
 from ._observables import bitstring_probability, probabilities
 from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
-from ._promotion import promote, promote_state_vector_to_density_matrix, promote_hilbert_space
+from ._promotion import (
+    embed,
+    permute,
+    promote,
+    promote_incoherent,
+    promote_state_vector_to_density_matrix,
+    promote_hilbert_space,
+)
 from ._quantum_objects import QuantumInstrument
 from ._quantum_objects import (
     Choi,
@@ -326,7 +333,10 @@ __all__ = [
     "is_completely_positive",
     "is_trace_preserving",
     # Promotion functions
+    "embed",
+    "permute",
     "promote",
+    "promote_incoherent",
     "promote_state_vector_to_density_matrix",
     "promote_hilbert_space",
     # Operator basis functions

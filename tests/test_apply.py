@@ -1546,6 +1546,41 @@ class TestInstrumentTargetedApply:
         rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
         assert int(outcome) == 1
 
+    def test_state_vector_measure_second_qubit_of_two(self):
+        qi = qx.gates.MEASURE()
+        vec = jnp.zeros(4, dtype=complex).at[1].set(1.0)
+        psi = StateVector.from_matrix(vec, (2, 2))
+        key = jax.random.key(42)
+
+        psi_out, outcome = qx.targeted_apply_instrument_to_state_vector(qi, psi, key, subsystem=(1,))
+
+        assert int(outcome) == 1
+        assert psi_out.dims == (2, 2)
+        np.testing.assert_allclose(psi_out.matrix, psi.matrix, atol=1e-10)
+
+    def test_state_vector_instrument_statistical_convergence(self):
+        """Averaged trajectories should match the nonselective density-matrix instrument result."""
+        n_samples = 5000
+        dims = (2, 2)
+        subsystem = (1,)
+        key = jax.random.key(314)
+        key, state_key, sample_key = jax.random.split(key, 3)
+        qi = qx.gates.MEASURE()
+        psi = qx.random_state_vector(dims, state_key)
+
+        rho_initial = qx.promote_state_vector_to_density_matrix(psi)
+        rho_outs, _ = qx.targeted_apply_instrument_to_density_matrix(qi, rho_initial, subsystem=subsystem)
+        rho_reference = qx.DensityMatrix.from_matrix(jnp.sum(rho_outs.matrix, axis=0), dims)
+
+        sample_keys = jax.random.split(sample_key, n_samples)
+        psi_out, outcomes = qx.targeted_apply_instrument_to_state_vector(qi, psi, sample_keys, subsystem=subsystem)
+
+        assert outcomes.shape == (n_samples,)
+        rho_avg = jnp.mean(psi_out.matrix[:, :, None] * psi_out.matrix[:, None, :].conj(), axis=0)
+        rho_avg = qx.DensityMatrix.from_matrix(rho_avg, dims)
+
+        assert qx.fidelity(rho_avg, rho_reference) > 0.99
+
 
 # ======================================================================
 # QuantumInstrument ensemble / batch application tests
@@ -1668,6 +1703,37 @@ class TestInstrumentEnsembleApplication:
         assert int(outcomes[0]) == 0
         assert int(outcomes[1]) == 1
         assert isinstance(psi_out, StateVector)
+
+    def test_targeted_state_vector_batch(self):
+        """Targeted state-vector instrument application should broadcast over state batches."""
+        qi = qx.gates.MEASURE()
+        sv00 = jnp.array([1, 0, 0, 0], dtype=complex)
+        sv10 = jnp.array([0, 0, 1, 0], dtype=complex)
+        psi = StateVector.from_matrix(jnp.stack([sv00, sv10]), (2, 2))
+        keys = jax.random.split(jax.random.key(17), 2)
+
+        psi_out, outcomes = qx.targeted_apply_instrument_to_state_vector(qi, psi, keys, subsystem=(0,))
+
+        assert outcomes.shape == (2,)
+        assert int(outcomes[0]) == 0
+        assert int(outcomes[1]) == 1
+        assert psi_out.matrix.shape == (2, 4)
+        norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+        assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
+
+    def test_state_vector_instrument_key_extra_dims(self):
+        """Key dimensions beyond the instrument ensemble should add sample axes."""
+        qi = qx.gates.MEASURE(ensemble_size=3)
+        psi = qx.zero_state_vector(dims=(2,))
+        keys = jax.random.split(jax.random.key(19), 15).reshape(3, 5)
+
+        psi_out, outcomes = qx.targeted_apply_instrument_to_state_vector(qi, psi, keys, subsystem=(0,))
+
+        assert outcomes.shape == (3, 5)
+        assert psi_out.ensemble_size == (3, 5)
+        assert jnp.all(outcomes == 0)
+        norms = jnp.sum(jnp.abs(psi_out.matrix) ** 2, axis=-1)
+        assert jnp.allclose(norms, jnp.ones_like(norms), atol=1e-6)
 
     def test_batch_targeted_apply(self):
         """Targeted apply with batch of 2-qubit states, measuring first qubit."""

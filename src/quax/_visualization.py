@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from functools import singledispatch
 from itertools import product
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import jax.numpy as jnp
 
@@ -8,10 +10,14 @@ try:
     import plotly.colors as pc
     import plotly.express as px
     import plotly.graph_objects as go
-    from plotly.graph_objs import Figure
     from plotly.subplots import make_subplots
-except ImportError as e:
-    raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]") from e
+
+    _PLOTLY_INSTALLED = True
+except ImportError:
+    _PLOTLY_INSTALLED = False
+
+if TYPE_CHECKING:
+    from plotly.graph_objs import Figure
 
 from ._operator_basis import _xz_pairs
 from ._quantum_objects import (
@@ -21,9 +27,15 @@ from ._quantum_objects import (
     QuantumInstrument,
     QuantumObject,
     StateVector,
+    SuperOp,
     SuperOperator,
 )
 from ._superoperator_transformations import to_pauli_liouville
+
+
+def _require_plotly() -> None:
+    if not _PLOTLY_INSTALLED:
+        raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
 
 
 def _computational_basis_labels(dims: Tuple[int, ...]) -> List[str]:
@@ -266,10 +278,12 @@ def plot(obj: QuantumObject, **kwargs) -> Figure:  # type: ignore[type-arg]
     * :class:`StateVector` – polar bar chart of computational-basis amplitudes
       coloured by imaginariness and patterned by sign.
     * :class:`DensityMatrix` – heatmap of matrix elements (real part).
-    * :class:`Operator` / :class:`SuperOperator` – Pauli transfer matrix
+    * :class:`Operator` / :class:`SuperOperator` – Weyl-Liouville transfer matrix
       (converted via :func:`to_pauli_liouville`).
-    * :class:`QuantumInstrument` – subplot grid of per-outcome Pauli transfer
-      matrices.
+    * :class:`SuperOp` – complex heatmap in the computational basis (phase → colour,
+      magnitude → opacity).
+    * :class:`QuantumInstrument` – subplot grid of per-outcome computational-basis
+      heatmaps.
 
     :param obj: Any supported quantum object.
     :param kwargs: Forwarded to the type-specific plotting function.
@@ -297,6 +311,7 @@ def _plot_state_vector(
     :param area_proportional: If ``True``, the area of each annular sector is
         proportional to the amplitude magnitude rather than the radial extent.
     """
+    _require_plotly()
     if state_vector.ensemble_size != ():
         raise ValueError("plot(StateVector) does not support ensemble dimensions")
     colourscale = [
@@ -442,6 +457,7 @@ def _plot_density_matrix(
     :param density_matrix: A :class:`DensityMatrix` (no ensemble dimensions).
     :param range_color: Symmetric normalisation range. If ``None``, adapts to the data.
     """
+    _require_plotly()
     if density_matrix.ensemble_size != ():
         raise ValueError("plot(DensityMatrix) does not support ensemble dimensions")
 
@@ -571,10 +587,69 @@ def _plot_operator(
     :param operator: Any :class:`Operator` subclass (Unitary, Observable, …).
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
+    _require_plotly()
     if operator.ensemble_size != ():
         raise ValueError("plot(Operator) does not support ensemble dimensions")
     pauli_liouville = to_pauli_liouville(operator)
     return _plot_pauli_transfer_matrix(pauli_liouville, range_color=range_color)
+
+
+def _plot_superoperator_in_computational_basis(superoperator: SuperOperator) -> Figure:
+    """Plot a superoperator as a complex heatmap in the computational basis.
+
+    Phase is encoded as colour (cyclic colorscale) and magnitude as opacity,
+    matching the style used for :class:`DensityMatrix` and
+    :class:`QuantumInstrument` plots.
+
+    :param superoperator: Any :class:`SuperOperator` (must have no ensemble dimensions).
+    :returns: A Plotly ``Figure``.
+    """
+    matrix = superoperator.matrix
+    labels = _superoperator_computational_labels(superoperator.dims[0])
+    n = len(labels)
+    abs_max = float(jnp.max(jnp.abs(matrix)))
+    if abs_max == 0:
+        abs_max = 1.0
+
+    cell_size = 40
+    size = max(400, n * cell_size)
+
+    fig = make_subplots(rows=1, cols=1)
+    _add_complex_heatmap(fig, matrix, labels, row=1, col=1, abs_max=abs_max)
+
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="markers",
+            marker=dict(
+                colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
+                showscale=True,
+                cmin=0,
+                cmax=2 * jnp.pi,
+                color=[0],
+                colorbar=dict(
+                    title="Phase (rad)",
+                    thickness=10,
+                    len=0.5,
+                    ypad=0,
+                    tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                    ticktext=["0", "π/2", "π", "3π/2", "2π"],
+                ),
+            ),
+            hoverinfo="none",
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=40, b=20),
+        width=size + 80,
+        height=size,
+    )
+    return fig
 
 
 @plot.register(SuperOperator)
@@ -582,14 +657,29 @@ def _plot_superoperator(
     superoperator: SuperOperator,
     range_color: Optional[Tuple[float, float]] = None,
 ) -> Figure:
-    """
-    Plot a superoperator as its Pauli transfer matrix.
+    """Plot a superoperator as its Weyl-Liouville transfer matrix.
 
-    :param superoperator: Any :class:`SuperOperator` subclass (SuperOp, Choi, KrausMap, PauliLiouville, …).
+    :param superoperator: Any :class:`SuperOperator` subclass (KrausMap, Choi, PauliLiouville, …).
     :param range_color: Color range for the colorbar. If ``None``, adapts to the data.
     """
+    _require_plotly()
     pauli_liouville = to_pauli_liouville(superoperator)
     return _plot_pauli_transfer_matrix(pauli_liouville, range_color=range_color)
+
+
+@plot.register(SuperOp)
+def _plot_super_op(superop: SuperOp) -> Figure:
+    """Plot a :class:`SuperOp` in the computational basis.
+
+    Phase is encoded as colour and magnitude as opacity.  To plot as a
+    Weyl-Liouville transfer matrix instead, convert first::
+
+        qx.plot(qx.to_pauli_liouville(superop))
+
+    :param superop: A :class:`SuperOp` channel representation.
+    """
+    _require_plotly()
+    return _plot_superoperator_in_computational_basis(superop)
 
 
 @plot.register(QuantumInstrument)
@@ -604,6 +694,7 @@ def _plot_quantum_instrument(
 
     :param instrument: A :class:`QuantumInstrument`.
     """
+    _require_plotly()
     n = instrument.num_outcomes
 
     # Layout: n rows, 2 columns. Left column spans all rows (total channel).
