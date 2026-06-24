@@ -222,27 +222,28 @@ a superoperator in isolation. A more rigorous approach is to specify the subspac
 coherences exactly, which can be done if the channel arises from a known
 Lindbladian generator.
 
-**The Lindbladian approach.** The most physically transparent way to promote
-a channel is to work at the level of the underlying microscopic model rather than
-the channel itself. Suppose the qubit channel arises from a Lindbladian master
-equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
-supported within the :math:`d`-dimensional computational subspace, so the
-:math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
-operator:
+.. note::
+   **The Lindbladian approach.** The most physically transparent way to promote
+   a channel is to work at the level of the underlying microscopic model rather than
+   the channel itself. Suppose the qubit channel arises from a Lindbladian master
+   equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
+   supported within the :math:`d`-dimensional computational subspace, so the
+   :math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
+   operator:
 
-.. math::
-   :label: eq-lindblad-promote
+   .. math::
+      :label: eq-lindblad-promote
 
-   \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
+      \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
 
-Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
-P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
-generator has **zero** action on any state supported entirely in the complement:
-:math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
-therefore stationary — their time derivative is identically zero. Exponentiating a
-zero generator gives the identity in the complement block, so the
-promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
-untouched while reproducing the qubit channel on the computational subspace.
+   Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
+   P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
+   generator has **zero** action on any state supported entirely in the complement:
+   :math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
+   therefore stationary — their time derivative is identically zero. Exponentiating a
+   zero generator gives the identity in the complement block, so the
+   promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
+   untouched while reproducing the qubit channel on the computational subspace.
 
 Embedding each Kraus operator by zero-padding, :math:`\hat{K}_i = E K_i E^\dagger`,
 satisfies requirement (i) but **not** trace preservation:
