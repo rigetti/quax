@@ -5,8 +5,8 @@ Promotion
 
 Quantum hardware rarely behaves as the idealized two-level system we use to reason
 about qubits. Superconducting transmons, for example, are weakly anharmonic
-oscillators whose third level :math:`|2\rangle` is only a few percent detuned from
-the computational :math:`\{|0\rangle, |1\rangle\}` transition. Modelling *leakage*
+oscillators whose :math:`|1\rangle \to |2\rangle` transition lies close to the
+computational :math:`|0\rangle \to |1\rangle` transition. Modelling *leakage*
 out of the computational subspace therefore requires embedding qubit states,
 gates, and noise channels into a qutrit (or larger) Hilbert space. Quax calls this
 operation **promotion** and exposes it through a single dispatched entry point,
@@ -158,7 +158,8 @@ Each outcome map is zero-padded into the larger space,
 :math:`\hat{\mathcal{I}}_m(\rho) = \sum_i \hat{K}_{m,i}\,\rho\,\hat{K}_{m,i}^\dagger`,
 and the complement is restored by appending the projector :math:`P_\perp` as a
 *separate* Kraus operator to a single outcome. Quax assigns it to the
-highest-index outcome :math:`M`:
+highest-index outcome :math:`M`, where the outcomes are indexed
+:math:`m = 0, \dots, M`:
 
 .. math::
    :label: eq-promote-instrument
@@ -221,6 +222,28 @@ a superoperator in isolation. A more rigorous approach is to specify the subspac
 coherences exactly, which can be done if the channel arises from a known
 Lindbladian generator.
 
+**The Lindbladian approach.** The most physically transparent way to promote
+a channel is to work at the level of the underlying microscopic model rather than
+the channel itself. Suppose the qubit channel arises from a Lindbladian master
+equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
+supported within the :math:`d`-dimensional computational subspace, so the
+:math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
+operator:
+
+.. math::
+   :label: eq-lindblad-promote
+
+   \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
+
+Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
+P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
+generator has **zero** action on any state supported entirely in the complement:
+:math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
+therefore stationary — their time derivative is identically zero. Exponentiating a
+zero generator gives the identity in the complement block, so the
+promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
+untouched while reproducing the qubit channel on the computational subspace.
+
 Embedding each Kraus operator by zero-padding, :math:`\hat{K}_i = E K_i E^\dagger`,
 satisfies requirement (i) but **not** trace preservation:
 
@@ -259,7 +282,9 @@ both requirements. The freedom in :math:`\{\alpha_i\}` is precisely the freedom 
 *how the leaked subspace is correlated with the channel's Kraus (trajectory)
 decomposition*. Different choices produce identical average density matrices in the
 computational and complement blocks, but differ in the cross-block
-(computational :math:`\leftrightarrow` complement) coherences.
+(computational :math:`\leftrightarrow` complement) coherences. Those differences
+are invisible for block-diagonal states and observables, but visible whenever the
+simulation creates, preserves, or measures cross-subspace coherences.
 
 To resolve this freedom, Quax chooses the **coherent** extension (the default for
 :class:`~quax.SuperOp`, :class:`~quax.KrausMap`, :class:`~quax.Choi`, and
@@ -292,41 +317,23 @@ Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
 
    \tilde{K}_0 = \hat{K}_0 + P_\perp, \qquad \tilde{K}_{i>0} = \hat{K}_i .
 
-This is the **default extension** used by :func:`~quax.promote` for channel types. 
-It fully preserves coherence between the computational and complement subspaces 
-and is *exact* for a unitary channel — which has a single Kraus operator, so the 
+This is the **default extension** used by :func:`~quax.promote` for channel types.
+It does not forcibly dephase the computational-complement coherences, and is
+*exact* for a unitary channel — which has a single Kraus operator, so the
 coherent extension reduces exactly to Eq. :eq:`eq-promote-unitary`.
 
-**The Lindbladian justification.** The most physically transparent way to promote
-a channel is to work at the level of the underlying microscopic model rather than
-the channel itself. Suppose the qubit channel arises from a Lindbladian master
-equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
-supported within the :math:`d`-dimensional computational subspace, so the
-:math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
-operator:
+For many physically relevant channels — amplitude damping, cascade decay, thermal
+relaxation — this coherent extension can agree *exactly* with the zero-padded
+Lindbladian approach. For a time-independent Lindbladian this agreement holds
+when the first Kraus operator :math:`K_0` from the canonical (Choi-eigenvector)
+decomposition equals the no-jump propagator
+:math:`\exp\!\bigl((-iH - \tfrac{1}{2}\sum_k L_k^\dagger L_k)t\bigr)`, up to the
+global-phase convention described below. This condition should be checked in
+models with nontrivial Hamiltonians or degenerate Choi spectra; it can be verified
+analytically for a broad class of channels and is confirmed by the tests in
+``tests/test_promotion.py``.
 
-.. math::
-   :label: eq-lindblad-promote
-
-   \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
-
-Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
-P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
-generator has **zero** action on any state supported entirely in the complement:
-:math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
-therefore stationary — their time derivative is identically zero. Exponentiating a
-zero generator gives the identity (not zero) in the complement block, so the
-promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
-untouched while reproducing the qubit channel on the computational subspace. For many
-physically relevant channels — amplitude damping, cascade decay, thermal
-relaxation — this zero-padded Lindbladian approach agrees *exactly* with the
-coherent extension. The agreement holds whenever the first Kraus operator
-:math:`K_0` from the canonical (Choi-eigenvector) decomposition equals the no-jump
-propagator :math:`\exp\!\bigl(-\tfrac{1}{2}\sum_k L_k^\dagger L_k\, t\bigr)`.
-This can be verified analytically for a broad class of channels and is confirmed by
-the tests in ``tests/test_promotion.py``.
-
-**The depolarizing argument.** The coherent extension also has a direct physical
+**Depolarizing intuition.** The coherent extension also has a direct physical
 interpretation in terms of Kraus trajectories. Consider depolarizing noise on the
 computational subspace. In a trajectory unravelling, a jump event corresponds to
 one of the Pauli error operators :math:`X`, :math:`Y`, or :math:`Z` firing. These
@@ -355,8 +362,9 @@ continues to be leaked.
    channels. The promoted channels have identical action on the computational
    subspace and on the complement subspace in isolation; they differ only in the
    cross-block (computational :math:`\leftrightarrow` complement) coherences. This
-   difference is invisible in average density-matrix simulations but shows up in
-   trajectory unravellings and in any observable that mixes the two subspaces.
+   difference is invisible for block-diagonal states and observables, but shows up
+   in density-matrix simulations with cross-subspace coherences, trajectory
+   unravellings, and any observable that mixes the two subspaces.
 
    **Phase of** :math:`K_0` **also matters.** Because :math:`P_\perp` is a real
    projector and does not share the global phase of :math:`K_0`, replacing
@@ -420,8 +428,10 @@ wavefunction) simulation**, where a pure state :math:`|\psi\rangle` is propagate
 by sampling a single Kraus branch :math:`i` with probability
 :math:`p_i = \lVert \tilde{K}_i |\psi\rangle \rVert^2` and renormalizing.
 Averaging over many trajectories reproduces the channel's action on the density
-matrix. The extension choice is invisible in the *average* but governs the
-*correlations* along individual trajectories.
+matrix. The extension choice is invisible for block-diagonal inputs and
+observables, but it changes the average density matrix whenever cross-subspace
+coherences are present; it also governs the *correlations* along individual
+trajectories.
 
 Under the **coherent extension** (the default):
 
@@ -433,8 +443,9 @@ Under the **coherent extension** (the default):
   interaction implies the system was in the qubit subspace.
 * **The no-error branch preserves leaked population.** :math:`\tilde{K}_0 =
   \hat{K}_0 + P_\perp` maps any leaked state to itself. A system that was leaked
-  and experienced no jump simply remains leaked, with a norm factor from
-  :math:`\hat{K}_0`.
+  and experienced no jump simply remains leaked with unit amplitude; in a
+  computational-leakage superposition, the computational component is scaled by
+  :math:`\hat{K}_0` while the leaked component is left untouched.
 * **Exact for unitaries.** A unitary channel has a single Kraus operator, so
   :math:`K_0 = U` and the coherent extension reduces to
   Eq. :eq:`eq-promote-unitary`. Promoting ideal gates is unchanged.
@@ -481,43 +492,46 @@ The no-error branch preserves :math:`|2\rangle`, while the error branches
    print(promoted.matrix[:, 2, 2])           # [1.0, 0.0, 0.0, 0.0]
 
 The difference between the two extensions is most directly visible in the
-Weyl-Liouville (generalized Pauli transfer) matrix of the promoted channel.
-The 9×9 Weyl-Liouville matrix of a qutrit superoperator has rows and columns
-labelled by the Weyl–Heisenberg operator basis :math:`\{W_{xz}\}` of the
-three-level system. The :math:`(W_{00}, W_{10}, W_{01}, W_{11})` corner recovers
-the standard qubit Pauli-transfer matrix and is identical for both extensions.
-The rest of the matrix reveals how the two choices treat the leaked subspace and
-its coherences with the computational levels.
+computational-basis superoperator matrix of the promoted channel. The
+:math:`9 \times 9` matrix for a qutrit superoperator has rows and columns indexed
+by vectorized density-matrix elements
+:math:`|i\rangle\!\langle j|`, such as :math:`|0\rangle\!\langle 1|` and
+:math:`|0\rangle\!\langle 2|`. The entries split into comp-comp elements
+(:math:`i,j \in \{0,1\}`), cross-subspace coherences (exactly one of
+:math:`i,j` is :math:`2`), and the complement population
+:math:`|2\rangle\!\langle 2|`. This basis makes the physical difference between
+coherent and incoherent extension visible without any change of operator basis.
 
 .. figure:: _static/promotion-weyl-coherent.png
    :align: center
    :width: 90%
 
    **Coherent extension** of 1-qubit depolarizing (:math:`p = 0.1`) promoted to a
-   qutrit. The matrix is nearly diagonal throughout. The top-left
-   :math:`3 \times 3` block (:math:`W_{00}`, :math:`W_{01}`, :math:`W_{02}` —
-   the population/diagonal operators) is completely decoupled from the remaining
-   :math:`6 \times 6` coherence block. All six coherence operators (:math:`W_{11}`,
-   :math:`W_{22}`, :math:`W_{10}`, :math:`W_{20}`, :math:`W_{21}`,
-   :math:`W_{12}`) decay by the same uniform factor :math:`{\approx}0.92`, with
-   only small numerical off-diagonal entries. This clean structure reflects that
-   the coherent extension treats the qutrit coherences uniformly — each coherence
-   channel evolves independently.
+   qutrit. The comp-comp block, indexed by
+   :math:`|0\rangle\!\langle 0|`, :math:`|0\rangle\!\langle 1|`,
+   :math:`|1\rangle\!\langle 0|`, and :math:`|1\rangle\!\langle 1|`, recovers the
+   original qubit depolarizing channel. The cross-subspace coherences
+   :math:`|0\rangle\!\langle 2|`, :math:`|1\rangle\!\langle 2|`,
+   :math:`|2\rangle\!\langle 0|`, and :math:`|2\rangle\!\langle 1|` are not mixed
+   with the comp-comp block; each is scaled by the no-error amplitude
+   :math:`\sqrt{1-p}`. The complement population :math:`|2\rangle\!\langle 2|`
+   is fixed with eigenvalue 1. Hatched regions identify entries outside the qubit
+   computational subspace: **×** marks cross-subspace coherences and **+** marks
+   the complement population.
 
 .. figure:: _static/promotion-weyl-incoherent.png
    :align: center
    :width: 90%
 
-   **Incoherent extension** of the same channel. The top-left :math:`3 \times 3`
-   population block is identical to the coherent case — the two extensions agree
-   on all population dynamics. The :math:`6 \times 6` coherence block is
-   dramatically different: the diagonal entries fall to :math:`{\approx}0.29` and
-   large off-diagonal entries (up to :math:`{\pm}0.25`) appear throughout. This
-   dense structure arises because projecting out the
-   :math:`|0\rangle\!\langle 2|` and :math:`|1\rangle\!\langle 2|` coherences
-   (as the incoherent :math:`P_\perp\rho P_\perp` term does) strongly mixes the
-   Weyl coherence operators, coupling channels that the coherent extension keeps
-   separate.
+   **Incoherent extension** of the same channel. The comp-comp block and the
+   complement population are identical to the coherent case, so both extensions
+   agree on ordinary computational-subspace dynamics and on already-leaked
+   populations. The cross-subspace block is different: the separate
+   :math:`P_\perp\rho P_\perp` Kraus operator removes all
+   :math:`|0\rangle\!\langle 2|`, :math:`|1\rangle\!\langle 2|`,
+   :math:`|2\rangle\!\langle 0|`, and :math:`|2\rangle\!\langle 1|`
+   coherences. Hatched regions use the same convention as the coherent-extension
+   figure above.
 
 Starting from a coherent superposition :math:`(|1\rangle + |2\rangle)/\sqrt{2}`,
 the depolarizing channel decoheres the qubit component while the no-error branch
@@ -540,6 +554,49 @@ maintains cross-subspace coherence:
 The coherent (default) extension retains a partial :math:`\rho_{12}` coherence
 via the no-error Kraus branch, whereas the incoherent extension — appropriate for
 a measurement or reset — removes it entirely.
+
+Computational-basis block structure
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The computational-basis superoperator makes cross-subspace coherences explicit:
+rows and columns index vectorised density-matrix elements
+:math:`|i\rangle\!\langle j|`. The :math:`D^2 = 9` elements fall into three
+subspace types —
+
+.. math::
+
+   \underbrace{\rho_{00},\,\rho_{01},\,\rho_{10},\,\rho_{11}}_{\text{comp–comp}}
+   \quad
+   \underbrace{\rho_{02},\,\rho_{12},\,\rho_{20},\,\rho_{21}}_{\text{cross}}
+   \quad
+   \underbrace{\rho_{22}}_{\text{complement}}
+
+— and the figures below use **×** hatching on the cross-subspace rows/columns and
+**+** hatching on the complement row/column so that the block structure is
+immediately visible without reordering.
+
+.. figure:: _static/promotion-block-coherent.png
+   :align: center
+   :width: 90%
+
+   **Coherent extension** in the computational basis. **×** hatching marks the four
+   cross-subspace density-matrix elements
+   (:math:`\rho_{02},\,\rho_{12},\,\rho_{20},\,\rho_{21}`) and **+** hatching marks
+   the complement element (:math:`\rho_{22}`). The four cross-subspace rows and
+   columns each scale by :math:`\sqrt{1-p} \approx 0.95` (the no-error amplitude)
+   but are not mixed with each other or with the computational block. The comp–comp
+   :math:`4 \times 4` sub-block (rows/columns 0–1, 3–4) recovers the standard qubit
+   depolarizing Liouville matrix. The complement entry is 1.
+
+.. figure:: _static/promotion-block-incoherent.png
+   :align: center
+   :width: 90%
+
+   **Incoherent extension** in the computational basis. Hatching uses the same
+   convention as the coherent-extension figure above. The cross-subspace block (×)
+   is identically zero: all cross-subspace coherences are completely destroyed,
+   regardless of the input state. The comp–comp and complement entries are unchanged
+   relative to the coherent case.
 
 
 API reference
