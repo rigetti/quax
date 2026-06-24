@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.4] - 2026-06-23
+
+### Added
+
+- `promote`, `embed` and `permute` for promoting, embeding and permuting quantum objects.
+
+### Changed
+
+- `plot` on `SuperOp` now plots in the computational basis.
+
 ## [0.6.3] - 2026-05-15
 
 ### Added

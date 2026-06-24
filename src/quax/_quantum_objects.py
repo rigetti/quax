@@ -219,6 +219,14 @@ class Operator(QuantumObject):
             return Operator(other.data - self.data, self.num_qubits)
         return NotImplemented
 
+    def __eq__(self, other: Any) -> bool:
+        """Element-wise equality check with numerical tolerance."""
+        if not isinstance(other, Operator):
+            return NotImplemented
+        if self.dims != other.dims:
+            return False
+        return bool(jnp.allclose(self.data, other.data))
+
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the operator"""
         # By default, only support integer exponents

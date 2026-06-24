@@ -35,6 +35,18 @@ State Operations
    tensor_density_matrices
    promote_state_vector_to_density_matrix
 
+Promotion
+---------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   promote
+   promote_incoherent
+   embed
+   permute
+
 Apply Operations
 ----------------
 
