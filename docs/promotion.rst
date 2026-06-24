@@ -185,133 +185,34 @@ coherence between the subspace that was "read out" and the leaked levels, exactl
 the decoherence that the separate :math:`P_\perp\,\rho\,P_\perp` term enforces.
 
 
-6. Promotion of superoperators
+6. Promotion of noise channels
 ------------------------------
 
-Promoting a noise channel is the substantive case, because there is no longer a
-*unique* faithful extension. Let :math:`\mathcal{E}` be a quantum channel on the
-:math:`d`-dimensional system in Kraus form
+Promoting a noise channel is the substantive case. The trustworthy way to promote a noise channel is by exponentiating the embedded Lindbladian that is constructed from the embedded Hamiltonian and Lindblad jump operators, using the promition method in Section 4. If one does not know the qubit Hamiltonian and/or Lindblad operators, the question of how to promote a noise channel is ill-defined, and therefore not possible to answer reliably. We can specify criteria that a promoted superoperator should satisfy:
 
-.. math::
-   :label: eq-promote-channel
+1. The embedded channel :math:`\tilde{\mathcal{E}}` on the
+:math:`D`-dimensional space **reproduces** :math:`\mathcal{E}` on the
+computational subspace, and 
 
-   \mathcal{E}(\rho) = \sum_i K_i\, \rho\, K_i^\dagger,
-   \qquad \sum_i K_i^\dagger K_i = I_d .
+2. The embedded channel :math:`\tilde{\mathcal{E}}` on the
+:math:`D`-dimensional space preserves the population of the complement space, i.e., **acts as the identity** on the complement.
 
-We want an embedded channel :math:`\tilde{\mathcal{E}}` on the
-:math:`D`-dimensional space that (i) **reproduces** :math:`\mathcal{E}` on the
-computational subspace and (ii) **acts as the identity** on the complement, since
-a gate-level noise process should not by itself disturb a state that has already
-leaked.
+These criteria do not specify how the embedded channel should affect the coherences between the computational and leaked states. If one is interested in only calculating the populations and coherences in the computational states, and population in the leaked states, and not interested in calculating the coherences between the computational and leaked states, there exist ways to promote the superoperator directly, without requiring knowledge of the Hamiltonian and/or jump operators.
 
-Why can we not simply mirror the unitary embedding of Eq. :eq:`eq-promote-unitary`?
-For a unitary the prescription "act as :math:`U` inside, as the identity outside"
-is unambiguous because a unitary is a *single* operator with a single,
-well-defined action on the complement. A channel is instead an operator *sum*, and
-the trace-preservation constraint :math:`\sum_i K_i^\dagger K_i = I_d` couples the
-Kraus operators together — there is no single object to identity-extend. The
-naive superoperator analogue, conjugating the channel by the embedding isometry
-(:math:`\tilde{\mathcal{E}} = E \mathcal{E} E^\dagger` at the map level), runs into
-exactly the obstruction below: it annihilates the complement and is not trace
-preserving. This forces a *choice* of how the restored complement
-correlates with the channel's action — coherently, incoherently, or somewhere in
-between — and that choice lives in the operator-sum representation. We therefore
-work with Kraus operators, where the freedom is explicit and the CPTP constraint
-is easy to enforce. We note that this choice is fundamentally ambiguous for
-a superoperator in isolation. A more rigorous approach is to specify the subspace
-coherences exactly, which can be done if the channel arises from a known
-Lindbladian generator.
+In this section, we will describe a method to promote the superoperator, by promoting the Kraus operators. Note that the Kraus representation of a noise channel is not unique, therefore different Kraus representations will give different answers; However, they will all give the same answers for the populations and coherences in the computational states, and population in the leaked states.
 
-.. note::
-   **The Lindbladian approach.** The most physically transparent way to promote
-   a channel is to work at the level of the underlying microscopic model rather than
-   the channel itself. Suppose the qubit channel arises from a Lindbladian master
-   equation with Hamiltonian :math:`H` and jump operators :math:`\{L_k\}` all
-   supported within the :math:`d`-dimensional computational subspace, so the
-   :math:`D`-dimensional promoted dynamics are obtained simply by zero-padding every
-   operator:
-
-   .. math::
-      :label: eq-lindblad-promote
-
-      \hat{H} = E H E^\dagger, \qquad \hat{L}_k = E L_k E^\dagger .
-
-   Because the zero-padded operators satisfy :math:`\hat{H} P_\perp = \hat{L}_k
-   P_\perp = 0` (a consequence of :math:`E^\dagger P_\perp = 0`), the Lindbladian
-   generator has **zero** action on any state supported entirely in the complement:
-   :math:`\hat{\mathcal{L}}(P_\perp\rho P_\perp) = 0`. Complement states are
-   therefore stationary — their time derivative is identically zero. Exponentiating a
-   zero generator gives the identity in the complement block, so the
-   promoted channel :math:`\hat{\mathcal{E}}_t` leaves the complement exactly
-   untouched while reproducing the qubit channel on the computational subspace.
-
-Embedding each Kraus operator by zero-padding, :math:`\hat{K}_i = E K_i E^\dagger`,
-satisfies requirement (i) but **not** trace preservation:
-
-.. math::
-   :label: eq-padded-tp
-
-   \sum_i \hat{K}_i^\dagger \hat{K}_i = E\Big(\sum_i K_i^\dagger K_i\Big)E^\dagger
-   = E E^\dagger = P \ne I_D .
-
-The padded operators annihilate the complement; we must restore the missing
-:math:`P_\perp`. The key observation is that the complement projector can be
-distributed across the Kraus operators *in any way we like*. Consider
-
-.. math::
-   :label: eq-family
-
-   \tilde{K}_i = \hat{K}_i + \alpha_i P_\perp,
-   \qquad \sum_i |\alpha_i|^2 = 1 .
-
-Because :math:`\hat{K}_i` has support only on the computational subspace and
-:math:`P_\perp` only on the complement, they have **disjoint support**:
-:math:`\hat{K}_i^\dagger P_\perp = 0` and :math:`P_\perp \hat{K}_i = 0`. The cross
-terms in :math:`\tilde{K}_i^\dagger \tilde{K}_i` vanish, and
-
-.. math::
-   :label: eq-family-tp
-
-   \sum_i \tilde{K}_i^\dagger \tilde{K}_i
-   = \sum_i \hat{K}_i^\dagger \hat{K}_i
-   + \Big(\sum_i |\alpha_i|^2\Big) P_\perp
-   = P + P_\perp = I_D .
-
-So **every** weight assignment :math:`\{\alpha_i\}` with :math:`\sum_i |\alpha_i|^2
-= 1` yields a completely positive, trace-preserving (CPTP) extension that meets
-both requirements. The freedom in :math:`\{\alpha_i\}` is precisely the freedom in
-*how the leaked subspace is correlated with the channel's Kraus (trajectory)
-decomposition*. Different choices produce identical average density matrices in the
-computational and complement blocks, but differ in the cross-block
-(computational :math:`\leftrightarrow` complement) coherences. Those differences
-are invisible for block-diagonal states and observables, but visible whenever the
-simulation creates, preserves, or measures cross-subspace coherences.
-
-To resolve this freedom, Quax chooses the **coherent** extension (the default for
-:class:`~quax.SuperOp`, :class:`~quax.KrausMap`, :class:`~quax.Choi`, and
-:class:`~quax.PauliLiouville`), which places the entire complement weight on the
-first Kraus operator :math:`K_0`. This is fundamentally an arbitrary choice, as
-the subspace coherences are not specified by the superoperator alone. However,
-for many physically relevant channels, the coherent extension gives intuitive
-results. The physical justification for this choice and its important limitations
-are discussed in detail under
-:ref:`Promotion choices <promotion-choices>` below.
+Any noise channel must be CPTP. Complete positiveness is automatically enforced by the Kraus representation. Trace preservation is enforced by the completeness relation :math:`\hat{K}_i^\dagger \hat{K}_i = 1`. There are many ways to promote the Kraus operators such that they satisfy completeness, and the other two criteria stated above. The choices provided by :func:`~quax.promote` are described below.
 
 
 .. _promotion-choices:
 
 Promotion choices
-~~~~~~~~~~~~~~~~~~
-
-The family in Eq. :eq:`eq-family` shows that every weight assignment
-:math:`\{\alpha_i\}` with :math:`\sum_i |\alpha_i|^2 = 1` gives a valid CPTP
-extension. Three points in this family are of particular interest.
+~~~~~~~~~~~~~~~~~
 
 Coherent extension (default)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Put the entire complement on a single Kraus operator, :math:`\alpha_0 = 1` and
-:math:`\alpha_{i>0} = 0`:
+Pad (any) one Kraus operator with a 1 in the qutrit space, and all the other Kraus operators with 0 in the qutrit space. By default, :func:`~quax.promote` pads a 1 on the Kraus operator which is the leading eigenvector of the Choi matrix. Mathematically, this is done as
 
 .. math::
    :label: eq-coherent
@@ -333,23 +234,6 @@ global-phase convention described below. This condition should be checked in
 models with nontrivial Hamiltonians or degenerate Choi spectra; it can be verified
 analytically for a broad class of channels and is confirmed by the tests in
 ``tests/test_promotion.py``.
-
-**Depolarizing intuition.** The coherent extension also has a direct physical
-interpretation in terms of Kraus trajectories. Consider depolarizing noise on the
-computational subspace. In a trajectory unravelling, a jump event corresponds to
-one of the Pauli error operators :math:`X`, :math:`Y`, or :math:`Z` firing. These
-operators are zero-padded and therefore have *zero amplitude on any leaked state*:
-:math:`\hat{K}_X |2\rangle = \hat{K}_Y |2\rangle = \hat{K}_Z |2\rangle = 0`. So
-observing a jump event in the computational-subspace error channel necessarily
-implies the system was *not* in the leaked level at the time of the jump — and
-therefore the post-jump state has **zero probability of being in** :math:`|2\rangle`.
-This is the physically correct conclusion: a depolarizing interaction that acts
-entirely within the qubit subspace only happens *to* a qubit, so a subsequent
-measurement of whether the qubit is leaked must give "no." The coherent extension
-encodes exactly this logic. Only the no-error branch (:math:`K_0`) carries the
-complement projector and therefore preserves any pre-existing leaked population,
-which is also correct: a system that was leaked and experienced no jump simply
-continues to be leaked.
 
 .. _promotion-decomposition-warning:
 
@@ -431,7 +315,8 @@ by sampling a single Kraus branch :math:`i` with probability
 Averaging over many trajectories reproduces the channel's action on the density
 matrix. The extension choice is invisible for block-diagonal inputs and
 observables, but it changes the average density matrix whenever cross-subspace
-coherences are present; it also governs the *correlations* along individual
+coherences are present. As stated before, these promotion choices should not be trusted to reliably produce cross-subspace
+coherences. The choice of extension also governs the *correlations* along individual
 trajectories.
 
 Under the **coherent extension** (the default):
