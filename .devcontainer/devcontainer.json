@@ -1,5 +1,6 @@
 // For use with Coder
 {
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
   "name": "coder",
   "build": {
     "dockerfile": "../Dockerfile",
@@ -10,21 +11,26 @@
     "all"
   ],
   "remoteUser": "rigetti",
-  "service": "lab",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/home/rigetti/${localWorkspaceFolderBasename},type=bind,consistency=cached",
   "workspaceFolder": "/home/rigetti/${localWorkspaceFolderBasename}",
-  "shutdownAction": "stopCompose",
-  "extensions": [
-    "ms-python.python",
-    "ms-python.vscode-pylance",
-    "ms-python.debugpy",
-    "ms-toolsai.jupyter-renderers",
-    "ms-toolsai.jupyter",
-    "ms-vsliveshare.vsliveshare",
-    "lakeFS.lakefs-dvc",
-    "github.copilot-chat"
-  ],
-  "settings": {
-    "python.defaultInterpreterPath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python",
-    "python.pythonpath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python"
+  "shutdownAction": "stopContainer",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter",
+        "ms-vsliveshare.vsliveshare",
+        "lakeFS.lakefs-dvc",
+        "github.copilot-chat",
+        "openai.chatgpt",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python"
+      }
+    }
   }
 }

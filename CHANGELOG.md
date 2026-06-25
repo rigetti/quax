@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [Unreleased]
+
+### Changed
+
+- Updated devcontainer.json files.
+
 ## [0.6.4] - 2026-06-23
 
 ### Added
