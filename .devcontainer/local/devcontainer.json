@@ -1,5 +1,6 @@
 // For use with Visual Studio Code
 {
+  "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
   "name": "local",
   "dockerComposeFile": [
     "../../docker-compose.yml",
@@ -9,18 +10,21 @@
   "service": "lab",
   "workspaceFolder": "/home/rigetti/${localWorkspaceFolderBasename}",
   "shutdownAction": "stopCompose",
-  "extensions": [
-    "ms-python.python",
-    "ms-python.vscode-pylance",
-    "ms-python.debugpy",
-    "ms-toolsai.jupyter-renderers",
-    "ms-toolsai.jupyter",
-    "ms-vsliveshare.vsliveshare",
-    "lakeFS.lakefs-dvc",
-    "github.copilot-chat"
-  ],
-  "settings": {
-    "python.defaultInterpreterPath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python",
-    "python.pythonpath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python"
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter",
+        "ms-vsliveshare.vsliveshare",
+        "lakeFS.lakefs-dvc",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/home/rigetti/.venv/${localWorkspaceFolderBasename}/bin/python"
+      }
+    }
   }
 }
