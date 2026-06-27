@@ -888,25 +888,25 @@ class Unitary(Operator):
 
                 return compose_unitary(self, other)
             case Choi():
-                # J @ U -> Choi (promotion)
+                # U @ J -> Choi (promotion): U applied second, J first
                 from ._compose import compose_choi
                 from ._superoperator_transformations import unitary_to_choi
 
-                return compose_choi(other, unitary_to_choi(self))
+                return compose_choi(unitary_to_choi(self), other)
             case PauliLiouville():
-                # P @ U -> PauliLiouville (promotion)
+                # U @ P -> PauliLiouville (promotion): U applied second, P first
                 from ._compose import compose_pauli_liouville
                 from ._superoperator_transformations import unitary_to_pauli_liouville
 
-                return compose_pauli_liouville(other, unitary_to_pauli_liouville(self))
+                return compose_pauli_liouville(unitary_to_pauli_liouville(self), other)
             case SuperOp():
-                # S @ U -> SuperOp (promotion)
+                # U @ S -> SuperOp (promotion): U applied second, S first
                 from ._compose import compose_superop
                 from ._superoperator_transformations import unitary_to_superop
 
-                return compose_superop(other, unitary_to_superop(self))
+                return compose_superop(unitary_to_superop(self), other)
             case KrausMap():
-                # U @ K -> KrausMap: compose U (applied second) with each Kraus operator
+                # U @ K -> KrausMap: U applied second, K first
                 from ._compose import compose_kraus_map
                 from ._superoperator_transformations import unitary_to_kraus_map
 

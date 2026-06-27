@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-27
+
+### Fixed
+
+- `Unitary @ SuperOp` (and `Unitary @ Choi`, `Unitary @ PauliLiouville`) no longer
+  reverse the composition order. `a @ b` now consistently means `a ∘ b` (`b`
+  applied first) across all mixed-type operator promotions.
+
 ### Changed
 
 - Updated devcontainer.json files.
