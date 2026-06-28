@@ -258,3 +258,43 @@ class TestInstrumentCompose:
         assert qx.validate(composed)
         expected_confusion = jnp.array([[0.0, 1.0], [1.0, 0.0]])
         np.testing.assert_allclose(composed.confusion_matrix, expected_confusion, atol=1e-10)
+
+
+# ======================================================================
+# Mixed-type ``@`` promotion order
+# ======================================================================
+
+
+@pytest.mark.parametrize("seed", [11, 58, 2047])
+@pytest.mark.parametrize("num_qudits", [1, 2])
+@pytest.mark.parametrize("qudit_dim", [2, 3])
+class TestMatmulPromotionOrder:
+    """``a @ b`` must mean ``a ∘ b`` (b applied first) regardless of type promotion.
+
+    Regression test: ``Unitary.__matmul__`` previously reversed the operands when
+    promoting against ``SuperOp``/``Choi``/``PauliLiouville``, computing ``b ∘ a``.
+    """
+
+    def _operands(self, seed, num_qudits, qudit_dim):
+        key1, key2 = jax.random.split(jax.random.key(seed))
+        dims = ((qudit_dim,) * num_qudits, (qudit_dim,) * num_qudits)
+        d = qudit_dim**num_qudits
+        unitary = random_unitary(dims=dims, key=key1)
+        channel = random_choi(dims=dims, rank=d, key=key2)
+        return unitary, channel
+
+    def test_unitary_after_channel(self, seed, num_qudits, qudit_dim):
+        """``U @ C`` applies the channel first, then the unitary (``U ∘ C``)."""
+        unitary, channel = self._operands(seed, num_qudits, qudit_dim)
+        expected = compose_superop(qx.to_superop(unitary), qx.to_superop(channel))
+        for rep in (qx.to_superop(channel), channel, qx.to_pauli_liouville(channel), qx.to_kraus(channel)):
+            got = qx.to_superop(unitary @ rep)
+            np.testing.assert_allclose(got.matrix, expected.matrix, atol=1e-6)
+
+    def test_channel_after_unitary(self, seed, num_qudits, qudit_dim):
+        """``C @ U`` applies the unitary first, then the channel (``C ∘ U``)."""
+        unitary, channel = self._operands(seed, num_qudits, qudit_dim)
+        expected = compose_superop(qx.to_superop(channel), qx.to_superop(unitary))
+        for rep in (qx.to_superop(channel), channel, qx.to_pauli_liouville(channel), qx.to_kraus(channel)):
+            got = qx.to_superop(rep @ unitary)
+            np.testing.assert_allclose(got.matrix, expected.matrix, atol=1e-6)
