@@ -12,79 +12,87 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Squeeze quantum objects to their minimum per-subsystem dimension.
+"""Squeeze a quantum *state* to its minimum per-subsystem dimension.
 
 ``squeeze`` is the inverse-in-spirit of :func:`quax.promote`: where ``promote``
-*grows* a subsystem (zero-padding states, identity-extending operators),
-``squeeze`` *shrinks* each subsystem to the smallest dimension that still
-captures the object to within a tolerance.
+*grows* a subsystem (zero-padding a state), ``squeeze`` *shrinks* each subsystem
+to the smallest dimension that still captures the state to within a tolerance.
+A trailing level of a subsystem is dropped when its population (the diagonal of
+that subsystem's reduced density matrix) is below ``tol``; the squeezed state is
+renormalized.
 
-It is **tolerance-based and lossy** by design:
+**``squeeze`` is only defined for states** (:class:`StateVector` and
+:class:`DensityMatrix`). It is *deliberately* undefined for operators,
+channels/superoperators (:class:`Unitary`, :class:`Operator`, :class:`KrausMap`,
+:class:`SuperOp`, :class:`Choi`, :class:`PauliLiouville`) and measurement
+instruments (:class:`QuantumInstrument`), and raises :class:`TypeError` for them.
 
-* For a :class:`StateVector`, a trailing level of a subsystem is dropped when its
-  population (the diagonal of that subsystem's reduced density matrix) is below
-  ``tol``; the squeezed state is renormalized.
-* For an operator/channel (:class:`Unitary`, :class:`Operator`, :class:`KrausMap`,
-  and — via the Kraus representation — :class:`SuperOp`, :class:`Choi`,
-  :class:`PauliLiouville`), a trailing level of a subsystem is dropped when the
-  operator's *coupling* between that level and the lower levels is below ``tol``
-  (i.e. the operator neither maps population into the level from below nor lets
-  its lower-level output depend on input at the level). Purely-diagonal high
-  levels are therefore discarded.
+The reason is mathematical, not an implementation gap. Dropping a subsystem level
+is lossless for a state only because, by positivity of the reduced density matrix,
+a level with zero population also carries zero coherence with every other level
+(``|ρ_{ij}|² ≤ ρ_{ii} ρ_{jj}``). No analogous statement holds for an operator or
+channel: an operator can act non-trivially (e.g. apply a phase) on a level that
+the *state* never populates, so "squeezing" an operator only has meaning relative
+to an assumption about the states it acts on — an assumption that lives in the
+state, not the operator. Concretely, naively truncating an operator/channel block
+
+* discards its (diagonal) action on the dropped levels,
+* generally yields a non-unitary "unitary" or a trace-decreasing "channel"
+  (the truncated block need not satisfy ``U†U = I`` or ``Σ K†K = I``), and
+* for channels depends on the (non-unique) Kraus representation chosen.
+
+If you want to reconcile the dimension of an operator/channel with a state, embed
+or promote it up to the state's dimension at apply time (see :func:`quax.promote`
+and the ``targeted_apply_*`` helpers) rather than squeezing it down.
 
 This supports leakage-aware simulation in the low-leakage regime: most qudits
-stay in the qubit subspace, so states and ideal gates squeeze back to dimension
-2 while genuine leakage operators retain their higher levels.
+stay in the qubit subspace, so states squeeze back to dimension 2 while ideal
+gates are promoted to the state's dimension when applied.
 
-Unlike :func:`quax.promote`, ``squeeze`` produces a *data-dependent* output
-shape and therefore **cannot be jitted**.
+Unlike :func:`quax.promote`, ``squeeze`` produces a *data-dependent* output shape
+and therefore **cannot be jitted**.
 """
 
 from functools import singledispatch
-from typing import List, Tuple
+from typing import List
 
 import jax.numpy as jnp
 import numpy as np
 
 from ._quantum_objects import (
-    Choi,
-    KrausMap,
-    Operator,
-    PauliLiouville,
-    QuantumInstrument,
+    DensityMatrix,
     StateVector,
-    SuperOp,
-    Unitary,
-)
-from ._superoperator_transformations import (
-    choi_to_kraus,
-    kraus_to_choi,
-    kraus_to_pauli_liouville,
-    kraus_to_superop,
-    pauli_liouville_to_kraus,
-    superop_to_kraus,
 )
 
-#: Default tolerance below which a level's population (states) or coupling
-#: (operators) is treated as negligible and the level is dropped.
+#: Default tolerance below which a subsystem level's population is treated as
+#: negligible and the level is dropped.
 DEFAULT_SQUEEZE_TOL = 1e-12
 
 
 @singledispatch
-def squeeze(obj, tol: float = DEFAULT_SQUEEZE_TOL):
-    """Reduce each subsystem of a quantum object to its minimum dimension.
+def squeeze(obj, tol: float = DEFAULT_SQUEEZE_TOL) -> object:
+    """Reduce each subsystem of a quantum *state* to its minimum dimension.
 
     The number of subsystems is preserved; only per-subsystem dimensions shrink.
-    See the module docstring for the (tolerance-based, lossy) drop criterion.
+    A trailing level of a subsystem is dropped when its population is below *tol*
+    and the state is renormalized.  See the module docstring for the (tolerance-
+    based, lossy) drop criterion.
 
-    :param obj: A quax quantum object (StateVector, Unitary, Operator, SuperOp,
-        KrausMap, Choi, or PauliLiouville).
-    :param tol: Levels whose population (states) or coupling (operators) is below
-        this threshold are dropped.
-    :return: A new object of the same type on the squeezed dimensions.
-    :raises TypeError: If *obj* is not a supported type.
+    ``squeeze`` is defined only for states (:class:`StateVector`,
+    :class:`DensityMatrix`).  It is **undefined** for operators, channels and
+    instruments — squeezing those is mathematically ill-posed (see the module
+    docstring) — and raises :class:`TypeError`.
+
+    :param obj: A quax state (:class:`StateVector` or :class:`DensityMatrix`).
+    :param tol: Levels whose population is below this threshold are dropped.
+    :return: A new state of the same type on the squeezed dimensions.
+    :raises TypeError: If *obj* is not a state.
     """
-    raise TypeError(f"squeeze is not implemented for {type(obj).__name__}.")
+    raise TypeError(
+        f"squeeze is only defined for states (StateVector, DensityMatrix); got {type(obj).__name__}. "
+        "Squeezing an operator, channel or instrument is ill-defined because it acts non-trivially on "
+        "levels a state may never populate. Promote/embed it up to the state's dimension instead."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +103,7 @@ def squeeze(obj, tol: float = DEFAULT_SQUEEZE_TOL):
 def _significant_keep(per_level: np.ndarray, tol: float, floor: int = 2) -> int:
     """Smallest dim that retains every level at or above *tol*.
 
-    ``per_level`` is a 1-D array of per-level magnitudes; the result is
+    ``per_level`` is a 1-D array of per-level populations; the result is
     ``1 + (highest index >= tol)``, then floored to *floor* (the qubit dimension,
     so a depopulated qutrit squeezes to a qubit rather than to a trivial 1-D
     space) and capped at the available number of levels.
@@ -105,42 +113,12 @@ def _significant_keep(per_level: np.ndarray, tol: float, floor: int = 2) -> int:
     return min(len(per_level), max(raw, floor))
 
 
-def _operator_keep_dims(absdata: np.ndarray, n: int, out0: int, tol: float) -> List[int]:
-    """Per-subsystem keep-dims for an operator from its (output, input) axes.
-
-    ``absdata`` is the elementwise magnitude of the operator tensor whose output
-    qudit axes start at ``out0`` and whose input qudit axes start at ``out0 + n``.
-    Any leading axes (ensemble, Kraus) are reduced over implicitly (the coupling
-    test maxes over the whole remaining array). A level ``ℓ`` of subsystem ``i`` is
-    *coupled* if the operator has an entry > ``tol`` mapping ``ℓ`` to/from a
-    different level of ``i``; the keep-dim is one past the highest coupled level.
-    """
-    in0 = out0 + n
-    keep: List[int] = []
-    for i in range(n):
-        oi, ii = out0 + i, in0 + i
-        d_i = absdata.shape[oi]
-        per_level = np.zeros(d_i)
-        for ell in range(d_i):
-            # maps into output level ℓ from a different input level
-            a = np.take(absdata, ell, axis=oi)  # removes axis oi (< ii)
-            a_off = np.delete(a, ell, axis=ii - 1)
-            cpl_in = a_off.max() if a_off.size else 0.0
-            # lower-level output depends on input level ℓ
-            b = np.take(absdata, ell, axis=ii)  # removes axis ii (> oi, oi unchanged)
-            b_off = np.delete(b, ell, axis=oi)
-            cpl_out = b_off.max() if b_off.size else 0.0
-            per_level[ell] = max(cpl_in, cpl_out)
-        keep.append(_significant_keep(per_level, tol))
-    return keep
-
-
-def _slice_subsystems(data, n: int, group_starts: Tuple[int, ...], keep: List[int]):
+def _slice_subsystems(data, n: int, group_starts, keep: List[int]):
     """Slice every per-subsystem axis group to ``keep`` dims.
 
     ``group_starts`` lists the first axis of each qudit-dimension group (e.g. the
-    output and input groups of an operator); within a group, subsystem ``i`` is at
-    ``start + i``.
+    output and input groups of a density matrix); within a group, subsystem ``i``
+    is at ``start + i``.
     """
     slc: List[object] = [slice(None)] * data.ndim
     for start in group_starts:
@@ -149,8 +127,27 @@ def _slice_subsystems(data, n: int, group_starts: Tuple[int, ...], keep: List[in
     return data[tuple(slc)]
 
 
+def _keep_from_populations(probs, ne: int, n: int, dims, tol: float) -> List[int]:
+    """Per-subsystem keep-dims from a joint-population tensor.
+
+    ``probs`` has shape ``(*ensemble, *dims)`` and holds the joint level
+    populations (non-negative, real).  For each subsystem the other subsystems are
+    marginalized out and the worst case over the ensemble is taken, so a level is
+    kept if it is populated above *tol* for *any* ensemble member.
+    """
+    max_dim = max(dims)
+    rows = []
+    for i in range(n):
+        other = tuple(ne + j for j in range(n) if j != i)
+        marginal = jnp.sum(probs, axis=other) if other else probs  # (*ensemble, d_i)
+        per_level = jnp.max(marginal.reshape(-1, dims[i]), axis=0)  # worst case over ensemble
+        rows.append(jnp.pad(per_level, (0, max_dim - dims[i])))
+    populations = np.asarray(jnp.stack(rows))  # (n, max_dim)
+    return [_significant_keep(populations[i, : dims[i]], tol) for i in range(n)]
+
+
 # ---------------------------------------------------------------------------
-# State
+# States
 # ---------------------------------------------------------------------------
 
 
@@ -162,21 +159,11 @@ def _squeeze_state_vector(psi: StateVector, tol: float = DEFAULT_SQUEEZE_TOL) ->
         return psi
     dims = psi.dims
     ne = psi.num_ensemble_dims
-    probs = jnp.abs(psi.data) ** 2  # (*ensemble, *dims), kept on-device
-
-    # Reduce to per-subsystem, per-level populations on-device and transfer only the
-    # (n, max_dim) table to the host — never the full state — so squeeze stays cheap for
+    # Per-subsystem populations reduced on-device; only the (n, max_dim) table is
+    # transferred to the host — never the full state — so squeeze stays cheap for
     # large registers.
-    max_dim = max(dims)
-    rows = []
-    for i in range(n):
-        other = tuple(ne + j for j in range(n) if j != i)
-        marginal = jnp.sum(probs, axis=other) if other else probs  # (*ensemble, d_i)
-        per_level = jnp.max(marginal.reshape(-1, dims[i]), axis=0)  # worst case over ensemble
-        rows.append(jnp.pad(per_level, (0, max_dim - dims[i])))
-    populations = np.asarray(jnp.stack(rows))  # (n, max_dim)
-
-    keep: List[int] = [_significant_keep(populations[i, : dims[i]], tol) for i in range(n)]
+    probs = jnp.abs(psi.data) ** 2  # (*ensemble, *dims)
+    keep = _keep_from_populations(probs, ne, n, dims, tol)
 
     if all(k == d for k, d in zip(keep, dims)):
         return psi
@@ -187,89 +174,32 @@ def _squeeze_state_vector(psi: StateVector, tol: float = DEFAULT_SQUEEZE_TOL) ->
     return StateVector(new_data / norm, num_qubits=n)
 
 
-# ---------------------------------------------------------------------------
-# Operators (matrix-backed): Unitary, Operator
-# ---------------------------------------------------------------------------
+@squeeze.register(DensityMatrix)
+def _squeeze_density_matrix(rho: DensityMatrix, tol: float = DEFAULT_SQUEEZE_TOL) -> DensityMatrix:
+    """Drop subsystem levels with population below *tol* and renormalize the trace.
 
-
-def _squeeze_matrix_operator(obj, tol: float):
-    """Squeeze a single-tensor operator (output axes then input axes)."""
-    n = obj.num_qubits
-    if n == 0:
-        return obj
-    ne = obj.num_ensemble_dims
-    absdata = np.asarray(jnp.abs(obj.data))
-    keep = _operator_keep_dims(absdata, n, ne, tol)
-    if all(k == d for k, d in zip(keep, obj.dims[0])):
-        return obj
-    new_data = _slice_subsystems(obj.data, n, (ne, ne + n), keep)
-    return type(obj)(new_data, num_qubits=n)
-
-
-@squeeze.register(Unitary)
-def _squeeze_unitary(unitary: Unitary, tol: float = DEFAULT_SQUEEZE_TOL) -> Unitary:
-    """Drop decoupled high levels of a unitary (identity-on-level levels)."""
-    return _squeeze_matrix_operator(unitary, tol)
-
-
-@squeeze.register(Operator)
-def _squeeze_operator(op: Operator, tol: float = DEFAULT_SQUEEZE_TOL) -> Operator:
-    """Drop decoupled high levels of an operator."""
-    return _squeeze_matrix_operator(op, tol)
-
-
-# ---------------------------------------------------------------------------
-# Channels
-# ---------------------------------------------------------------------------
-
-
-@squeeze.register(KrausMap)
-def _squeeze_kraus_map(kraus: KrausMap, tol: float = DEFAULT_SQUEEZE_TOL) -> KrausMap:
-    """Drop subsystem levels decoupled across all Kraus operators.
-
-    The Kraus tensor is ``(*ensemble, n_kraus, *dims_out, *dims_in)``; the leading
-    ensemble and Kraus axes are reduced over by the coupling test, so a level is
-    kept if *any* Kraus operator couples it to the lower levels.
+    The DensityMatrix tensor is ``(*ensemble, *dims_out, *dims_in)``; the joint
+    populations are the diagonal (``out == in`` on every subsystem).  Each retained
+    block is renormalized so the squeezed state has unit trace per ensemble member.
     """
-    n = kraus.num_qubits
+    n = rho.num_qubits
     if n == 0:
-        return kraus
-    out0 = kraus.num_ensemble_dims + 1  # skip the Kraus axis
-    absdata = np.asarray(jnp.abs(kraus.data))
-    keep = _operator_keep_dims(absdata, n, out0, tol)
-    if all(k == d for k, d in zip(keep, kraus.dims[0])):
-        return kraus
-    new_data = _slice_subsystems(kraus.data, n, (out0, out0 + n), keep)
-    return KrausMap(new_data, num_qubits=n)
+        return rho
+    dims = rho.dims
+    ne = rho.num_ensemble_dims
+    ensemble_shape = rho.ensemble_size
 
+    # Joint level populations P(l0, ..., l_{n-1}) = ρ[..., l, l] (out == in for all
+    # subsystems); the matrix diagonal in row-major order, reshaped back to per-qudit.
+    diag = jnp.diagonal(rho.matrix, axis1=-2, axis2=-1)  # (*ensemble, D)
+    probs = jnp.real(diag).reshape(ensemble_shape + dims)
+    keep = _keep_from_populations(probs, ne, n, dims, tol)
 
-@squeeze.register(SuperOp)
-def _squeeze_superop(superop: SuperOp, tol: float = DEFAULT_SQUEEZE_TOL) -> SuperOp:
-    """Squeeze via the Kraus representation (avoids the 4-group superop layout)."""
-    return kraus_to_superop(_squeeze_kraus_map(superop_to_kraus(superop), tol))
+    if all(k == d for k, d in zip(keep, dims)):
+        return rho
 
-
-@squeeze.register(Choi)
-def _squeeze_choi(choi: Choi, tol: float = DEFAULT_SQUEEZE_TOL) -> Choi:
-    """Squeeze via the Kraus representation."""
-    return kraus_to_choi(_squeeze_kraus_map(choi_to_kraus(choi), tol))
-
-
-@squeeze.register(PauliLiouville)
-def _squeeze_pauli_liouville(pl: PauliLiouville, tol: float = DEFAULT_SQUEEZE_TOL) -> PauliLiouville:
-    """Squeeze via the Kraus representation."""
-    return kraus_to_pauli_liouville(_squeeze_kraus_map(pauli_liouville_to_kraus(pl), tol))
-
-
-@squeeze.register(QuantumInstrument)
-def _squeeze_quantum_instrument(inst: QuantumInstrument, tol: float = DEFAULT_SQUEEZE_TOL):
-    """Squeezing a measurement instrument is not supported.
-
-    A measurement's outcome space is tied to its measured dimension, so dropping a
-    level would silently drop an outcome. Reconcile instruments by promoting them
-    up to the state's dimension at apply time (see ``targeted_apply_*``) instead.
-    """
-    raise NotImplementedError(
-        "squeeze is not defined for QuantumInstrument: squeezing a measurement would drop "
-        "outcomes. Promote the instrument to the state's dimension at apply time instead."
-    )
+    new_data = _slice_subsystems(rho.data, n, (ne, ne + n), keep)
+    new_d = int(np.prod(keep))
+    trace = jnp.trace(new_data.reshape(ensemble_shape + (new_d, new_d)), axis1=-2, axis2=-1)
+    trace = jnp.real(trace).reshape(ensemble_shape + (1,) * (2 * n))
+    return DensityMatrix(new_data / trace, num_qubits=n)
