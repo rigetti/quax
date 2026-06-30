@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.6.6] - 2026-06-30
+
+### Added
+
+- `qx.squeeze` for reducing states to the smallest dimension with non-zero amplitudes. 
+
 ## [0.6.5] - 2026-06-27
 
 ### Fixed

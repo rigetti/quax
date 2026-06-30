@@ -101,6 +101,7 @@ from ._promotion import (
     promote_state_vector_to_density_matrix,
     promote_hilbert_space,
 )
+from ._squeeze import squeeze
 from ._quantum_objects import QuantumInstrument
 from ._quantum_objects import (
     Choi,
@@ -339,6 +340,7 @@ __all__ = [
     "promote_incoherent",
     "promote_state_vector_to_density_matrix",
     "promote_hilbert_space",
+    "squeeze",
     # Operator basis functions
     "weyl_basis",
     "weyl_basis_labels",

@@ -176,10 +176,10 @@ def main() -> None:
         herm_output = herm_dir / file.name.replace("superop_", "pauli-liouville_")
 
         logger.info("Saving Weyl-Liouville -> %s", weyl_output)
-        np.savez(weyl_output, **weyl_data)
+        np.savez(weyl_output, allow_pickle=True, **weyl_data)
 
         logger.info("Saving Hermitian Weyl-Liouville -> %s", herm_output)
-        np.savez(herm_output, **herm_weyl_data)
+        np.savez(herm_output, allow_pickle=True, **herm_weyl_data)
 
     logger.info("Done.")
 
