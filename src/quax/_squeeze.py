@@ -61,6 +61,7 @@ import numpy as np
 
 from ._quantum_objects import (
     DensityMatrix,
+    State,
     StateVector,
 )
 
@@ -70,7 +71,7 @@ DEFAULT_SQUEEZE_TOL = 1e-12
 
 
 @singledispatch
-def squeeze(obj, tol: float = DEFAULT_SQUEEZE_TOL) -> object:
+def squeeze(obj, tol: float = DEFAULT_SQUEEZE_TOL) -> State:
     """Reduce each subsystem of a quantum *state* to its minimum dimension.
 
     The number of subsystems is preserved; only per-subsystem dimensions shrink.
