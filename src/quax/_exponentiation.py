@@ -95,7 +95,9 @@ def cis(operator: Operator) -> Unitary:
     """Compute the complex exponential ``exp(i·operator)`` of a quantum object, returning a Unitary.
 
     .. deprecated::
-        Use :func:`evolve` instead: ``evolve(H, t=1.0)`` is equivalent to ``cis(H)``.
+        Use :func:`evolve` instead. Note the sign convention differs: :func:`evolve`
+        uses the Schrödinger convention ``exp(-i·t·H)``, so ``cis(H)`` is equivalent to
+        ``evolve(H, t=-1.0)``.
 
     :param operator: The operator (typically Hermitian/Observable) acting as the generator.
     :return: The unitary exp(iH) with determinant-phase correction.
@@ -112,8 +114,12 @@ def evolve(operator, t: float = 1.0):
 
     Dispatches on the type of ``operator``:
 
-    - :class:`Observable` (Hamiltonian) → :class:`Unitary` via ``exp(i·t·H)``
+    - :class:`Observable` (Hamiltonian) → :class:`Unitary` via ``exp(-i·t·H)``
     - :class:`Lindbladian` (open-system generator) → :class:`SuperOp` via ``exp(t·L)``
+
+    The Hamiltonian branch follows the standard Schrödinger convention
+    ``U(t) = exp(-i·t·H)``, consistent with the coherent term ``-i[H, ρ]`` of the
+    GKSL generator (so ``evolve`` agrees on both branches for closed-system dynamics).
 
     The Lindbladian branch returns a CPTP map for ``t ≥ 0``.
 
@@ -138,9 +144,9 @@ def evolve(operator, t: float = 1.0):
 @evolve.register(Observable)
 @jax.jit
 def _evolve_observable(observable: Observable, t: float = 1.0) -> Unitary:
-    """Compute exp(i·t·H) with global-phase correction, returning a Unitary."""
+    """Compute exp(-i·t·H) with global-phase correction, returning a Unitary."""
     dims = observable.dims
-    result = jax.scipy.linalg.expm(1j * t * observable.matrix)
+    result = jax.scipy.linalg.expm(-1j * t * observable.matrix)
     phase = jnp.exp(-1j * jnp.angle(result[..., 0, 0]))
     return Unitary.from_matrix(phase[..., None, None] * result, dims)
 

@@ -447,23 +447,23 @@ def test_thermal_relaxation_matches_choi(t1, tphi, t):
 
 
 def test_hamiltonian_evolve_matches_cis():
-    """evolve(H, t) matches cis(t * H) for an observable."""
+    """evolve(H, t) = exp(-iHt) matches cis(-t * H) for an observable."""
     from quax.gates import X
 
     H = qx.Observable.from_matrix(0.3 * X.matrix, ((2,), (2,)))
     t = 0.7
 
     via_evolve = qx.evolve(H, t)
-    via_cis = qx.cis(qx.Observable.from_matrix(t * H.matrix, ((2,), (2,))))
+    via_cis = qx.cis(qx.Observable.from_matrix(-t * H.matrix, ((2,), (2,))))
 
     assert jnp.allclose(via_evolve.matrix, via_cis.matrix, atol=1e-10)
 
 
 def test_purely_hamiltonian_lindbladian_matches_unitary():
-    """evolve(Lindbladian.from_operators(H, zero_jumps), t) ≈ unitary_to_superop(U(-t)).
+    """evolve(Lindbladian.from_operators(H, zero_jumps), t) ≈ unitary_to_superop(U(t)).
 
     The GKSL equation uses -i[H,ρ], giving evolution exp(-iHt)ρexp(iHt).
-    In quax's convention evolve(H, t) = exp(+iHt), so the matching unitary is evolve(H, -t).
+    In quax's convention evolve(H, t) = exp(-iHt), so the matching unitary is evolve(H, t).
     """
     from quax.gates import Z
 
@@ -476,8 +476,8 @@ def test_purely_hamiltonian_lindbladian_matches_unitary():
     gen = qx.Lindbladian.from_operators(H, jump_ops)
     channel_via_lindbladian = qx.evolve(gen, T)
 
-    # GKSL gives exp(-iHT): evolve(H, -T) = exp(i*H*(-T)) = exp(-iHT)
-    unitary = qx.evolve(H, -T)
+    # GKSL gives exp(-iHT), matching evolve(H, T) = exp(-i*H*T)
+    unitary = qx.evolve(H, T)
     channel_via_unitary = qx.unitary_to_superop(unitary)
 
     fid = qx.process_fidelity(channel_via_lindbladian, channel_via_unitary)

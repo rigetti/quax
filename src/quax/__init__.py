@@ -382,7 +382,6 @@ __all__ = [
     "cis",
     "evolve",
     # Lindbladian generators
-    "Lindbladian",
     "amplitude_damping_lindbladian",
     "dephasing_lindbladian",
     "depolarizing_lindbladian",

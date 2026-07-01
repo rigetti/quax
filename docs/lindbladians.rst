@@ -59,8 +59,11 @@ the generator rate, so ``evolve(L ** alpha, t) == evolve(L, alpha * t)``.
    \mathcal{L}_{AB} = \mathcal{L}_A \otimes_\text{quax} \mathbf{I}_B
                     + \mathbf{I}_A \otimes_\text{quax} \mathcal{L}_B
 
-This is the Kronecker sum of the two generators (in quax's superoperator index convention),
-and satisfies ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
+Here :math:`\otimes_\text{quax}` denotes quax's superoperator tensor product, which embeds
+each single-subsystem generator into the joint space (padding with the identity on the other
+subsystem). Their sum is the *Kronecker sum* of the two generators — sometimes written
+:math:`\mathcal{L}_A \oplus \mathcal{L}_B` — not an ordinary tensor product of the generators
+themselves. It satisfies ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
 
 
 The ``Lindbladian`` Object
@@ -150,7 +153,7 @@ Evolving to a Channel
 
 :func:`~quax.evolve` dispatches on the input type:
 
-* :class:`~quax.Observable` (Hamiltonian) → :class:`~quax.Unitary` via :math:`e^{i t H}`
+* :class:`~quax.Observable` (Hamiltonian) → :class:`~quax.Unitary` via :math:`e^{-i t H}`
 * :class:`~quax.Lindbladian` → :class:`~quax.SuperOp` via :math:`e^{t \mathcal{L}}`
 
 .. code-block:: python
@@ -211,7 +214,7 @@ Complete Code Example
    # --- Two-qubit independent noise ---
    L_A = qx.amplitude_damping_lindbladian(gamma=0.1)
    L_B = qx.dephasing_lindbladian(gamma=0.2)
-   L_AB = L_A | L_B                    # Kronecker sum — 4×4 qubit-pair system
+   L_AB = L_A | L_B                    # Kronecker sum — 16×16 superoperator (acts on 4×4 density matrix)
    channel_AB = qx.evolve(L_AB, t=0.5)
    print(qx.is_cptp(channel_AB))       # True
 
