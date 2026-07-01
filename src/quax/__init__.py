@@ -102,7 +102,16 @@ from ._common_channels import (
     leakage_lindbladian,
     seepage_lindbladian,
 )
-from ._exponentiation import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis, evolve
+from ._exponentiation import (
+    power_choi,
+    power_kraus,
+    power_pauli_liouville,
+    power_superop,
+    power_unitary,
+    exp,
+    cis,
+    evolve,
+)
 from ._promotion import (
     embed,
     permute,

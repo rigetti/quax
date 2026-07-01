@@ -26,9 +26,10 @@ Tests verify:
 - leakage_lindbladian and seepage_lindbladian
 """
 
+import math
+
 import jax
 import jax.numpy as jnp
-import numpy as np
 import pytest
 import qutip as qt
 
@@ -49,7 +50,7 @@ def _qt_to_superop(qt_superop: "qt.Qobj") -> qx.SuperOp:
 
 def _evolve_qutip(H_qt, c_ops, t):
     """Evolve a QuTiP Liouvillian and return the resulting quax SuperOp."""
-    L = qt.liouvillian(H_qt, c_ops)
+    L = qt.liouvillian(H_qt, c_ops)  # type: ignore[call-overload]
     E = (t * L).expm()
     return _qt_to_superop(qt.to_super(E))
 
@@ -114,21 +115,21 @@ def test_lindbladian_generator_algebra():
 def test_lindbladian_pow_scales_rate():
     """L ** alpha == alpha * L (rate scaling, not channel exponentiation)."""
     L = qx.amplitude_damping_lindbladian(0.2)
-    assert jnp.allclose((L ** 2.0).matrix, (2.0 * L).matrix, atol=1e-12)
-    assert jnp.allclose((L ** 0.5).matrix, (0.5 * L).matrix, atol=1e-12)
+    assert jnp.allclose((L**2.0).matrix, (2.0 * L).matrix, atol=1e-12)
+    assert jnp.allclose((L**0.5).matrix, (0.5 * L).matrix, atol=1e-12)
 
 
 def test_lindbladian_pow_returns_lindbladian():
     """L ** alpha returns a Lindbladian (not a SuperOp)."""
     L = qx.amplitude_damping_lindbladian(0.1)
-    assert isinstance(L ** 1.5, qx.Lindbladian)
+    assert isinstance(L**1.5, qx.Lindbladian)
 
 
 def test_lindbladian_pow_compose_with_evolve():
     """evolve(L ** 2, t) == evolve(L, 2 * t) (consistent rate scaling)."""
     L = qx.amplitude_damping_lindbladian(0.3)
     t = 0.4
-    ch1 = qx.evolve(L ** 2.0, t)
+    ch1 = qx.evolve(L**2.0, t)
     ch2 = qx.evolve(L, 2.0 * t)
     assert jnp.allclose(ch1.matrix, ch2.matrix, atol=1e-10)
 
@@ -309,7 +310,7 @@ def test_qutip_parity_amplitude_damping():
     """evolve(amplitude_damping_lindbladian(γ), t) matches QuTiP."""
     gamma = 0.3
     sigma_minus = qt.Qobj([[0, 1], [0, 0]])
-    c_ops = [jnp.sqrt(gamma) * sigma_minus]
+    c_ops = [math.sqrt(gamma) * sigma_minus]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
     qx_channel = qx.evolve(qx.amplitude_damping_lindbladian(gamma), T)
@@ -322,7 +323,7 @@ def test_qutip_parity_dephasing():
     """evolve(dephasing_lindbladian(γ), t) matches QuTiP."""
     gamma = 0.2
     Z = qt.sigmaz()
-    c_ops = [jnp.sqrt(gamma / 2.0) * Z]
+    c_ops = [math.sqrt(gamma / 2.0) * Z]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
     qx_channel = qx.evolve(qx.dephasing_lindbladian(gamma), T)
@@ -335,8 +336,8 @@ def test_qutip_parity_depolarizing():
     """evolve(depolarizing_lindbladian(γ), t) matches QuTiP."""
     gamma = 0.15
     X, Y, Z = qt.sigmax(), qt.sigmay(), qt.sigmaz()
-    scale = jnp.sqrt(gamma / 3.0)
-    c_ops = [float(scale) * X, float(scale) * Y, float(scale) * Z]
+    scale = math.sqrt(gamma / 3.0)
+    c_ops = [scale * X, scale * Y, scale * Z]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
     qx_channel = qx.evolve(qx.depolarizing_lindbladian(gamma), T)
@@ -354,7 +355,7 @@ def test_qutip_parity_with_hamiltonian():
 
     H_qt = omega * qt.sigmaz()
     sigma_minus = qt.Qobj([[0, 1], [0, 0]])
-    c_ops = [jnp.sqrt(gamma) * sigma_minus]
+    c_ops = [math.sqrt(gamma) * sigma_minus]
     qt_channel = _evolve_qutip(H_qt, c_ops, T)
 
     H_qx = qx.Observable.from_matrix(omega * Z_gate.matrix, ((2,), (2,)))

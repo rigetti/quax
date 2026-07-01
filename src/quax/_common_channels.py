@@ -25,7 +25,16 @@ import jax.numpy as jnp
 from jax import Array, jit
 
 from ._compose import compose_superop
-from ._quantum_objects import Choi, KrausMap, Lindbladian, Operator, QuantumInstrument, SuperOp, Unitary, _extract_measured_index
+from ._quantum_objects import (
+    Choi,
+    KrausMap,
+    Lindbladian,
+    Operator,
+    QuantumInstrument,
+    SuperOp,
+    Unitary,
+    _extract_measured_index,
+)
 from ._superoperator_transformations import (
     choi_to_superop,
     unitary_to_superop,
@@ -612,10 +621,12 @@ def thermal_relaxation_lindbladian(t1: float, tphi: float) -> Lindbladian:
     :param tphi: Pure dephasing time (Tφ, not T2).
     :return: Lindbladian generator for the thermal relaxation channel.
     """
-    L_stack = jnp.stack([
-        jnp.sqrt(1.0 / t1) * _SIGMA_MINUS.matrix,
-        jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0) * Z.matrix,
-    ])
+    L_stack = jnp.stack(
+        [
+            jnp.sqrt(1.0 / t1) * _SIGMA_MINUS.matrix,
+            jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0) * Z.matrix,
+        ]
+    )
     return Lindbladian.from_operators(None, Operator.from_matrix(L_stack, ((2,), (2,))))
 
 
@@ -669,4 +680,3 @@ def seepage_lindbladian(gamma: float) -> Lindbladian:
     """
     L = jnp.sqrt(gamma) * _SIGMA_21.matrix
     return Lindbladian.from_operators(None, Operator.from_matrix(L[jnp.newaxis], ((3,), (3,))))
-
