@@ -5,7 +5,8 @@ Overview
 --------
 
 A **Lindbladian** (or Liouvillian) is the generator of a quantum dynamical semigroup,
-describing open-system evolution under the Gorini–Kossakowski–Sudarshan–Lindblad (GKSL)
+describing open-system evolution under the
+`Gorini–Kossakowski–Sudarshan–Lindblad (GKSL) <https://en.wikipedia.org/wiki/Lindbladian>`_
 master equation:
 
 .. math::
@@ -14,8 +15,13 @@ master equation:
    = -i[H, \rho] + \sum_k \Bigl( L_k \rho L_k^\dagger
      - \tfrac{1}{2}\{L_k^\dagger L_k,\, \rho\} \Bigr)
 
-Here :math:`H` is the Hamiltonian and :math:`L_k` are **jump operators** that encode
-dissipation.  Exponentiating the generator yields a **CPTP channel** for :math:`t \geq 0`:
+Here :math:`H` is the Hamiltonian generating coherent evolution, and the :math:`L_k` are
+**jump operators** (also called Lindblad or collapse operators).  Each :math:`L_k` models an
+irreversible dissipative process — energy decay, dephasing, leakage, etc. — through which the
+system couples to its environment: the term :math:`L_k \rho L_k^\dagger` transfers population
+and coherence *along* the jump, while the anticommutator
+:math:`-\tfrac12\{L_k^\dagger L_k,\, \rho\}` supplies the matching no-jump damping.
+Exponentiating the generator yields a **CPTP channel** for :math:`t \geq 0`:
 
 .. math::
 
@@ -24,8 +30,12 @@ dissipation.  Exponentiating the generator yields a **CPTP channel** for :math:`
 This is the canonical way to generate physically valid (completely positive,
 trace-preserving) open-system dynamics.
 
-**Key distinction:** :class:`~quax.Lindbladian` is a *generator* — it is NOT a quantum
-channel.  Use :func:`~quax.evolve` to convert it to a channel.
+**Key distinction:** A :class:`~quax.Lindbladian` is a *generator*, not a quantum channel.
+Like a :class:`~quax.SuperOp` it is stored as a :math:`d^2 \times d^2` matrix acting on a
+vectorized density matrix, but it represents the instantaneous rate of change
+:math:`\dot\rho = \mathcal{L}[\rho]` — not a finite-time map.  Only its exponential
+:math:`e^{t\mathcal{L}}` is a CPTP superoperator (an actual channel).  Use
+:func:`~quax.evolve` to exponentiate a Lindbladian into a :class:`~quax.SuperOp`.
 
 
 The Generator Algebra
@@ -39,18 +49,24 @@ Lindbladians form a real vector space with several useful operations:
 
    \mathcal{L}_1 + \mathcal{L}_2
 
-This is *not* the same as combining jump operators before constructing the Lindbladian
-(summing operators introduces cross-terms).  Always stack independent jump operators along
-the ``n_ops`` axis or add Lindbladian objects.
+This is *not* the same as combining jump operators before constructing the Lindbladian.
+Summing them first introduces spurious cross-terms in the dissipator:
+
+.. math::
+
+   (L_1 + L_2)\,\rho\,(L_1 + L_2)^\dagger
+   = L_1 \rho L_1^\dagger + L_2 \rho L_2^\dagger
+     + \underbrace{L_1 \rho L_2^\dagger + L_2 \rho L_1^\dagger}_{\text{unphysical cross-terms}}
+
+so :math:`(L_1 + L_2)` describes a *different* physical process than two independent jump
+channels.  Always stack independent jump operators along the ``n_ops`` axis or add Lindbladian
+objects.
 
 **Scalar multiplication** — scale the overall noise rate:
 
 .. math::
 
    \alpha \cdot \mathcal{L}
-
-**Rate-scaling via** ``**`` — ``L ** alpha`` is equivalent to ``alpha * L``.  This scales
-the generator rate, so ``evolve(L ** alpha, t) == evolve(L, alpha * t)``.
 
 **Tensor product** ``|`` — compose independent subsystems A and B:
 
@@ -68,10 +84,6 @@ themselves. It satisfies ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, 
 
 The ``Lindbladian`` Object
 --------------------------
-
-.. autoclass:: quax.Lindbladian
-   :members: from_matrix, from_operators, dims, matrix, num_ensemble_dims
-   :undoc-members:
 
 A :class:`~quax.Lindbladian` stores the :math:`d^2 \times d^2` generator matrix
 :math:`\mathcal{L}` as a JAX tensor.  It supports ensemble dimensions (leading batch
@@ -116,28 +128,8 @@ Common Noise Channels
 ---------------------
 
 All factories return a :class:`~quax.Lindbladian`.  Use :func:`~quax.evolve` to obtain
-the corresponding CPTP channel.
-
-+---------------------------------------+----------------------------------------------------------------+
-| Factory                               | Jump operators                                                 |
-+=======================================+================================================================+
-| ``amplitude_damping_lindbladian(γ)``  | :math:`\sqrt{\gamma}\,|0\rangle\langle 1|`                     |
-+---------------------------------------+----------------------------------------------------------------+
-| ``dephasing_lindbladian(γ)``          | :math:`\sqrt{\gamma/2}\,Z`                                     |
-+---------------------------------------+----------------------------------------------------------------+
-| ``depolarizing_lindbladian(γ)``       | :math:`\sqrt{\gamma/3}\,\{X, Y, Z\}`                           |
-+---------------------------------------+----------------------------------------------------------------+
-| ``thermal_relaxation_lindbladian``    | :math:`\sqrt{1/T_1}\,\sigma_-`,                                |
-| ``(t1, tphi)``                        | :math:`\sqrt{1/T_\varphi}/\sqrt{2}\,Z`                         |
-+---------------------------------------+----------------------------------------------------------------+
-| ``bit_flip_lindbladian(γ)``           | :math:`\sqrt{\gamma}\,X`                                       |
-+---------------------------------------+----------------------------------------------------------------+
-| ``phase_flip_lindbladian(γ)``         | :math:`\sqrt{\gamma}\,Z`                                       |
-+---------------------------------------+----------------------------------------------------------------+
-| ``leakage_lindbladian(γ)``            | :math:`\sqrt{\gamma}\,|2\rangle\langle 1|` (qutrit)            |
-+---------------------------------------+----------------------------------------------------------------+
-| ``seepage_lindbladian(γ)``            | :math:`\sqrt{\gamma}\,|1\rangle\langle 2|` (qutrit)            |
-+---------------------------------------+----------------------------------------------------------------+
+the corresponding CPTP channel.  See each factory's docstring in the API reference for its
+jump operators.
 
 Qubit channel equivalences (at time *t*):
 
@@ -208,8 +200,8 @@ Complete Code Example
    print(qx.is_cptp(channel))   # True
 
    # --- Rate scaling ---
-   # L ** alpha scales the noise rate: evolve(L**2, t) == evolve(L, 2*t)
-   L_fast = L_total ** 2.0
+   # Scaling the generator scales the noise rate: evolve(2*L, t) == evolve(L, 2*t)
+   L_fast = 2.0 * L_total
    assert jnp.allclose(
        qx.evolve(L_fast, 0.5).matrix,
        qx.evolve(L_total, 1.0).matrix,
