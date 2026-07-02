@@ -184,11 +184,11 @@ def test_promote_lindbladian_qubit_to_qutrit():
 
 
 def test_promote_lindbladian_subspace_generator_matches():
-    """promote(L_qubit, (3,)) has the qubit generator block at the correct indices.
+    """promote(L_qubit, (3,)) reproduces the original qubit generator on the qubit sub-block.
 
     In quax's qutrit superoperator convention, qubit indices {0,1} map to
-    qutrit rows/cols {0, 1, 3, 4} (bra*3+ket for bra,ket ∈ {0,1}).
-    The zero-padded promoted generator must match the original at those indices.
+    qutrit rows/cols {0, 1, 3, 4} (bra*3+ket for bra,ket ∈ {0,1}).  Promotion reconstructs
+    and re-embeds the operators, so the sub-block matches to float32 reconstruction precision.
     """
     L = qx.amplitude_damping_lindbladian(0.3)
     L_promoted = qx.promote(L, (3,))
@@ -196,17 +196,16 @@ def test_promote_lindbladian_subspace_generator_matches():
     # Qubit subspace rows/cols in the 9x9 matrix: bra*3+ket for bra,ket in {0,1}
     qubit_idx = jnp.array([0, 1, 3, 4])
     subblock = L_promoted.matrix[jnp.ix_(qubit_idx, qubit_idx)]
-    assert jnp.allclose(subblock, L.matrix, atol=1e-10)
+    assert jnp.allclose(subblock, L.matrix, atol=1e-3)
 
 
-def test_promote_lindbladian_differs_from_native_qutrit():
-    """promote(L, (3,)) zero-pads the generator — NOT the same as a native qutrit build.
+def test_promote_lindbladian_matches_native_qutrit():
+    """promote(L_qubit, (3,)) equals the Lindbladian built natively from embedded operators.
 
-    The promoted generator matches the qubit generator on the qubit sub-block, but leaves the
-    coherences with the new |2⟩ level un-evolved (their generator block is zero).  A qutrit
-    Lindbladian built natively from the same jump operator √γ|0⟩⟨1| instead *damps* the
-    coherences involving |1⟩ and |2⟩ (e.g. ρ₁₂/ρ₂₁ at rate γ/2, via the -½{L†L, ρ} term).
-    This test pins that documented difference.
+    promote reconstructs (H, jump operators) from the generator, zero-pads them, and rebuilds.
+    For amplitude damping that must equal building √γ|0⟩⟨1| directly as a 3×3 jump operator —
+    which correctly *damps* the |1⟩↔|2⟩ coherence (at rate γ/2 via the -½{L†L, ρ} term)
+    rather than freezing it as a naive zero-pad of the generator would.
     """
     gamma = 0.3
     L_promoted = qx.promote(qx.amplitude_damping_lindbladian(gamma), (3,))
@@ -216,42 +215,34 @@ def test_promote_lindbladian_differs_from_native_qutrit():
     jump_ops = qx.Operator.from_matrix((jnp.sqrt(gamma) * sigma_minus_3)[jnp.newaxis], ((3,), (3,)))
     L_native = qx.Lindbladian.from_operators(None, jump_ops)
 
-    # They agree on the qubit sub-block (rows/cols bra*3+ket for bra,ket in {0,1}).
-    qubit_idx = jnp.array([0, 1, 3, 4])
-    assert jnp.allclose(
-        L_promoted.matrix[jnp.ix_(qubit_idx, qubit_idx)],
-        L_native.matrix[jnp.ix_(qubit_idx, qubit_idx)],
-        atol=1e-10,
-    )
+    assert jnp.allclose(L_promoted.matrix, L_native.matrix, atol=1e-3)
 
-    # vec indices touching |2⟩ (complement of the qubit block) — convention-independent.
-    level2_idx = jnp.array([2, 5, 6, 7, 8])
-
-    # Promoted: the entire |2⟩-involving block is zero (trivial evolution, no damping).
-    assert jnp.allclose(L_promoted.matrix[level2_idx, :], 0.0, atol=1e-12)
-    assert jnp.allclose(L_promoted.matrix[:, level2_idx], 0.0, atol=1e-12)
-
-    # Native: that block is NOT all zero — the |1⟩↔|2⟩ coherences are damped at γ/2.
-    assert not jnp.allclose(L_native.matrix[level2_idx, :], 0.0, atol=1e-10)
-    native_diag = jnp.diag(L_native.matrix)[level2_idx]
-    assert jnp.any(jnp.isclose(native_diag, -gamma / 2.0, atol=1e-10))
-
-    # The two generators genuinely differ.
-    assert not jnp.allclose(L_promoted.matrix, L_native.matrix, atol=1e-6)
+    # The |1⟩↔|2⟩ coherence generator entry (index 1*3+2 = 5) is damped at -γ/2, not frozen.
+    coh_idx = 1 * 3 + 2
+    assert jnp.isclose(L_promoted.matrix[coh_idx, coh_idx], -gamma / 2.0, atol=1e-3)
 
 
-def test_promote_lindbladian_extra_dims_zero():
-    """promote(L_qubit, (3,)) has zero generator entries for the extra |2⟩ dimension."""
-    L = qx.amplitude_damping_lindbladian(0.2)
-    L_promoted = qx.promote(L, (3,))
+@pytest.mark.parametrize(
+    "factory",
+    [
+        qx.amplitude_damping_lindbladian,
+        qx.dephasing_lindbladian,
+        qx.depolarizing_lindbladian,
+    ],
+)
+def test_promote_lindbladian_is_cptp(factory):
+    """evolve(promote(L, (3,)), t) is a valid CPTP channel — the point of operator-level promotion.
 
-    extra_idx = jnp.array([2, 5, 6, 7, 8])
-    qubit_idx = jnp.array([0, 1, 3, 4])
-    # Off-diagonal blocks between qubit and |2⟩ should be zero
-    assert jnp.allclose(L_promoted.matrix[jnp.ix_(extra_idx, qubit_idx)], 0.0, atol=1e-10)
-    assert jnp.allclose(L_promoted.matrix[jnp.ix_(qubit_idx, extra_idx)], 0.0, atol=1e-10)
-    # |2⟩ block should be zero (no generator there)
-    assert jnp.allclose(L_promoted.matrix[jnp.ix_(extra_idx, extra_idx)], 0.0, atol=1e-10)
+    A naive zero-pad of the generator would be non-CP (frozen cross-subspace coherences give
+    a negative Choi eigenvalue); reconstructing and re-embedding the operators keeps it valid.
+    """
+    L_promoted = qx.promote(factory(0.3), (3,))
+    channel = qx.evolve(L_promoted, 0.5)
+
+    choi = qx.superop_to_choi(channel).matrix
+    choi = (choi + choi.conj().T) / 2
+    min_eig = jnp.linalg.eigvalsh(choi).min()
+    assert min_eig > -1e-4, f"{factory.__name__}: Choi min eigenvalue {min_eig} indicates non-CP"
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +489,23 @@ def test_hamiltonian_evolve_matches_cis():
     via_cis = qx.cis(qx.Observable.from_matrix(-t * H.matrix, ((2,), (2,))))
 
     assert jnp.allclose(via_evolve.matrix, via_cis.matrix, atol=1e-10)
+
+
+def test_evolve_observable_is_literal_propagator():
+    """evolve(H, t) returns exp(-i·t·H) exactly, with no global-phase re-normalization.
+
+    Uses H = X, t = π/2, where exp(-iπX/2) = -iX has a zero (0,0) entry — a [0,0]-anchored
+    phase correction (as in cis) would silently no-op and leave a spurious phase, so evolve
+    must not apply one.
+    """
+    from quax.gates import X
+
+    H = qx.Observable.from_matrix(X.matrix, ((2,), (2,)))
+    U = qx.evolve(H, jnp.pi / 2)
+
+    expected = -1j * X.matrix  # exp(-iπX/2) = cos(π/2) I - i sin(π/2) X = -i X
+    assert jnp.allclose(U.matrix, expected, atol=1e-6)
+    assert jnp.abs(U.matrix[0, 0]) < 1e-6  # the entry a [0,0]-anchored correction would key off
 
 
 def test_purely_hamiltonian_lindbladian_matches_unitary():

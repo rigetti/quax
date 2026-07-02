@@ -26,6 +26,7 @@ from ._quantum_objects import (
     DensityMatrix,
     KrausMap,
     Lindbladian,
+    Observable,
     Operator,
     PauliLiouville,
     QuantumInstrument,
@@ -33,6 +34,7 @@ from ._quantum_objects import (
     SuperOp,
     Unitary,
     SuperOperator,
+    _build_lindbladian,
 )
 from ._state import zero_state_matrix, zero_state_vector
 from ._superoperator_transformations import (
@@ -243,32 +245,84 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
     return KrausMap(padded, num_qubits=len(dims))
 
 
+def _gksl_reconstruct(gen_matrix, d):
+    """Recover a canonical GKSL representation ``(H, {L_k})`` from a ``d²×d²`` generator.
+
+    Uses the traceless-jump-operator gauge.  The dissipator's Kossakowski matrix is the
+    reshuffled generator projected onto the traceless subspace; its eigendecomposition
+    yields the jump operators, and the remaining (δ-structured) coherent + anticommutator
+    part fixes the traceless Hamiltonian.  Rebuilding via :func:`_build_lindbladian`
+    reproduces ``gen_matrix`` exactly (up to floating-point precision).
+
+    :param gen_matrix: ``(d², d²)`` generator matrix (single, un-batched).
+    :param d: Hilbert-space dimension.
+    :return: ``(H, jump_ops)`` with shapes ``(d, d)`` and ``(d², d, d)``.
+    """
+    tensor = gen_matrix.reshape(d, d, d, d)  # [a, c, b, d']
+    reshuffled = jnp.transpose(tensor, (0, 2, 1, 3)).reshape(d * d, d * d)  # R[(a,b),(c,d')]
+    omega = jnp.eye(d, dtype=complex).reshape(d * d)  # vec(I)
+    proj = jnp.eye(d * d, dtype=complex) - jnp.outer(omega, jnp.conj(omega)) / d
+    kossakowski = proj @ reshuffled @ proj  # PSD in the traceless subspace
+    kossakowski = 0.5 * (kossakowski + kossakowski.conj().T)
+    evals, evecs = jnp.linalg.eigh(kossakowski)
+    evals = jnp.maximum(evals.real, 0.0)  # clamp numerical negatives
+    weighted = evecs * jnp.sqrt(evals)[None, :]  # columns are √λ_k · v_k
+    jump_ops = jnp.conj(jnp.transpose(weighted).reshape(d * d, d, d))  # (n_ops=d², d, d)
+
+    g_matrix = jnp.einsum("kca,kcb->ab", jnp.conj(jump_ops), jump_ops)  # Σ L_k† L_k
+    tau = -0.5 * jnp.trace(g_matrix)
+    delta = (reshuffled - kossakowski).reshape(d, d, d, d)  # purely δ-structured
+    m_matrix = (jnp.einsum("aacd->cd", delta) - tau * jnp.eye(d, dtype=complex)) / d
+    hamiltonian = 1j * (m_matrix + 0.5 * g_matrix)
+    hamiltonian = 0.5 * (hamiltonian + hamiltonian.conj().T)
+    return hamiltonian, jump_ops
+
+
+def _embed_operator_matrix(mats, current_dims, target_dims):
+    """Zero-pad a stack of operators from ``current_dims`` to ``target_dims`` per qudit.
+
+    :param mats: Array with shape ``(*batch, d, d)`` where ``d = prod(current_dims)``.
+    :return: Array with shape ``(*batch, D, D)`` where ``D = prod(target_dims)``.
+    """
+    batch = mats.shape[:-2]
+    tensor = mats.reshape(batch + current_dims + current_dims)
+    pw = [(0, 0)] * len(batch) + [(0, D - d) for d, D in zip(current_dims + current_dims, target_dims + target_dims)]
+    total = reduce(mul, target_dims, 1)
+    return jnp.pad(tensor, pw).reshape(batch + (total, total))
+
+
 @promote.register(Lindbladian)
 @jax.jit(static_argnames=("dims",))
 def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
-    """Embed a Lindbladian generator in a larger Hilbert space (zero-padded).
+    """Embed a Lindbladian generator in a larger Hilbert space at the *operator* level.
 
-    The added dimensions receive a **zero generator**: no Hamiltonian and no jump operators
-    act on them, and coherences between the original and added subspaces evolve trivially
-    (they are neither damped nor dephased).
+    A canonical GKSL representation (Hamiltonian + jump operators) is reconstructed from the
+    generator, each operator is zero-padded into the larger space, and the generator is
+    rebuilt via the GKSL formula.  The result is a valid (CPTP-generating) Lindbladian: it
+    correctly **damps** coherences between the original and added subspaces — e.g. amplitude
+    damping ``L = √γ|0⟩⟨1|`` decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2 via the ``-½{L†L, ρ}`` term.
 
-    .. warning::
-        This is a mathematical embedding of the generator, **not** the same as building a
-        Lindbladian natively in the larger space.  A native higher-dimensional generator
-        (same H and jump operators embedded as operators) generally *damps* the new
-        cross-subspace coherences — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` gives
-        ``L†L = γ|1⟩⟨1|``, whose ``-½{L†L, ρ}`` term decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2.
-        Because a :class:`Lindbladian` stores only the generator matrix (not the underlying
-        operators), that native behaviour cannot be recovered here.  To obtain it, construct
-        the Lindbladian with jump operators defined in the larger space from the start.
+    This is *not* a naive zero-padding of the generator matrix: that would freeze those
+    coherences while population still decays, which is not a valid GKSL generator (its
+    exponential is not completely positive).
     """
     current_dims = generator.dims[0]
     _validate_promote_dims(current_dims, dims)
-    n_ensemble = generator.num_ensemble_dims
-    # Lindbladian tensor has 4*n_qudits qudit indices (bra/ket for out/in, twice)
-    pw = [(0, 0)] * n_ensemble + [(0, D - d) for d, D in zip(current_dims * 4, dims * 4)]
-    promoted = jnp.pad(generator.data, pw)
-    return Lindbladian(promoted, num_qubits=len(dims))
+    d = reduce(mul, current_dims, 1)
+
+    gen = generator.matrix  # (*ensemble, d², d²)
+    ensemble_shape = gen.shape[:-2]
+    gen_flat = gen.reshape((-1, d * d, d * d))
+    hamiltonians, jump_ops = jax.vmap(lambda g: _gksl_reconstruct(g, d))(gen_flat)
+
+    h_embedded = _embed_operator_matrix(hamiltonians, current_dims, dims)  # (B, D, D)
+    l_embedded = _embed_operator_matrix(jump_ops, current_dims, dims)  # (B, d², D, D)
+
+    total = reduce(mul, dims, 1)
+    n_ops = d * d
+    h_obj = Observable.from_matrix(h_embedded.reshape(ensemble_shape + (total, total)), (dims, dims))
+    l_obj = Operator.from_matrix(l_embedded.reshape(ensemble_shape + (n_ops, total, total)), (dims, dims))
+    return _build_lindbladian(h_obj, l_obj)
 
 
 @promote.register(PauliLiouville)

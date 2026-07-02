@@ -162,23 +162,28 @@ The evolution time ``t`` is a traceable JAX value — gradients flow through it:
 Promotion
 ---------
 
-:func:`~quax.promote` embeds a Lindbladian in a larger Hilbert space by zero-padding
-the generator tensor.  The higher-dimensional subspace receives a zero generator (trivial
-evolution when no jump operators or Hamiltonian couple to it):
+:func:`~quax.promote` embeds a Lindbladian in a larger Hilbert space at the **operator
+level**: it reconstructs a canonical GKSL representation (Hamiltonian + jump operators) from
+the generator, zero-pads each operator into the larger space, and rebuilds the generator via
+the GKSL formula:
 
 .. code-block:: python
 
    L_qutrit = qx.promote(L_qubit, (3,))   # returns Lindbladian with dims=((3,),(3,))
 
+The result is a valid generator whose exponential is CPTP for :math:`t \geq 0`.  It agrees
+with the qubit generator on the computational subspace and **correctly damps** coherences
+between the original and added levels — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` has
+``L†L = γ|1⟩⟨1|``, whose ``-½{L†L, ρ}`` term decays the ``ρ₁₂``/``ρ₂₁`` coherences at rate
+γ/2.
+
 .. note::
-   Zero-padding the generator is a mathematical embedding, **not** the same as building a
-   Lindbladian natively in the larger space.  The added subspace gets a zero generator, so
-   coherences between the original and extended subspaces evolve trivially — they are **not
-   damped**.  A natively-constructed higher-dimensional Lindbladian generally *does* damp
-   those coherences: e.g. amplitude damping ``L = √γ|0⟩⟨1|`` has ``L†L = γ|1⟩⟨1|``, whose
-   ``-½{L†L, ρ}`` term decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2.  Consequently, for states with
-   such coherences the promoted channel may not be CPTP.  To obtain a valid qutrit channel,
-   construct the Lindbladian with qutrit-dimensioned jump operators from the start.
+   Promotion is *not* a naive zero-padding of the generator matrix.  Zero-padding the
+   generator would freeze the new cross-subspace coherences while population still decays,
+   which is not a valid GKSL generator — its exponential is not completely positive.  Because
+   a :class:`~quax.Lindbladian` stores only the generator, ``promote`` recovers the operators
+   in the canonical traceless-jump gauge before embedding; for standard (traceless) jump
+   operators this coincides with building the Lindbladian natively in the larger space.
 
 
 Complete Code Example

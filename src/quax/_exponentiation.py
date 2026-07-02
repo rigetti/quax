@@ -17,7 +17,7 @@
 This module provides:
 
 - :func:`evolve` — single-dispatch evolution of generators to quantum objects.
-  Hamiltonian → Unitary via ``exp(i·t·H)``; Lindbladian → SuperOp via ``exp(t·L)``.
+  Hamiltonian → Unitary via ``exp(-i·t·H)``; Lindbladian → SuperOp via ``exp(t·L)``.
 - :func:`cis` — deprecated alias for ``evolve(H, t=1.0)``.
 - :func:`exp` — bare matrix exponential (no global-phase correction).
 - ``power_*`` family — integer and fractional matrix powers for each representation.
@@ -27,10 +27,14 @@ All power implementations use eigendecomposition matching scipy.linalg.fractiona
     M^p = V @ diag(λ^p) @ V^(-1)
 
 **For quantum channels (superoperators):**
-- Integer powers correspond to channel composition (always preserves CPTP).
-- Fractional powers may NOT preserve complete positivity or trace preservation.
-- For physically meaningful fractional channel interpolation, use
-  ``Lindbladian.from_operators`` + ``evolve``, which guarantees CPTP for t ≥ 0.
+- Integer powers correspond to channel composition (always CPTP).
+- Fractional powers preserve CPTP for *infinitely divisible* channels — those of the form
+  ``e^{tL}`` for a valid Lindbladian ``L`` (e.g. anything returned by ``evolve``), since
+  ``M^s = e^{(s·t)L}`` is then itself a Lindbladian evolution. For a *general* channel this
+  need not hold: the principal power computed here (via eigendecomposition) can leave the
+  CPTP set.
+- For guaranteed CPTP at any fractional power, build the channel from a Lindbladian and
+  scale the time: ``evolve(L, s·t)`` is CPTP for ``s·t ≥ 0``.
 """
 
 from functools import partial, singledispatch
@@ -123,8 +127,13 @@ def evolve(operator, t: float = 1.0):
 
     The Lindbladian branch returns a CPTP map for ``t ≥ 0``.
 
+    .. note::
+        **Precondition:** ``t >= 0`` for the Lindbladian branch.  A negative ``t`` runs the
+        semigroup backwards and yields a non-CPTP map.  This is *not* validated — it cannot
+        be asserted cleanly under JAX tracing — so it is the caller's responsibility.
+
     :param operator: A Hamiltonian (:class:`Observable`) or Lindbladian generator.
-    :param t: Evolution time (default 1.0).
+    :param t: Evolution time (default 1.0). Must be ``>= 0`` for a CPTP Lindbladian channel.
     :return: The evolved quantum object.
 
     Examples::
@@ -144,11 +153,15 @@ def evolve(operator, t: float = 1.0):
 @evolve.register(Observable)
 @jax.jit
 def _evolve_observable(observable: Observable, t: float = 1.0) -> Unitary:
-    """Compute exp(-i·t·H) with global-phase correction, returning a Unitary."""
-    dims = observable.dims
+    """Compute the Schrödinger propagator ``exp(-i·t·H)``, returning a Unitary.
+
+    Unlike :func:`cis`, no global-phase normalization is applied: the result is the literal
+    propagator, so it composes correctly with other phase-sensitive objects and carries the
+    true dynamical phase.  (The ``[0,0]``-anchored normalization used by ``cis`` is also
+    ill-defined when that entry is ~0, e.g. ``exp(-iπX/2) = -iX``.)
+    """
     result = jax.scipy.linalg.expm(-1j * t * observable.matrix)
-    phase = jnp.exp(-1j * jnp.angle(result[..., 0, 0]))
-    return Unitary.from_matrix(phase[..., None, None] * result, dims)
+    return Unitary.from_matrix(result, observable.dims)
 
 
 @evolve.register(Lindbladian)

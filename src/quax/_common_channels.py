@@ -617,8 +617,8 @@ def thermal_relaxation_lindbladian(t1: float, tphi: float) -> Lindbladian:
     The resulting channel ``evolve(L, t)`` matches
     ``thermal_relaxation_choi([t1], [tphi], t)`` converted to a SuperOp.
 
-    :param t1: T1 relaxation time (energy decay).
-    :param tphi: Pure dephasing time (Tφ, not T2).
+    :param t1: T1 relaxation time (energy decay). Must be positive.
+    :param tphi: Pure dephasing time (Tφ, not T2). Must be positive.
     :return: Lindbladian generator for the thermal relaxation channel.
     """
     L_stack = jnp.stack(
