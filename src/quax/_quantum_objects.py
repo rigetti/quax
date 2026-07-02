@@ -2208,15 +2208,30 @@ def _build_lindbladian(hamiltonian: "Observable | None", jump_operators: "Operat
     L = jump_operators.matrix  # (*ensemble, n_ops, d, d)
     ensemble_shape = L.shape[:-3]
 
+    # Build the GKSL generator as a rank-4 tensor with indices
+    # [out_bra a, out_ket c, in_bra b, in_ket d], reshaped at the end to a (d², d²)
+    # superoperator acting on vec(ρ).
+
+    # No-jump rate operator  G = Σ_k L_k† L_k  (Hermitian):
+    #   G_{ab} = Σ_{k,c} conj(L_k)_{ca} (L_k)_{cb}
     G = jnp.einsum("...kca,...kcb->...ab", jnp.conj(L), L)
+    # Jump (dissipative gain) term  Σ_k L_k ρ L_k†:
+    #   sandwich_{acbd} = Σ_k conj(L_k)_{ab} (L_k)_{cd}
     sandwich = jnp.einsum("...kab,...kcd->...acbd", jnp.conj(L), L)
+    # Two δ-structured halves of the anticommutator  −½{G, ρ} = −½(G ρ + ρ G):
+    #   G_rho_{acbd} = δ_{ab} G_{cd}          (the G ρ half)
     G_rho = jnp.einsum("ab,...cd->...acbd", I, G)
+    #   rho_G_{acbd} = conj(G)_{ab} δ_{cd}    (the ρ G half; G Hermitian ⇒ conj(G)_{ab} = G_{ba})
     rho_G = jnp.einsum("...ab,cd->...acbd", jnp.conj(G), I)
+    # Dissipator  D[ρ] = Σ_k ( L_k ρ L_k† − ½{L_k† L_k, ρ} )
     gen_data = sandwich - 0.5 * G_rho - 0.5 * rho_G
 
     if hamiltonian is not None:
         H = hamiltonian.matrix
+        # Two δ-structured halves of the commutator  −i[H, ρ] = −i(H ρ − ρ H):
+        #   H_rho_{acbd} = δ_{ab} H_{cd}          (the H ρ half)
         H_rho = jnp.einsum("ab,...cd->...acbd", I, H)
+        #   rho_H_{acbd} = conj(H)_{ab} δ_{cd}    (the ρ H half; H Hermitian ⇒ conj(H)_{ab} = H_{ba})
         rho_H = jnp.einsum("...ab,cd->...acbd", jnp.conj(H), I)
         gen_data = gen_data + (-1j * (H_rho - rho_H))
 
