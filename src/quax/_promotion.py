@@ -248,7 +248,19 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
 def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
     """Embed a Lindbladian generator in a larger Hilbert space (zero-padded).
 
-    The added dimensions evolve trivially: no Hamiltonian and no jump operators act on them.
+    The added dimensions receive a **zero generator**: no Hamiltonian and no jump operators
+    act on them, and coherences between the original and added subspaces evolve trivially
+    (they are neither damped nor dephased).
+
+    .. warning::
+        This is a mathematical embedding of the generator, **not** the same as building a
+        Lindbladian natively in the larger space.  A native higher-dimensional generator
+        (same H and jump operators embedded as operators) generally *damps* the new
+        cross-subspace coherences — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` gives
+        ``L†L = γ|1⟩⟨1|``, whose ``-½{L†L, ρ}`` term decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2.
+        Because a :class:`Lindbladian` stores only the generator matrix (not the underlying
+        operators), that native behaviour cannot be recovered here.  To obtain it, construct
+        the Lindbladian with jump operators defined in the larger space from the start.
     """
     current_dims = generator.dims[0]
     _validate_promote_dims(current_dims, dims)

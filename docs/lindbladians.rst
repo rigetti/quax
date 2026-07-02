@@ -179,10 +179,14 @@ evolution when no jump operators or Hamiltonian couple to it):
    L_qutrit = qx.promote(L_qubit, (3,))   # returns Lindbladian with dims=((3,),(3,))
 
 .. note::
-   Zero-padding the generator is a mathematical embedding.  For states with coherences
-   between the original and extended subspaces, the resulting channel may not be CPTP.
-   To obtain a valid qutrit channel, construct the Lindbladian with qutrit-dimensioned
-   jump operators from the start.
+   Zero-padding the generator is a mathematical embedding, **not** the same as building a
+   Lindbladian natively in the larger space.  The added subspace gets a zero generator, so
+   coherences between the original and extended subspaces evolve trivially — they are **not
+   damped**.  A natively-constructed higher-dimensional Lindbladian generally *does* damp
+   those coherences: e.g. amplitude damping ``L = √γ|0⟩⟨1|`` has ``L†L = γ|1⟩⟨1|``, whose
+   ``-½{L†L, ρ}`` term decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2.  Consequently, for states with
+   such coherences the promoted channel may not be CPTP.  To obtain a valid qutrit channel,
+   construct the Lindbladian with qutrit-dimensioned jump operators from the start.
 
 
 Complete Code Example

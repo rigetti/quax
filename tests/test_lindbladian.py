@@ -199,6 +199,47 @@ def test_promote_lindbladian_subspace_generator_matches():
     assert jnp.allclose(subblock, L.matrix, atol=1e-10)
 
 
+def test_promote_lindbladian_differs_from_native_qutrit():
+    """promote(L, (3,)) zero-pads the generator — NOT the same as a native qutrit build.
+
+    The promoted generator matches the qubit generator on the qubit sub-block, but leaves the
+    coherences with the new |2⟩ level un-evolved (their generator block is zero).  A qutrit
+    Lindbladian built natively from the same jump operator √γ|0⟩⟨1| instead *damps* the
+    coherences involving |1⟩ and |2⟩ (e.g. ρ₁₂/ρ₂₁ at rate γ/2, via the -½{L†L, ρ} term).
+    This test pins that documented difference.
+    """
+    gamma = 0.3
+    L_promoted = qx.promote(qx.amplitude_damping_lindbladian(gamma), (3,))
+
+    # Native qutrit generator: the same jump operator √γ|0⟩⟨1|, embedded as a 3×3 operator.
+    sigma_minus_3 = jnp.zeros((3, 3), dtype=complex).at[0, 1].set(1.0)
+    jump_ops = qx.Operator.from_matrix((jnp.sqrt(gamma) * sigma_minus_3)[jnp.newaxis], ((3,), (3,)))
+    L_native = qx.Lindbladian.from_operators(None, jump_ops)
+
+    # They agree on the qubit sub-block (rows/cols bra*3+ket for bra,ket in {0,1}).
+    qubit_idx = jnp.array([0, 1, 3, 4])
+    assert jnp.allclose(
+        L_promoted.matrix[jnp.ix_(qubit_idx, qubit_idx)],
+        L_native.matrix[jnp.ix_(qubit_idx, qubit_idx)],
+        atol=1e-10,
+    )
+
+    # vec indices touching |2⟩ (complement of the qubit block) — convention-independent.
+    level2_idx = jnp.array([2, 5, 6, 7, 8])
+
+    # Promoted: the entire |2⟩-involving block is zero (trivial evolution, no damping).
+    assert jnp.allclose(L_promoted.matrix[level2_idx, :], 0.0, atol=1e-12)
+    assert jnp.allclose(L_promoted.matrix[:, level2_idx], 0.0, atol=1e-12)
+
+    # Native: that block is NOT all zero — the |1⟩↔|2⟩ coherences are damped at γ/2.
+    assert not jnp.allclose(L_native.matrix[level2_idx, :], 0.0, atol=1e-10)
+    native_diag = jnp.diag(L_native.matrix)[level2_idx]
+    assert jnp.any(jnp.isclose(native_diag, -gamma / 2.0, atol=1e-10))
+
+    # The two generators genuinely differ.
+    assert not jnp.allclose(L_promoted.matrix, L_native.matrix, atol=1e-6)
+
+
 def test_promote_lindbladian_extra_dims_zero():
     """promote(L_qubit, (3,)) has zero generator entries for the extra |2⟩ dimension."""
     L = qx.amplitude_damping_lindbladian(0.2)
