@@ -22,7 +22,8 @@ Tests verify:
 - JIT compilation and autodiff
 - Ensemble broadcasting
 - Generator algebra (__add__, __mul__, __or__)
-- to_operators() GKSL reconstruction (round-trip + gauge invariance)
+- to_operators() exact recovery of the stored Hamiltonian and jump operators
+- operators-only storage: introspection, cached generator, pytree/jit/grad, unsupported non-CP ops
 - promote() dispatch for Lindbladian
 - leakage and seepage generators
 - Random Lindbladians: CPTP evolution and QuTiP parity
@@ -673,16 +674,17 @@ def test_lindbladian_factory_ensemble_multi_jump():
 
 @pytest.mark.parametrize("d, n_jumps, seed", _RANDOM_CASES)
 def test_random_lindbladian_to_operators_roundtrip(d, n_jumps, seed):
-    """to_operators() then from_operators() reproduces the generator (gauge-invariant round-trip)."""
-    gen, _, _ = _random_quax_lindbladian(d, n_jumps, seed)
+    """to_operators() returns the stored operators verbatim (no gauge canonicalization)."""
+    gen, H, jumps = _random_quax_lindbladian(d, n_jumps, seed)
     H_r, jumps_r = gen.to_operators()
 
-    # d² canonical jump operators are returned regardless of the input count.
-    assert jumps_r.matrix.shape == (d * d, d, d)
+    # The exact operators supplied to from_operators come back — same count, same values.
+    assert jumps_r.matrix.shape == (n_jumps, d, d)
+    assert jnp.allclose(jumps_r.matrix, jnp.asarray(np.stack(jumps), dtype=complex))
+    assert H_r is not None and jnp.allclose(H_r.matrix, jnp.asarray(H, dtype=complex))
 
     rebuilt = qx.Lindbladian.from_operators(H_r, jumps_r)
     assert jnp.allclose(rebuilt.matrix, gen.matrix, atol=1e-6)
-    # Gauge invariance at the channel level: same dynamics despite different operators.
     assert jnp.allclose(qx.evolve(rebuilt, T).matrix, qx.evolve(gen, T).matrix, atol=1e-6)
 
 
@@ -708,7 +710,84 @@ def test_random_lindbladian_qutip_parity(d, n_jumps, seed):
 
 
 def test_to_operators_jit():
-    """Lindbladian.to_operators() compiles under jax.jit."""
+    """Lindbladian.to_operators() compiles under jax.jit and returns the stored operators."""
     gen, _, _ = _random_quax_lindbladian(2, 2, 7)
     matrix = jax.jit(lambda g: g.to_operators()[1].matrix)(gen)
-    assert matrix.shape == (4, 2, 2)
+    assert matrix.shape == (2, 2, 2)
+
+
+# ---------------------------------------------------------------------------
+# Operators-only storage: introspection, caching, pytree, unsupported ops
+# ---------------------------------------------------------------------------
+
+
+def test_factory_exposes_physical_jump_operators():
+    """A factory Lindbladian stores its physical jump operator (no gauge canonicalization)."""
+    gamma = 0.1
+    L = qx.lindbladians.amplitude_damping(gamma)
+    assert L.hamiltonian is None
+    assert L.jump_operators.matrix.shape == (1, 2, 2)
+    expected = jnp.sqrt(gamma) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
+    assert jnp.allclose(L.jump_operators.matrix.squeeze(0), expected)
+
+
+def test_stored_operators_are_the_construction_inputs():
+    """Lindbladian.from_operators stores the exact Observable and Operator it was given."""
+    H = qx.Observable.from_matrix(0.5 * qx.gates.Z.matrix, _QUBIT_DIMS)
+    L_mat = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
+    jumps = qx.Operator.from_matrix(L_mat[jnp.newaxis], _QUBIT_DIMS)
+    gen = qx.Lindbladian.from_operators(H, jumps)
+    assert gen.hamiltonian is H
+    assert gen.jump_operators is jumps
+    H_r, jumps_r = gen.to_operators()
+    assert H_r is not None
+    assert jnp.allclose(H_r.matrix, H.matrix)
+    assert jnp.allclose(jumps_r.matrix, jumps.matrix)
+
+
+def test_matrix_is_cached():
+    """The generator matrix is computed once and cached on the (frozen) instance."""
+    gen, _, _ = _random_quax_lindbladian(2, 2, 5)
+    assert "matrix" not in gen.__dict__
+    first = gen.matrix
+    assert "matrix" in gen.__dict__  # cached_property populated the instance dict
+    assert gen.matrix is first  # same array object on second access
+
+
+def test_lindbladian_is_pytree_over_operators():
+    """A Lindbladian flattens to its Hamiltonian and jump operators (num_qubits derived)."""
+    gen, _, _ = _random_quax_lindbladian(2, 2, 6)
+    leaves, treedef = jax.tree_util.tree_flatten(gen)
+    rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert rebuilt.num_qubits == gen.num_qubits
+    assert rebuilt.dims == gen.dims
+    assert jnp.allclose(rebuilt.matrix, gen.matrix)
+
+
+def test_grad_through_stored_operators():
+    """Autodiff flows through the stored jump operators into the evolved channel."""
+
+    def loss(gamma):
+        jumps = qx.Operator.from_matrix(
+            (jnp.sqrt(gamma) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex))[jnp.newaxis], _QUBIT_DIMS
+        )
+        return qx.evolve(qx.Lindbladian.from_operators(None, jumps), 0.5).matrix.real.sum()
+
+    g = jax.grad(loss)(0.1)
+    assert jnp.isfinite(g)
+
+
+def test_negation_and_subtraction_unsupported():
+    """__neg__ and __sub__ raise: they can produce non-CP generators."""
+    L = qx.lindbladians.amplitude_damping(0.1)
+    with pytest.raises(NotImplementedError):
+        _ = -L
+    with pytest.raises(NotImplementedError):
+        _ = L - L
+
+
+def test_complex_scalar_multiplication_unsupported():
+    """Multiplying a Lindbladian by a complex scalar raises (non-CP generator)."""
+    L = qx.lindbladians.amplitude_damping(0.1)
+    with pytest.raises(NotImplementedError):
+        _ = (1.0 + 1.0j) * L

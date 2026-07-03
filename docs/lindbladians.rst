@@ -85,13 +85,13 @@ themselves. It satisfies ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, 
 The ``Lindbladian`` Object
 --------------------------
 
-A :class:`~quax.Lindbladian` stores the :math:`d^2 \times d^2` generator matrix
-:math:`\mathcal{L}` as a JAX tensor.  It supports ensemble dimensions (leading batch
-axes) just like other quax objects.
+A :class:`~quax.Lindbladian` stores its Hamiltonian (an :class:`~quax.Observable`, or ``None``)
+and jump operators (an :class:`~quax.Operator`) directly; the :math:`d^2 \times d^2` generator
+matrix :math:`\mathcal{L}` is computed on demand from them and cached, and exposed via the
+``.matrix`` attribute.  It supports ensemble dimensions (leading batch axes) just like other quax
+objects (the jump operators' ``n_ops`` axis is *not* an ensemble axis).
 
-**Tensor shape:** ``(*ensemble, d0_out_bra, …, d0_out_ket, …, d0_in_bra, …, d0_in_ket, …)``
-
-**Matrix shape:** ``(*ensemble, d_out², d_in²)``
+**Matrix shape:** ``(*ensemble, d_out², d_in²)`` (via ``.matrix``)
 
 
 Constructing Lindbladians
@@ -127,9 +127,11 @@ leading ``n_ops`` axis — do **NOT** sum them first:
 Recovering Operators
 --------------------
 
-:meth:`~quax.Lindbladian.to_operators` is the inverse of
-:meth:`~quax.Lindbladian.from_operators`: it recovers a valid ``(hamiltonian, jump_operators)``
-pair from the stored generator.
+A :class:`~quax.Lindbladian` stores its Hamiltonian and jump operators directly (they are its
+only data), so :meth:`~quax.Lindbladian.to_operators` simply returns them — the exact
+``(hamiltonian, jump_operators)`` pair passed to :meth:`~quax.Lindbladian.from_operators`
+(``hamiltonian`` is ``None`` for a purely dissipative generator).  They are also available as the
+``.hamiltonian`` and ``.jump_operators`` attributes for introspection.
 
 .. code-block:: python
 
@@ -137,13 +139,12 @@ pair from the stored generator.
    rebuilt = qx.Lindbladian.from_operators(H, jump_ops)   # reproduces gen exactly
 
 .. note::
-   **Gauge freedom.** The returned operators are a *canonical representative* (traceless jump
-   operators in the eigenbasis of the dissipator's Kossakowski matrix) and generally do **not**
-   match the operators originally passed to ``from_operators``.  The GKSL form is only defined up
-   to a gauge — unitary mixing of the jump operators, shifts :math:`L_k \to L_k + \alpha_k I` with
-   a compensating change to :math:`H`, and :math:`H \to H + cI` — and every choice generates the
-   same dynamics.  Consequently a single physical jump operator is returned as :math:`d^2`
-   operators (most ~0), and the round-trip is exact only for a valid (CPTP-generating) Lindbladian.
+   There is **no gauge canonicalization**: unlike a Kossakowski reconstruction, the physical
+   operators come back unchanged (a single jump operator stays a single jump operator).  Because
+   the operators are the source of truth, only physically valid (CPTP-generating) Lindbladians are
+   representable — operations that could produce a non-CP generator (negation, subtraction, and
+   multiplication by a negative or complex scalar) raise instead of silently returning an invalid
+   object.
 
 
 Common Noise Channels
@@ -185,9 +186,8 @@ Promotion
 ---------
 
 :func:`~quax.promote` embeds a Lindbladian in a larger Hilbert space at the **operator
-level**: it reconstructs a canonical GKSL representation via
-:meth:`~quax.Lindbladian.to_operators`, zero-pads each operator into the larger space (the
-operator-level :func:`~quax.promote`), and rebuilds the generator via the GKSL formula:
+level**: it zero-pads the stored Hamiltonian and jump operators into the larger space (the
+operator-level :func:`~quax.promote`) and rebuilds the generator via the GKSL formula:
 
 .. code-block:: python
 
@@ -202,10 +202,9 @@ between the original and added levels — e.g. amplitude damping ``L = √γ|0�
 .. note::
    Promotion is *not* a naive zero-padding of the generator matrix.  Zero-padding the
    generator would freeze the new cross-subspace coherences while population still decays,
-   which is not a valid GKSL generator — its exponential is not completely positive.  Because
-   a :class:`~quax.Lindbladian` stores only the generator, ``promote`` recovers the operators
-   in the canonical traceless-jump gauge before embedding; for standard (traceless) jump
-   operators this coincides with building the Lindbladian natively in the larger space.
+   which is not a valid GKSL generator — its exponential is not completely positive.  Embedding
+   the stored jump operators and rebuilding the generator avoids this and coincides with building
+   the Lindbladian natively in the larger space.
 
 
 Complete Code Example

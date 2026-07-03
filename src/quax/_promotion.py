@@ -248,20 +248,20 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
 def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
     """Embed a Lindbladian generator in a larger Hilbert space at the *operator* level.
 
-    A canonical GKSL representation (Hamiltonian + jump operators) is reconstructed from the
-    generator via :meth:`Lindbladian.to_operators`, each operator is zero-padded into the larger
-    space (the operator-level :func:`promote`), and the generator is rebuilt via the GKSL formula.
-    The result is a valid (CPTP-generating) Lindbladian: it correctly **damps** coherences between
-    the original and added subspaces — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` decays
-    ``ρ₁₂``/``ρ₂₁`` at rate γ/2 via the ``-½{L†L, ρ}`` term.
+    The stored Hamiltonian and jump operators are each zero-padded into the larger space (the
+    operator-level :func:`promote`) and a new generator is built from them.  The result is a valid
+    (CPTP-generating) Lindbladian: it correctly **damps** coherences between the original and added
+    subspaces — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2 via the
+    ``-½{L†L, ρ}`` term.
 
     This is *not* a naive zero-padding of the generator matrix: that would freeze those
     coherences while population still decays, which is not a valid GKSL generator (its
     exponential is not completely positive).
     """
     _validate_promote_dims(generator.dims[0], dims)
-    hamiltonian, jump_operators = generator.to_operators()
-    return Lindbladian.from_operators(promote(hamiltonian, dims), promote(jump_operators, dims))
+    hamiltonian, jump_operators = generator.hamiltonian, generator.jump_operators
+    promoted_hamiltonian = promote(hamiltonian, dims) if hamiltonian is not None else None
+    return Lindbladian.from_operators(promoted_hamiltonian, promote(jump_operators, dims))
 
 
 @promote.register(PauliLiouville)

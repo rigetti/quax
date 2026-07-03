@@ -26,13 +26,13 @@ constructors) should use :func:`typing.cast` to express that intent.
 from __future__ import annotations
 
 import functools
-from typing import overload
+from typing import cast, overload
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Involution, Observable, Operator, QuantumObject, Unitary
+from ._quantum_objects import Involution, Lindbladian, Observable, Operator, QuantumObject, Unitary
 
 # --------------------------------------------------------------------------- #
 # Broadcasting helper (JIT-compiled)
@@ -132,3 +132,25 @@ def _mul_involution(op: Involution, scalar: complex | Array) -> Observable | Ope
     if _is_real_type(scalar):
         return Observable(new_data, op.num_qubits)
     return Operator(new_data, op.num_qubits)
+
+
+@mul.register(Lindbladian)
+def _mul_lindbladian(op: Lindbladian, scalar: complex | Array) -> Lindbladian:
+    """Scale a Lindbladian generator by a non-negative real ``scalar``.
+
+    Scaling the generator by ``c`` scales its Hamiltonian by ``c`` and its jump operators by
+    ``sqrt(c)`` (since ``D[√c·L] = c·D[L]``), keeping the result a valid GKSL generator.  Complex
+    scalars are rejected because they yield a non-CP generator; a negative real ``c`` violates the
+    ``c >= 0`` precondition (it produces NaN jump operators) and is the caller's responsibility —
+    the same status as the ``t >= 0`` precondition of :func:`~quax.evolve`.
+    """
+    if not _is_real_type(scalar):
+        raise NotImplementedError(
+            "Scaling a Lindbladian by a complex scalar is not supported: it produces a non-CP "
+            "generator that cannot be represented by jump operators."
+        )
+    root = jnp.sqrt(jnp.asarray(scalar))
+    scaled_jumps = cast(Operator, op.jump_operators * root)
+    # Real scalar ⇒ Observable * scalar stays an Observable (see :func:`_mul_observable`).
+    scaled_hamiltonian = cast(Observable, op.hamiltonian * scalar) if op.hamiltonian is not None else None
+    return Lindbladian.from_operators(scaled_hamiltonian, scaled_jumps)
