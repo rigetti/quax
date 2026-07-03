@@ -2129,14 +2129,6 @@ class Lindbladian(QuantumObject):
             return Lindbladian.from_matrix(self.matrix - other.matrix, self.dims)
         return NotImplemented
 
-    def __pow__(self, alpha: float) -> "Lindbladian":
-        """Scale the generator rate by ``alpha``, returning a new Lindbladian.
-
-        ``L ** alpha`` is equivalent to ``alpha * L``. Use ``evolve(L ** alpha, t)``
-        or equivalently ``evolve(L, alpha * t)`` to obtain the channel.
-        """
-        return Lindbladian.from_matrix(alpha * self.matrix, self.dims)
-
     def __or__(self, other: Any) -> "Lindbladian":
         """Tensor product of two Lindbladian generators (independent subsystems).
 
@@ -2188,7 +2180,88 @@ class Lindbladian(QuantumObject):
         :param jump_operators: An ``Operator`` with shape ``(*ensemble, n_ops, d, d)``.
         :return: The Lindbladian generator as a :class:`Lindbladian`.
         """
-        return _build_lindbladian(hamiltonian, jump_operators)
+        return cls._build(hamiltonian, jump_operators)
+
+    def to_operators(self) -> "Tuple[Observable, Operator]":
+        """Recover a valid canonical GKSL ``(H, jump_operators)`` from the generator.
+
+        Inverse of :meth:`from_operators`.  Returns a Hamiltonian (:class:`Observable`, which may be
+        ~0) and a stack of ``d²`` jump operators (:class:`Operator`, many of which may be ~0).
+        Rebuilding via ``from_operators`` reproduces this generator exactly (for a valid Lindbladian).
+
+        .. note::
+           **Gauge freedom.** The returned operators are a *canonical representative* — traceless
+           jump operators in the eigenbasis of the dissipator's Kossakowski matrix — and generally
+           do **not** match the operators originally passed to :meth:`from_operators`.  The GKSL
+           form is only defined up to a gauge: unitary mixing of the jump operators
+           ``L_k → Σ_j u_{kj} L_j``, shifts ``L_k → L_k + α_k I`` with a compensating change to
+           ``H``, and ``H → H + cI``.  All such choices generate identical dynamics, so this
+           method's output reproduces the same generator (and hence the same ``evolve`` channel)
+           even when the individual operators differ.
+
+           A single physical jump operator therefore comes back as ``d²`` operators (most ~0), and
+           for a non-physical input generator (negative Kossakowski eigenvalues) the reconstruction
+           projects onto the nearest valid generator, so the round-trip is exact only for valid
+           Lindbladians.
+
+        :return: ``(hamiltonian, jump_operators)`` with matrix shapes ``(*ensemble, d, d)`` and
+            ``(*ensemble, d², d, d)``.
+        """
+        dims = self.dims[1]
+        d = reduce(mul, dims, 1)
+        gen = self.matrix  # (*ensemble, d², d²)
+        ensemble_shape = gen.shape[:-2]
+        gen_flat = gen.reshape((-1, d * d, d * d))
+        h_flat, l_flat = jax.vmap(lambda g: _reconstruct_gksl(g, d))(gen_flat)
+        hamiltonian = Observable.from_matrix(h_flat.reshape(ensemble_shape + (d, d)), (dims, dims))
+        jump_operators = Operator.from_matrix(l_flat.reshape(ensemble_shape + (d * d, d, d)), (dims, dims))
+        return hamiltonian, jump_operators
+
+    @staticmethod
+    @jax.jit
+    def _build(hamiltonian: "Observable | None", jump_operators: "Operator") -> "Lindbladian":
+        """GKSL generator: -i[H,ρ] + Σ_k D[L_k]. Rates pre-absorbed into jump_operators."""
+        dims = jump_operators.dims
+        d = reduce(mul, dims[1], 1)
+        I = jnp.eye(d, dtype=complex)
+        L = jump_operators.matrix  # (*ensemble, n_ops, d, d)
+        ensemble_shape = L.shape[:-3]
+
+        # Build the GKSL generator as a rank-4 tensor with indices
+        # [out_bra a, out_ket c, in_bra b, in_ket d], reshaped at the end to a (d², d²)
+        # superoperator acting on vec(ρ).
+        #
+        # Tensor products via einsum: an einsum whose output indices are the union of the
+        # (disjoint) input indices, with none summed away, is an outer/tensor product.  E.g.
+        # ``einsum("ab,cd->acbd", A, B)`` computes A ⊗ B and then interleaves the axes so that
+        # (a, c) form the superoperator's row multi-index and (b, d) its column multi-index —
+        # exactly the layout a (d², d²) matrix on vec(ρ) needs.  ``einsum("...kab,...kcd->...acbd")``
+        # is the same tensor product but additionally summed over the jump index k.
+
+        # No-jump rate operator  G = Σ_k L_k† L_k  (Hermitian):
+        #   G_{ab} = Σ_{k,c} conj(L_k)_{ca} (L_k)_{cb}
+        G = jnp.einsum("...kca,...kcb->...ab", jnp.conj(L), L)
+        # Jump (dissipative gain) term  Σ_k L_k ρ L_k†  — tensor product Σ_k conj(L_k) ⊗ L_k:
+        #   sandwich_{acbd} = Σ_k conj(L_k)_{ab} (L_k)_{cd}
+        sandwich = jnp.einsum("...kab,...kcd->...acbd", jnp.conj(L), L)
+        # Two δ-structured halves of the anticommutator  −½{G, ρ} = −½(G ρ + ρ G), each an I ⊗ G tensor product:
+        #   G_rho_{acbd} = δ_{ab} G_{cd}          (the G ρ half)
+        G_rho = jnp.einsum("ab,...cd->...acbd", I, G)
+        #   rho_G_{acbd} = conj(G)_{ab} δ_{cd}    (the ρ G half; G Hermitian ⇒ conj(G)_{ab} = G_{ba})
+        rho_G = jnp.einsum("...ab,cd->...acbd", jnp.conj(G), I)
+        # Dissipator  D[ρ] = Σ_k ( L_k ρ L_k† − ½{L_k† L_k, ρ} )
+        gen_data = sandwich - 0.5 * G_rho - 0.5 * rho_G
+
+        if hamiltonian is not None:
+            H = hamiltonian.matrix
+            # Two δ-structured halves of the commutator  −i[H, ρ] = −i(H ρ − ρ H), each an I ⊗ H tensor product:
+            #   H_rho_{acbd} = δ_{ab} H_{cd}          (the H ρ half)
+            H_rho = jnp.einsum("ab,...cd->...acbd", I, H)
+            #   rho_H_{acbd} = conj(H)_{ab} δ_{cd}    (the ρ H half; H Hermitian ⇒ conj(H)_{ab} = H_{ba})
+            rho_H = jnp.einsum("...ab,cd->...acbd", jnp.conj(H), I)
+            gen_data = gen_data + (-1j * (H_rho - rho_H))
+
+        return Lindbladian.from_matrix(gen_data.reshape(ensemble_shape + (d * d, d * d)), (dims[1], dims[1]))
 
     def __eq__(self, other: Any) -> bool:
         """Element-wise equality check with numerical tolerance."""
@@ -2199,43 +2272,39 @@ class Lindbladian(QuantumObject):
         return bool(jnp.allclose(self.matrix, other.matrix))
 
 
-@jax.jit
-def _build_lindbladian(hamiltonian: "Observable | None", jump_operators: "Operator") -> Lindbladian:
-    """GKSL generator: -i[H,ρ] + Σ_k D[L_k]. Rates pre-absorbed into jump_operators."""
-    dims = jump_operators.dims
-    d = reduce(mul, dims[1], 1)
-    I = jnp.eye(d, dtype=complex)
-    L = jump_operators.matrix  # (*ensemble, n_ops, d, d)
-    ensemble_shape = L.shape[:-3]
+def _reconstruct_gksl(gen_matrix: Array, d: int) -> Tuple[Array, Array]:
+    """Recover a canonical GKSL representation ``(H, {L_k})`` from a ``d²×d²`` generator.
 
-    # Build the GKSL generator as a rank-4 tensor with indices
-    # [out_bra a, out_ket c, in_bra b, in_ket d], reshaped at the end to a (d², d²)
-    # superoperator acting on vec(ρ).
+    Engine for :meth:`Lindbladian.to_operators` (single, un-batched generator; vmapped there).
 
-    # No-jump rate operator  G = Σ_k L_k† L_k  (Hermitian):
-    #   G_{ab} = Σ_{k,c} conj(L_k)_{ca} (L_k)_{cb}
-    G = jnp.einsum("...kca,...kcb->...ab", jnp.conj(L), L)
-    # Jump (dissipative gain) term  Σ_k L_k ρ L_k†:
-    #   sandwich_{acbd} = Σ_k conj(L_k)_{ab} (L_k)_{cd}
-    sandwich = jnp.einsum("...kab,...kcd->...acbd", jnp.conj(L), L)
-    # Two δ-structured halves of the anticommutator  −½{G, ρ} = −½(G ρ + ρ G):
-    #   G_rho_{acbd} = δ_{ab} G_{cd}          (the G ρ half)
-    G_rho = jnp.einsum("ab,...cd->...acbd", I, G)
-    #   rho_G_{acbd} = conj(G)_{ab} δ_{cd}    (the ρ G half; G Hermitian ⇒ conj(G)_{ab} = G_{ba})
-    rho_G = jnp.einsum("...ab,cd->...acbd", jnp.conj(G), I)
-    # Dissipator  D[ρ] = Σ_k ( L_k ρ L_k† − ½{L_k† L_k, ρ} )
-    gen_data = sandwich - 0.5 * G_rho - 0.5 * rho_G
+    Uses the traceless-jump-operator gauge.  The dissipator's Kossakowski matrix is the reshuffled
+    generator projected onto the traceless subspace; its eigendecomposition yields the jump
+    operators, and the remaining (δ-structured) coherent + anticommutator part fixes the traceless
+    Hamiltonian.  Rebuilding via :meth:`Lindbladian.from_operators` reproduces ``gen_matrix`` exactly
+    (up to floating-point precision) for a valid Lindbladian.
 
-    if hamiltonian is not None:
-        H = hamiltonian.matrix
-        # Two δ-structured halves of the commutator  −i[H, ρ] = −i(H ρ − ρ H):
-        #   H_rho_{acbd} = δ_{ab} H_{cd}          (the H ρ half)
-        H_rho = jnp.einsum("ab,...cd->...acbd", I, H)
-        #   rho_H_{acbd} = conj(H)_{ab} δ_{cd}    (the ρ H half; H Hermitian ⇒ conj(H)_{ab} = H_{ba})
-        rho_H = jnp.einsum("...ab,cd->...acbd", jnp.conj(H), I)
-        gen_data = gen_data + (-1j * (H_rho - rho_H))
+    :param gen_matrix: ``(d², d²)`` generator matrix (single, un-batched).
+    :param d: Hilbert-space dimension.
+    :return: ``(H, jump_ops)`` with shapes ``(d, d)`` and ``(d², d, d)``.
+    """
+    tensor = gen_matrix.reshape(d, d, d, d)  # [a, c, b, d']
+    reshuffled = jnp.transpose(tensor, (0, 2, 1, 3)).reshape(d * d, d * d)  # R[(a,b),(c,d')]
+    omega = jnp.eye(d, dtype=complex).reshape(d * d)  # vec(I)
+    proj = jnp.eye(d * d, dtype=complex) - jnp.outer(omega, jnp.conj(omega)) / d
+    kossakowski = proj @ reshuffled @ proj  # PSD in the traceless subspace
+    kossakowski = 0.5 * (kossakowski + kossakowski.conj().T)
+    evals, evecs = jnp.linalg.eigh(kossakowski)
+    evals = jnp.maximum(evals.real, 0.0)  # clamp numerical negatives
+    weighted = evecs * jnp.sqrt(evals)[None, :]  # columns are √λ_k · v_k
+    jump_ops = jnp.conj(jnp.transpose(weighted).reshape(d * d, d, d))  # (n_ops=d², d, d)
 
-    return Lindbladian.from_matrix(gen_data.reshape(ensemble_shape + (d * d, d * d)), (dims[1], dims[1]))
+    g_matrix = jnp.einsum("kca,kcb->ab", jnp.conj(jump_ops), jump_ops)  # Σ L_k† L_k
+    tau = -0.5 * jnp.trace(g_matrix)
+    delta = (reshuffled - kossakowski).reshape(d, d, d, d)  # purely δ-structured
+    m_matrix = (jnp.einsum("aacd->cd", delta) - tau * jnp.eye(d, dtype=complex)) / d
+    hamiltonian = 1j * (m_matrix + 0.5 * g_matrix)
+    hamiltonian = 0.5 * (hamiltonian + hamiltonian.conj().T)
+    return hamiltonian, jump_ops
 
 
 # ======================================================================

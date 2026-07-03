@@ -124,20 +124,42 @@ leading ``n_ops`` axis — do **NOT** sum them first:
    # (L1+L2)ρ(L1+L2)† ≠ L1ρL1† + L2ρL2†
 
 
+Recovering Operators
+--------------------
+
+:meth:`~quax.Lindbladian.to_operators` is the inverse of
+:meth:`~quax.Lindbladian.from_operators`: it recovers a valid ``(hamiltonian, jump_operators)``
+pair from the stored generator.
+
+.. code-block:: python
+
+   H, jump_ops = gen.to_operators()
+   rebuilt = qx.Lindbladian.from_operators(H, jump_ops)   # reproduces gen exactly
+
+.. note::
+   **Gauge freedom.** The returned operators are a *canonical representative* (traceless jump
+   operators in the eigenbasis of the dissipator's Kossakowski matrix) and generally do **not**
+   match the operators originally passed to ``from_operators``.  The GKSL form is only defined up
+   to a gauge — unitary mixing of the jump operators, shifts :math:`L_k \to L_k + \alpha_k I` with
+   a compensating change to :math:`H`, and :math:`H \to H + cI` — and every choice generates the
+   same dynamics.  Consequently a single physical jump operator is returned as :math:`d^2`
+   operators (most ~0), and the round-trip is exact only for a valid (CPTP-generating) Lindbladian.
+
+
 Common Noise Channels
 ---------------------
 
-All factories return a :class:`~quax.Lindbladian`.  Use :func:`~quax.evolve` to obtain
-the corresponding CPTP channel.  See each factory's docstring in the API reference for its
-jump operators.
+The factories live in the :mod:`quax.lindbladians` submodule and each returns a
+:class:`~quax.Lindbladian`.  Use :func:`~quax.evolve` to obtain the corresponding CPTP
+channel.  See each factory's docstring in the API reference for its jump operators.
 
 Qubit channel equivalences (at time *t*):
 
-* ``amplitude_damping_lindbladian(γ)`` → ``relaxation_operators(1 − exp(−γt))``
-* ``dephasing_lindbladian(γ)`` → ``dephasing_operators(1 − exp(−γt))``
-* ``depolarizing_lindbladian(γ)`` → ``depolarizing_operators(¾(1 − exp(−4γt/3)))``
-* ``bit_flip_lindbladian(γ)`` → ``bit_flip_operators(½(1 − exp(−2γt)))``
-* ``phase_flip_lindbladian(γ)`` → ``phase_flip_operators(½(1 − exp(−2γt)))``
+* ``lindbladians.amplitude_damping(γ)`` → ``relaxation_operators(1 − exp(−γt))``
+* ``lindbladians.dephasing(γ)`` → ``dephasing_operators(1 − exp(−γt))``
+* ``lindbladians.depolarizing(γ)`` → ``depolarizing_operators(¾(1 − exp(−4γt/3)))``
+* ``lindbladians.bit_flip(γ)`` → ``bit_flip_operators(½(1 − exp(−2γt)))``
+* ``lindbladians.phase_flip(γ)`` → ``phase_flip_operators(½(1 − exp(−2γt)))``
 
 
 Evolving to a Channel
@@ -163,9 +185,9 @@ Promotion
 ---------
 
 :func:`~quax.promote` embeds a Lindbladian in a larger Hilbert space at the **operator
-level**: it reconstructs a canonical GKSL representation (Hamiltonian + jump operators) from
-the generator, zero-pads each operator into the larger space, and rebuilds the generator via
-the GKSL formula:
+level**: it reconstructs a canonical GKSL representation via
+:meth:`~quax.Lindbladian.to_operators`, zero-pads each operator into the larger space (the
+operator-level :func:`~quax.promote`), and rebuilds the generator via the GKSL formula:
 
 .. code-block:: python
 
@@ -197,8 +219,8 @@ Complete Code Example
 
    # --- Combining independent noise sources ---
    # Thermal relaxation (T1=1µs, Tphi=2µs) plus small bit-flip noise
-   L_thermal = qx.thermal_relaxation_lindbladian(t1=1.0, tphi=2.0)
-   L_total = L_thermal + 0.01 * qx.bit_flip_lindbladian(gamma=1.0)
+   L_thermal = qx.lindbladians.thermal_relaxation(t1=1.0, tphi=2.0)
+   L_total = L_thermal + 0.01 * qx.lindbladians.bit_flip(gamma=1.0)
 
    # Evolve for 0.5µs → guaranteed CPTP
    channel = qx.evolve(L_total, t=0.5)
@@ -213,8 +235,8 @@ Complete Code Example
    )
 
    # --- Two-qubit independent noise ---
-   L_A = qx.amplitude_damping_lindbladian(gamma=0.1)
-   L_B = qx.dephasing_lindbladian(gamma=0.2)
+   L_A = qx.lindbladians.amplitude_damping(gamma=0.1)
+   L_B = qx.lindbladians.dephasing(gamma=0.2)
    L_AB = L_A | L_B                    # Kronecker sum — 16×16 superoperator (acts on 4×4 density matrix)
    channel_AB = qx.evolve(L_AB, t=0.5)
    print(qx.is_cptp(channel_AB))       # True
@@ -226,7 +248,7 @@ Complete Code Example
 
    # --- Gradient through time ---
    target = qx.evolve(L_thermal, t=0.5)
-   gen = qx.thermal_relaxation_lindbladian(t1=1.0, tphi=2.0)
+   gen = qx.lindbladians.thermal_relaxation(t1=1.0, tphi=2.0)
 
    def loss(t):
        return jnp.real(jnp.sum(jnp.conj(target.matrix) * qx.evolve(gen, t).matrix))
@@ -235,8 +257,8 @@ Complete Code Example
    print(jnp.isfinite(grad))   # True
 
    # --- Leakage + seepage on a qutrit ---
-   L_leak = qx.leakage_lindbladian(gamma=0.05)
-   L_seep = qx.seepage_lindbladian(gamma=0.02)
+   L_leak = qx.lindbladians.leakage(gamma=0.05)
+   L_seep = qx.lindbladians.seepage(gamma=0.02)
    L_qutrit = L_leak + L_seep
    channel_qutrit = qx.evolve(L_qutrit, t=1.0)
    print(qx.is_cptp(channel_qutrit))   # True

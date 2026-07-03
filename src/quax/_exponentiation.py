@@ -144,7 +144,7 @@ def evolve(operator, t: float = 1.0):
         U = qx.evolve(qx.gates.H_obs, t=jnp.pi / 2)
 
         # Lindbladian channel (guaranteed CPTP for t >= 0)
-        L = qx.amplitude_damping_lindbladian(gamma=0.1)
+        L = qx.lindbladians.amplitude_damping(gamma=0.1)
         channel = qx.evolve(L, t=1.0)
     """
     raise TypeError(f"evolve is not implemented for {type(operator).__name__}.")

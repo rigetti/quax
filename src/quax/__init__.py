@@ -92,16 +92,6 @@ from ._operator_basis import (
     weyl_basis_labels,
 )
 from ._observables import bitstring_probability, probabilities
-from ._common_channels import (
-    amplitude_damping_lindbladian,
-    dephasing_lindbladian,
-    depolarizing_lindbladian,
-    thermal_relaxation_lindbladian,
-    bit_flip_lindbladian,
-    phase_flip_lindbladian,
-    leakage_lindbladian,
-    seepage_lindbladian,
-)
 from ._exponentiation import (
     power_choi,
     power_kraus,
@@ -205,10 +195,11 @@ from ._validation import (
 )
 from ._visualization import plot
 
-# Import gates, states and ensembles as submodules
+# Import gates, states, ensembles and lindbladians as submodules
 from . import gates
 from . import states
 from . import ensembles
+from . import lindbladians
 
 __all__ = [
     # Apply superoperator functions
@@ -381,21 +372,11 @@ __all__ = [
     "exp",
     "cis",
     "evolve",
-    # Lindbladian generators
-    "amplitude_damping_lindbladian",
-    "dephasing_lindbladian",
-    "depolarizing_lindbladian",
-    "thermal_relaxation_lindbladian",
-    "bit_flip_lindbladian",
-    "phase_flip_lindbladian",
-    "leakage_lindbladian",
-    "seepage_lindbladian",
     # Visualization
     "plot",
     # Submodules
     "gates",
     "states",
     "ensembles",
-    # Visualization
-    "plot",
+    "lindbladians",
 ]

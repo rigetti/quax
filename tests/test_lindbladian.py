@@ -17,19 +17,22 @@
 Tests verify:
 - Lindbladian construction from Hamiltonians and jump operators
 - evolve() producing valid CPTP channels for t > 0
-- Parity with QuTiP's liouvillian / expm
+- Parity with QuTiP's liouvillian / expm (standard channels and random Lindbladians)
 - Equivalence of common Lindbladian factories with Kraus-based channel factories
 - JIT compilation and autodiff
 - Ensemble broadcasting
-- Generator algebra (__add__, __mul__, __pow__, __or__)
+- Generator algebra (__add__, __mul__, __or__)
+- to_operators() GKSL reconstruction (round-trip + gauge invariance)
 - promote() dispatch for Lindbladian
-- leakage_lindbladian and seepage_lindbladian
+- leakage and seepage generators
+- Random Lindbladians: CPTP evolution and QuTiP parity
 """
 
 import math
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 import qutip as qt
 
@@ -43,16 +46,37 @@ _QUBIT_DIMS = ((2,), (2,))
 T = 0.5  # default evolution time used across tests
 
 
-def _qt_to_superop(qt_superop: "qt.Qobj") -> qx.SuperOp:
+def _qt_to_superop(qt_superop: "qt.Qobj", dims=_QUBIT_DIMS) -> qx.SuperOp:
     """Convert a QuTiP superoperator (type='super') to a quax SuperOp."""
-    return qx.SuperOp.from_matrix(jnp.asarray(qt_superop.full(), dtype=complex), _QUBIT_DIMS)
+    return qx.SuperOp.from_matrix(jnp.asarray(qt_superop.full(), dtype=complex), dims)
 
 
-def _evolve_qutip(H_qt, c_ops, t):
+def _evolve_qutip(H_qt, c_ops, t, dims=_QUBIT_DIMS):
     """Evolve a QuTiP Liouvillian and return the resulting quax SuperOp."""
     L = qt.liouvillian(H_qt, c_ops)  # type: ignore[call-overload]
     E = (t * L).expm()
-    return _qt_to_superop(qt.to_super(E))
+    return _qt_to_superop(qt.to_super(E), dims)
+
+
+# Random-Lindbladian test cases: (qudit dim d, number of jump operators, rng seed).
+_RANDOM_CASES = [(2, 1, 0), (2, 3, 1), (3, 2, 2), (3, 4, 3)]
+
+
+def _random_hamiltonian_and_jumps(d, n_jumps, seed):
+    """Random Hermitian ``H`` and ``n_jumps`` random complex ``d×d`` jump operators (numpy)."""
+    rng = np.random.default_rng(seed)
+    A = rng.standard_normal((d, d)) + 1j * rng.standard_normal((d, d))
+    H = (A + A.conj().T) / 2
+    jumps = [rng.standard_normal((d, d)) + 1j * rng.standard_normal((d, d)) for _ in range(n_jumps)]
+    return H, jumps
+
+
+def _random_quax_lindbladian(d, n_jumps, seed):
+    """Build a quax Lindbladian from a random (H, jump operators) pair."""
+    H, jumps = _random_hamiltonian_and_jumps(d, n_jumps, seed)
+    H_obj = qx.Observable.from_matrix(jnp.asarray(H, dtype=complex), ((d,), (d,)))
+    jump_ops = qx.Operator.from_matrix(jnp.asarray(np.stack(jumps), dtype=complex), ((d,), (d,)))
+    return qx.Lindbladian.from_operators(H_obj, jump_ops), H, jumps
 
 
 # ---------------------------------------------------------------------------
@@ -101,37 +125,10 @@ def test_lindbladian_with_hamiltonian():
 
 def test_lindbladian_generator_algebra():
     """L1 + L2 and 2.0 * L produce correct generators."""
-    L = qx.amplitude_damping_lindbladian(0.1)
+    L = qx.lindbladians.amplitude_damping(0.1)
     doubled = 2.0 * L
     summed = L + L
     assert jnp.allclose(doubled.matrix, summed.matrix, atol=1e-12)
-
-
-# ---------------------------------------------------------------------------
-# __pow__: rate scaling
-# ---------------------------------------------------------------------------
-
-
-def test_lindbladian_pow_scales_rate():
-    """L ** alpha == alpha * L (rate scaling, not channel exponentiation)."""
-    L = qx.amplitude_damping_lindbladian(0.2)
-    assert jnp.allclose((L**2.0).matrix, (2.0 * L).matrix, atol=1e-12)
-    assert jnp.allclose((L**0.5).matrix, (0.5 * L).matrix, atol=1e-12)
-
-
-def test_lindbladian_pow_returns_lindbladian():
-    """L ** alpha returns a Lindbladian (not a SuperOp)."""
-    L = qx.amplitude_damping_lindbladian(0.1)
-    assert isinstance(L**1.5, qx.Lindbladian)
-
-
-def test_lindbladian_pow_compose_with_evolve():
-    """evolve(L ** 2, t) == evolve(L, 2 * t) (consistent rate scaling)."""
-    L = qx.amplitude_damping_lindbladian(0.3)
-    t = 0.4
-    ch1 = qx.evolve(L**2.0, t)
-    ch2 = qx.evolve(L, 2.0 * t)
-    assert jnp.allclose(ch1.matrix, ch2.matrix, atol=1e-10)
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +138,8 @@ def test_lindbladian_pow_compose_with_evolve():
 
 def test_lindbladian_or_two_qubit():
     """L_A | L_B gives the combined generator for a two-qubit system."""
-    L_A = qx.amplitude_damping_lindbladian(0.1)
-    L_B = qx.dephasing_lindbladian(0.2)
+    L_A = qx.lindbladians.amplitude_damping(0.1)
+    L_B = qx.lindbladians.dephasing(0.2)
     L_AB = L_A | L_B
     assert isinstance(L_AB, qx.Lindbladian)
     assert L_AB.dims == ((2, 2), (2, 2))
@@ -150,16 +147,16 @@ def test_lindbladian_or_two_qubit():
 
 def test_lindbladian_or_channel_is_cptp():
     """evolve(L_A | L_B, t) is CPTP."""
-    L_A = qx.amplitude_damping_lindbladian(0.1)
-    L_B = qx.dephasing_lindbladian(0.2)
+    L_A = qx.lindbladians.amplitude_damping(0.1)
+    L_B = qx.lindbladians.dephasing(0.2)
     channel = qx.evolve(L_A | L_B, 0.5)
     assert qx.is_cptp(channel)
 
 
 def test_lindbladian_or_factorizes():
     """evolve(L_A | L_B, t) ≈ evolve(L_A, t) ⊗ evolve(L_B, t) for independent subsystems."""
-    L_A = qx.amplitude_damping_lindbladian(0.1)
-    L_B = qx.dephasing_lindbladian(0.2)
+    L_A = qx.lindbladians.amplitude_damping(0.1)
+    L_B = qx.lindbladians.dephasing(0.2)
     t = 0.5
 
     ch_AB = qx.evolve(L_A | L_B, t)
@@ -177,7 +174,7 @@ def test_lindbladian_or_factorizes():
 
 def test_promote_lindbladian_qubit_to_qutrit():
     """promote(L, (3,)) embeds a qubit Lindbladian in qutrit space."""
-    L = qx.amplitude_damping_lindbladian(0.3)
+    L = qx.lindbladians.amplitude_damping(0.3)
     L_promoted = qx.promote(L, (3,))
     assert isinstance(L_promoted, qx.Lindbladian)
     assert L_promoted.dims == ((3,), (3,))
@@ -190,7 +187,7 @@ def test_promote_lindbladian_subspace_generator_matches():
     qutrit rows/cols {0, 1, 3, 4} (bra*3+ket for bra,ket ∈ {0,1}).  Promotion reconstructs
     and re-embeds the operators, so the sub-block matches to float32 reconstruction precision.
     """
-    L = qx.amplitude_damping_lindbladian(0.3)
+    L = qx.lindbladians.amplitude_damping(0.3)
     L_promoted = qx.promote(L, (3,))
 
     # Qubit subspace rows/cols in the 9x9 matrix: bra*3+ket for bra,ket in {0,1}
@@ -208,7 +205,7 @@ def test_promote_lindbladian_matches_native_qutrit():
     rather than freezing it as a naive zero-pad of the generator would.
     """
     gamma = 0.3
-    L_promoted = qx.promote(qx.amplitude_damping_lindbladian(gamma), (3,))
+    L_promoted = qx.promote(qx.lindbladians.amplitude_damping(gamma), (3,))
 
     # Native qutrit generator: the same jump operator √γ|0⟩⟨1|, embedded as a 3×3 operator.
     sigma_minus_3 = jnp.zeros((3, 3), dtype=complex).at[0, 1].set(1.0)
@@ -225,9 +222,9 @@ def test_promote_lindbladian_matches_native_qutrit():
 @pytest.mark.parametrize(
     "factory",
     [
-        qx.amplitude_damping_lindbladian,
-        qx.dephasing_lindbladian,
-        qx.depolarizing_lindbladian,
+        qx.lindbladians.amplitude_damping,
+        qx.lindbladians.dephasing,
+        qx.lindbladians.depolarizing,
     ],
 )
 def test_promote_lindbladian_is_cptp(factory):
@@ -253,7 +250,7 @@ def test_promote_lindbladian_is_cptp(factory):
 @pytest.mark.parametrize("gamma", [0.1, 0.3, 1.0])
 def test_leakage_lindbladian_cptp(gamma):
     """evolve(leakage_lindbladian(gamma), t) is CPTP (qutrit channel)."""
-    L = qx.leakage_lindbladian(gamma)
+    L = qx.lindbladians.leakage(gamma)
     assert isinstance(L, qx.Lindbladian)
     assert L.dims == ((3,), (3,))
     channel = qx.evolve(L, 0.5)
@@ -263,7 +260,7 @@ def test_leakage_lindbladian_cptp(gamma):
 @pytest.mark.parametrize("gamma", [0.1, 0.3, 1.0])
 def test_seepage_lindbladian_cptp(gamma):
     """evolve(seepage_lindbladian(gamma), t) is CPTP (qutrit channel)."""
-    L = qx.seepage_lindbladian(gamma)
+    L = qx.lindbladians.seepage(gamma)
     assert isinstance(L, qx.Lindbladian)
     assert L.dims == ((3,), (3,))
     channel = qx.evolve(L, 0.5)
@@ -272,8 +269,8 @@ def test_seepage_lindbladian_cptp(gamma):
 
 def test_leakage_seepage_combined():
     """leakage + seepage Lindbladians combine to produce a CPTP channel."""
-    L_leak = qx.leakage_lindbladian(0.1)
-    L_seep = qx.seepage_lindbladian(0.1)
+    L_leak = qx.lindbladians.leakage(0.1)
+    L_seep = qx.lindbladians.seepage(0.1)
     L_total = L_leak + L_seep
     channel = qx.evolve(L_total, 0.5)
     assert qx.is_cptp(channel)
@@ -282,7 +279,7 @@ def test_leakage_seepage_combined():
 def test_leakage_lindbladian_drains_level1():
     """leakage_lindbladian transfers population from |1⟩ to |2⟩."""
     gamma = 2.0  # large rate so effect is visible at t=0.5
-    L = qx.leakage_lindbladian(gamma)
+    L = qx.lindbladians.leakage(gamma)
     channel = qx.evolve(L, 0.5)
 
     # Start in |1⟩⟨1|
@@ -296,7 +293,7 @@ def test_leakage_lindbladian_drains_level1():
 def test_seepage_lindbladian_drains_level2():
     """seepage_lindbladian transfers population from |2⟩ to |1⟩."""
     gamma = 2.0
-    L = qx.seepage_lindbladian(gamma)
+    L = qx.lindbladians.seepage(gamma)
     channel = qx.evolve(L, 0.5)
 
     # Start in |2⟩⟨2|
@@ -315,12 +312,12 @@ def test_seepage_lindbladian_drains_level2():
 @pytest.mark.parametrize(
     "factory",
     [
-        lambda: qx.amplitude_damping_lindbladian(0.5),
-        lambda: qx.dephasing_lindbladian(0.3),
-        lambda: qx.depolarizing_lindbladian(0.4),
-        lambda: qx.thermal_relaxation_lindbladian(t1=1.0, tphi=2.0),
-        lambda: qx.bit_flip_lindbladian(0.2),
-        lambda: qx.phase_flip_lindbladian(0.2),
+        lambda: qx.lindbladians.amplitude_damping(0.5),
+        lambda: qx.lindbladians.dephasing(0.3),
+        lambda: qx.lindbladians.depolarizing(0.4),
+        lambda: qx.lindbladians.thermal_relaxation(t1=1.0, tphi=2.0),
+        lambda: qx.lindbladians.bit_flip(0.2),
+        lambda: qx.lindbladians.phase_flip(0.2),
     ],
     ids=["amplitude_damping", "dephasing", "depolarizing", "thermal_relaxation", "bit_flip", "phase_flip"],
 )
@@ -345,7 +342,7 @@ def test_qutip_parity_amplitude_damping():
     c_ops = [math.sqrt(gamma) * sigma_minus]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
-    qx_channel = qx.evolve(qx.amplitude_damping_lindbladian(gamma), T)
+    qx_channel = qx.evolve(qx.lindbladians.amplitude_damping(gamma), T)
 
     fid = qx.process_fidelity(qx_channel, qt_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -358,7 +355,7 @@ def test_qutip_parity_dephasing():
     c_ops = [math.sqrt(gamma / 2.0) * Z]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
-    qx_channel = qx.evolve(qx.dephasing_lindbladian(gamma), T)
+    qx_channel = qx.evolve(qx.lindbladians.dephasing(gamma), T)
 
     fid = qx.process_fidelity(qx_channel, qt_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -372,7 +369,7 @@ def test_qutip_parity_depolarizing():
     c_ops = [scale * X, scale * Y, scale * Z]
     qt_channel = _evolve_qutip(None, c_ops, T)
 
-    qx_channel = qx.evolve(qx.depolarizing_lindbladian(gamma), T)
+    qx_channel = qx.evolve(qx.lindbladians.depolarizing(gamma), T)
 
     fid = qx.process_fidelity(qx_channel, qt_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -409,7 +406,7 @@ def test_amplitude_damping_matches_kraus(gamma, t):
     """evolve(amplitude_damping_lindbladian(γ), t) ≈ relaxation_operators(1 - exp(-γt))."""
     p = 1.0 - float(jnp.exp(-gamma * t))
     kraus_channel = qx.kraus_to_superop(qx.relaxation_operators(p))
-    lindblad_channel = qx.evolve(qx.amplitude_damping_lindbladian(gamma), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.amplitude_damping(gamma), t)
 
     fid = qx.process_fidelity(lindblad_channel, kraus_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -420,7 +417,7 @@ def test_dephasing_matches_kraus(gamma, t):
     """evolve(dephasing_lindbladian(γ), t) ≈ dephasing_operators(1 - exp(-γt))."""
     p = 1.0 - float(jnp.exp(-gamma * t))
     kraus_channel = qx.kraus_to_superop(qx.dephasing_operators(p))
-    lindblad_channel = qx.evolve(qx.dephasing_lindbladian(gamma), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.dephasing(gamma), t)
 
     fid = qx.process_fidelity(lindblad_channel, kraus_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -431,7 +428,7 @@ def test_depolarizing_matches_kraus(gamma, t):
     """evolve(depolarizing_lindbladian(γ), t) ≈ depolarizing_operators(p) with p = ¾(1 - exp(-4γt/3))."""
     p = 0.75 * (1.0 - float(jnp.exp(-4.0 * gamma * t / 3.0)))
     kraus_channel = qx.kraus_to_superop(qx.depolarizing_operators(p))
-    lindblad_channel = qx.evolve(qx.depolarizing_lindbladian(gamma), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.depolarizing(gamma), t)
 
     fid = qx.process_fidelity(lindblad_channel, kraus_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -442,7 +439,7 @@ def test_bit_flip_matches_kraus(gamma, t):
     """evolve(bit_flip_lindbladian(γ), t) ≈ bit_flip_operators(½(1 - exp(-2γt)))."""
     p = 0.5 * (1.0 - float(jnp.exp(-2.0 * gamma * t)))
     kraus_channel = qx.kraus_to_superop(qx.bit_flip_operators(p))
-    lindblad_channel = qx.evolve(qx.bit_flip_lindbladian(gamma), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.bit_flip(gamma), t)
 
     fid = qx.process_fidelity(lindblad_channel, kraus_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -453,7 +450,7 @@ def test_phase_flip_matches_kraus(gamma, t):
     """evolve(phase_flip_lindbladian(γ), t) ≈ phase_flip_operators(½(1 - exp(-2γt)))."""
     p = 0.5 * (1.0 - float(jnp.exp(-2.0 * gamma * t)))
     kraus_channel = qx.kraus_to_superop(qx.phase_flip_operators(p))
-    lindblad_channel = qx.evolve(qx.phase_flip_lindbladian(gamma), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.phase_flip(gamma), t)
 
     fid = qx.process_fidelity(lindblad_channel, kraus_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
@@ -467,7 +464,7 @@ def test_thermal_relaxation_matches_choi(t1, tphi, t):
     choi_ref = qx.thermal_relaxation_choi(t1s, tphis, t)
     ref_superop = qx.choi_to_superop(choi_ref)
 
-    lindblad_channel = qx.evolve(qx.thermal_relaxation_lindbladian(t1, tphi), t)
+    lindblad_channel = qx.evolve(qx.lindbladians.thermal_relaxation(t1, tphi), t)
 
     fid = qx.process_fidelity(lindblad_channel, ref_superop)
     assert float(fid.real) > 0.999, f"Process fidelity {fid} < 0.999"
@@ -540,7 +537,7 @@ def test_purely_hamiltonian_lindbladian_matches_unitary():
 
 def test_evolve_lindbladian_jit():
     """jax.jit(qx.evolve) compiles and runs for Lindbladian input."""
-    gen = qx.amplitude_damping_lindbladian(0.3)
+    gen = qx.lindbladians.amplitude_damping(0.3)
     channel = jax.jit(qx.evolve)(gen, 0.5)
     assert isinstance(channel, qx.SuperOp)
     assert qx.is_cptp(channel)
@@ -563,6 +560,17 @@ def test_lindbladian_from_operators_jit():
     assert isinstance(gen, qx.Lindbladian)
 
 
+def test_lindbladian_factory_jit():
+    """The generator factories compile under jax.jit (single- and multi-jump)."""
+    gen = jax.jit(qx.lindbladians.amplitude_damping)(0.1)
+    assert isinstance(gen, qx.Lindbladian)
+    assert gen.ensemble_size == ()
+
+    dep = jax.jit(qx.lindbladians.depolarizing)(0.2)
+    assert isinstance(dep, qx.Lindbladian)
+    assert dep.ensemble_size == ()
+
+
 # ---------------------------------------------------------------------------
 # Autodiff
 # ---------------------------------------------------------------------------
@@ -570,8 +578,8 @@ def test_lindbladian_from_operators_jit():
 
 def test_evolve_grad_through_t():
     """jax.grad of Hilbert-Schmidt overlap through evolve w.r.t. t returns finite value."""
-    target = qx.evolve(qx.amplitude_damping_lindbladian(0.3), 0.5)
-    gen = qx.amplitude_damping_lindbladian(0.3)
+    target = qx.evolve(qx.lindbladians.amplitude_damping(0.3), 0.5)
+    gen = qx.lindbladians.amplitude_damping(0.3)
 
     def loss(t):
         channel = qx.evolve(gen, t)
@@ -584,10 +592,10 @@ def test_evolve_grad_through_t():
 
 def test_evolve_grad_through_rate():
     """jax.grad of Hilbert-Schmidt overlap through evolve w.r.t. rate returns finite value."""
-    target = qx.evolve(qx.amplitude_damping_lindbladian(0.3), 0.5)
+    target = qx.evolve(qx.lindbladians.amplitude_damping(0.3), 0.5)
 
     def loss(gamma):
-        gen = qx.amplitude_damping_lindbladian(gamma)
+        gen = qx.lindbladians.amplitude_damping(gamma)
         channel = qx.evolve(gen, 0.5)
         return jnp.real(jnp.sum(jnp.conj(target.matrix) * channel.matrix))
 
@@ -630,3 +638,77 @@ def test_evolve_ensemble_lindbladian():
 
     for i in range(n_batch):
         assert qx.is_cptp(channels[i]), f"Channel {i} is not CPTP"
+
+
+def test_lindbladian_factory_ensemble_single_jump():
+    """A batched rate passed to a single-jump factory yields an ensemble of generators."""
+    gammas = jnp.array([0.1, 0.2, 0.3])
+    gen = qx.lindbladians.amplitude_damping(gammas)
+    assert gen.ensemble_size == (3,)
+    # each ensemble member equals the corresponding scalar-rate generator
+    for i in range(gammas.shape[0]):
+        expected = qx.lindbladians.amplitude_damping(gammas[i])
+        assert jnp.allclose(gen.matrix[i], expected.matrix, atol=1e-12)
+
+
+def test_lindbladian_factory_ensemble_multi_jump():
+    """Batched rates broadcast through multi-jump factories (depolarizing, thermal_relaxation)."""
+    gammas = jnp.array([0.1, 0.2, 0.3])
+    dep = qx.lindbladians.depolarizing(gammas)
+    assert dep.ensemble_size == (3,)
+
+    t1s = jnp.array([10.0, 20.0])
+    tphis = jnp.array([5.0, 8.0])
+    therm = qx.lindbladians.thermal_relaxation(t1s, tphis)
+    assert therm.ensemble_size == (2,)
+    for i in range(t1s.shape[0]):
+        expected = qx.lindbladians.thermal_relaxation(t1s[i], tphis[i])
+        assert jnp.allclose(therm.matrix[i], expected.matrix, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Random Lindbladians: to_operators round-trip, CPTP, QuTiP parity
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("d, n_jumps, seed", _RANDOM_CASES)
+def test_random_lindbladian_to_operators_roundtrip(d, n_jumps, seed):
+    """to_operators() then from_operators() reproduces the generator (gauge-invariant round-trip)."""
+    gen, _, _ = _random_quax_lindbladian(d, n_jumps, seed)
+    H_r, jumps_r = gen.to_operators()
+
+    # d² canonical jump operators are returned regardless of the input count.
+    assert jumps_r.matrix.shape == (d * d, d, d)
+
+    rebuilt = qx.Lindbladian.from_operators(H_r, jumps_r)
+    assert jnp.allclose(rebuilt.matrix, gen.matrix, atol=1e-6)
+    # Gauge invariance at the channel level: same dynamics despite different operators.
+    assert jnp.allclose(qx.evolve(rebuilt, T).matrix, qx.evolve(gen, T).matrix, atol=1e-6)
+
+
+@pytest.mark.parametrize("d, n_jumps, seed", _RANDOM_CASES)
+def test_random_lindbladian_evolve_is_cptp(d, n_jumps, seed):
+    """evolve() of a random Lindbladian is a valid CPTP channel."""
+    gen, _, _ = _random_quax_lindbladian(d, n_jumps, seed)
+    assert qx.is_cptp(qx.evolve(gen, T))
+
+
+@pytest.mark.parametrize("d, n_jumps, seed", _RANDOM_CASES)
+def test_random_lindbladian_qutip_parity(d, n_jumps, seed):
+    """evolve() of a random Lindbladian matches QuTiP's liouvillian/expm."""
+    gen, H, jumps = _random_quax_lindbladian(d, n_jumps, seed)
+    qx_channel = qx.evolve(gen, T)
+
+    H_qt = qt.Qobj(np.asarray(H))
+    c_ops = [qt.Qobj(np.asarray(L)) for L in jumps]
+    qt_channel = _evolve_qutip(H_qt, c_ops, T, dims=((d,), (d,)))
+
+    fid = qx.process_fidelity(qx_channel, qt_channel)
+    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999 (d={d}, n_jumps={n_jumps})"
+
+
+def test_to_operators_jit():
+    """Lindbladian.to_operators() compiles under jax.jit."""
+    gen, _, _ = _random_quax_lindbladian(2, 2, 7)
+    matrix = jax.jit(lambda g: g.to_operators()[1].matrix)(gen)
+    assert matrix.shape == (4, 2, 2)
