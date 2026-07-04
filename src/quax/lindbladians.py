@@ -58,8 +58,8 @@ def amplitude_damping(gamma: float | Array) -> Lindbladian:
 
     Jump operator: :math:`L = \\sqrt{\\gamma}\\,|0\\rangle\\langle 1|`.
 
-    The resulting CPTP channel ``evolve(L, t)`` matches
-    ``relaxation_operators(1 - exp(-gamma * t))`` converted to a SuperOp.
+    The resulting CPTP channel ``evolve(L, t)`` is amplitude damping with damping
+    probability ``p = 1 - exp(-gamma * t)``.
 
     :param gamma: Relaxation rate (1/T1). Must be non-negative. Arrays produce an ensemble.
     :return: Lindbladian generator for the amplitude damping channel.
@@ -68,7 +68,7 @@ def amplitude_damping(gamma: float | Array) -> Lindbladian:
     # shape (1, 2, 2) and a batched rate of shape (n,) gives (n, 1, 2, 2).
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * _SIGMA_MINUS.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
 def dephasing(gamma: float | Array) -> Lindbladian:
@@ -76,15 +76,15 @@ def dephasing(gamma: float | Array) -> Lindbladian:
 
     Jump operator: :math:`L = \\sqrt{\\gamma/2}\\,Z`.
 
-    The resulting CPTP channel ``evolve(L, t)`` matches
-    ``dephasing_operators(1 - exp(-gamma * t))`` converted to a SuperOp.
+    The resulting CPTP channel ``evolve(L, t)`` is dephasing with probability
+    ``p = 1 - exp(-gamma * t)``.
 
     :param gamma: Dephasing rate. Must be non-negative. Arrays produce an ensemble.
     :return: Lindbladian generator for the dephasing channel.
     """
     scale = jnp.sqrt(gamma / 2.0)
     L = scale[..., None, None, None] * Z.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
 def depolarizing(gamma: float | Array) -> Lindbladian:
@@ -92,9 +92,8 @@ def depolarizing(gamma: float | Array) -> Lindbladian:
 
     Jump operators: :math:`L_k = \\sqrt{\\gamma/3}\\,\\sigma_k` for k ∈ {X, Y, Z}.
 
-    The resulting CPTP channel ``evolve(L, t)`` matches
-    ``depolarizing_operators(p)`` with ``p = 3/4 * (1 - exp(-4*gamma*t/3))``
-    converted to a SuperOp.
+    The resulting CPTP channel ``evolve(L, t)`` is the depolarizing channel with
+    depolarizing probability ``p = 3/4 * (1 - exp(-4*gamma*t/3))``.
 
     :param gamma: Depolarizing rate. Must be non-negative. Arrays produce an ensemble.
     :return: Lindbladian generator for the depolarizing channel.
@@ -103,7 +102,7 @@ def depolarizing(gamma: float | Array) -> Lindbladian:
     # inserts the n_ops axis, giving (3, 2, 2) for a scalar rate and (n, 3, 2, 2) for a batch.
     scale = jnp.sqrt(gamma / 3.0)[..., None, None]
     L_stack = jnp.stack([scale * X.matrix, scale * Y.matrix, scale * Z.matrix], axis=-3)
-    return Lindbladian.from_operators(None, Operator.from_matrix(L_stack, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L_stack, ((2,), (2,))))
 
 
 def thermal_relaxation(t1: float | Array, tphi: float | Array) -> Lindbladian:
@@ -114,8 +113,8 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array) -> Lindbladian:
     - :math:`L_1 = \\sqrt{1/T_1}\\,|0\\rangle\\langle 1|`
     - :math:`L_2 = \\sqrt{1/T_\\varphi}\\,Z/\\sqrt{2}`
 
-    The resulting channel ``evolve(L, t)`` matches
-    ``thermal_relaxation_choi([t1], [tphi], t)`` converted to a SuperOp.
+    The resulting channel ``evolve(L, t)`` is the thermal relaxation channel for
+    relaxation time ``t1`` and pure-dephasing time ``tphi`` over duration ``t``.
 
     :param t1: T1 relaxation time (energy decay). Must be positive. Arrays produce an ensemble.
     :param tphi: Pure dephasing time (Tφ, not T2). Must be positive. Arrays produce an ensemble.
@@ -124,7 +123,7 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array) -> Lindbladian:
     scale_t1 = jnp.sqrt(1.0 / t1)[..., None, None]
     scale_tphi = (jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0))[..., None, None]
     L_stack = jnp.stack([scale_t1 * _SIGMA_MINUS.matrix, scale_tphi * Z.matrix], axis=-3)
-    return Lindbladian.from_operators(None, Operator.from_matrix(L_stack, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L_stack, ((2,), (2,))))
 
 
 def bit_flip(gamma: float | Array) -> Lindbladian:
@@ -137,7 +136,7 @@ def bit_flip(gamma: float | Array) -> Lindbladian:
     """
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * X.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
 def phase_flip(gamma: float | Array) -> Lindbladian:
@@ -150,7 +149,7 @@ def phase_flip(gamma: float | Array) -> Lindbladian:
     """
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * Z.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((2,), (2,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
 def leakage(gamma: float | Array) -> Lindbladian:
@@ -165,7 +164,7 @@ def leakage(gamma: float | Array) -> Lindbladian:
     """
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * _SIGMA_12.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((3,), (3,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
 
 
 def seepage(gamma: float | Array) -> Lindbladian:
@@ -180,4 +179,4 @@ def seepage(gamma: float | Array) -> Lindbladian:
     """
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * _SIGMA_21.matrix
-    return Lindbladian.from_operators(None, Operator.from_matrix(L, ((3,), (3,))))
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))

@@ -22,7 +22,7 @@ Tests verify:
 - JIT compilation and autodiff
 - Ensemble broadcasting
 - Generator algebra (__add__, __mul__, __or__)
-- to_operators() exact recovery of the stored Hamiltonian and jump operators
+- exact recovery of the stored Hamiltonian and jump operators via .hamiltonian/.jump_operators
 - operators-only storage: introspection, cached generator, pytree/jit/grad, unsupported non-CP ops
 - promote() dispatch for Lindbladian
 - leakage and seepage generators
@@ -77,7 +77,7 @@ def _random_quax_lindbladian(d, n_jumps, seed):
     H, jumps = _random_hamiltonian_and_jumps(d, n_jumps, seed)
     H_obj = qx.Observable.from_matrix(jnp.asarray(H, dtype=complex), ((d,), (d,)))
     jump_ops = qx.Operator.from_matrix(jnp.asarray(np.stack(jumps), dtype=complex), ((d,), (d,)))
-    return qx.Lindbladian.from_operators(H_obj, jump_ops), H, jumps
+    return qx.Lindbladian(hamiltonian=H_obj, jump_operators=jump_ops), H, jumps
 
 
 # ---------------------------------------------------------------------------
@@ -86,39 +86,41 @@ def _random_quax_lindbladian(d, n_jumps, seed):
 
 
 def test_lindbladian_purely_dissipative():
-    """Lindbladian.from_operators(None, L) should equal a single dissipator."""
+    """Lindbladian(hamiltonian=None, jump_operators=L) should equal a single dissipator."""
     L = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     jump_ops = qx.Operator.from_matrix(L[jnp.newaxis], ((2,), (2,)))
-    gen = qx.Lindbladian.from_operators(None, jump_ops)
+    gen = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops)
     assert isinstance(gen, qx.Lindbladian)
     assert gen.dims == _QUBIT_DIMS
 
 
 def test_lindbladian_two_jump_ops_additive():
-    """Lindbladian.from_operators(None, [L1, L2]) == from_operators(None, L1) + from_operators(None, L2)."""
+    """Combined jump stack == sum of single-jump Lindbladians."""
     L1 = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     L2 = jnp.sqrt(0.05) * jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex)
     L_stack = jnp.stack([L1, L2])
     jump_ops_combined = qx.Operator.from_matrix(L_stack, ((2,), (2,)))
-    gen_combined = qx.Lindbladian.from_operators(None, jump_ops_combined)
+    gen_combined = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops_combined)
 
     jump_ops1 = qx.Operator.from_matrix(L1[jnp.newaxis], ((2,), (2,)))
     jump_ops2 = qx.Operator.from_matrix(L2[jnp.newaxis], ((2,), (2,)))
-    gen_sum = qx.Lindbladian.from_operators(None, jump_ops1) + qx.Lindbladian.from_operators(None, jump_ops2)
+    gen_sum = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops1) + qx.Lindbladian(
+        hamiltonian=None, jump_operators=jump_ops2
+    )
 
     assert jnp.allclose(gen_combined.matrix, gen_sum.matrix, atol=1e-10)
 
 
 def test_lindbladian_with_hamiltonian():
-    """Lindbladian.from_operators(H, L_ops) should include both coherent and dissipative terms."""
+    """A Lindbladian with H and jump operators includes both coherent and dissipative terms."""
     from quax.gates import Z
 
     H = qx.Observable.from_matrix(0.5 * Z.matrix, ((2,), (2,)))
     L = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     jump_ops = qx.Operator.from_matrix(L[jnp.newaxis], ((2,), (2,)))
 
-    gen_full = qx.Lindbladian.from_operators(H, jump_ops)
-    gen_no_H = qx.Lindbladian.from_operators(None, jump_ops)
+    gen_full = qx.Lindbladian(hamiltonian=H, jump_operators=jump_ops)
+    gen_no_H = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops)
 
     # The generators should differ by exactly the coherent term
     assert not jnp.allclose(gen_full.matrix, gen_no_H.matrix, atol=1e-10)
@@ -211,7 +213,7 @@ def test_promote_lindbladian_matches_native_qutrit():
     # Native qutrit generator: the same jump operator √γ|0⟩⟨1|, embedded as a 3×3 operator.
     sigma_minus_3 = jnp.zeros((3, 3), dtype=complex).at[0, 1].set(1.0)
     jump_ops = qx.Operator.from_matrix((jnp.sqrt(gamma) * sigma_minus_3)[jnp.newaxis], ((3,), (3,)))
-    L_native = qx.Lindbladian.from_operators(None, jump_ops)
+    L_native = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops)
 
     assert jnp.allclose(L_promoted.matrix, L_native.matrix, atol=1e-3)
 
@@ -377,7 +379,7 @@ def test_qutip_parity_depolarizing():
 
 
 def test_qutip_parity_with_hamiltonian():
-    """evolve(Lindbladian.from_operators(H, L_ops), t) matches QuTiP liouvillian."""
+    """evolve(Lindbladian(H, L_ops), t) matches QuTiP liouvillian."""
     from quax.gates import Z as Z_gate
 
     gamma = 0.2
@@ -391,84 +393,10 @@ def test_qutip_parity_with_hamiltonian():
     H_qx = qx.Observable.from_matrix(omega * Z_gate.matrix, ((2,), (2,)))
     L = jnp.sqrt(gamma) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     jump_ops = qx.Operator.from_matrix(L[jnp.newaxis], ((2,), (2,)))
-    qx_channel = qx.evolve(qx.Lindbladian.from_operators(H_qx, jump_ops), T)
+    qx_channel = qx.evolve(qx.Lindbladian(hamiltonian=H_qx, jump_operators=jump_ops), T)
 
     fid = qx.process_fidelity(qx_channel, qt_channel)
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-# ---------------------------------------------------------------------------
-# Kraus channel equivalences
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("gamma,t", [(0.3, 0.5), (0.5, 1.0), (0.1, 2.0)])
-def test_amplitude_damping_matches_kraus(gamma, t):
-    """evolve(amplitude_damping_lindbladian(γ), t) ≈ relaxation_operators(1 - exp(-γt))."""
-    p = 1.0 - float(jnp.exp(-gamma * t))
-    kraus_channel = qx.kraus_to_superop(qx.relaxation_operators(p))
-    lindblad_channel = qx.evolve(qx.lindbladians.amplitude_damping(gamma), t)
-
-    fid = qx.process_fidelity(lindblad_channel, kraus_channel)
-    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-@pytest.mark.parametrize("gamma,t", [(0.3, 0.5), (0.5, 1.0)])
-def test_dephasing_matches_kraus(gamma, t):
-    """evolve(dephasing_lindbladian(γ), t) ≈ dephasing_operators(1 - exp(-γt))."""
-    p = 1.0 - float(jnp.exp(-gamma * t))
-    kraus_channel = qx.kraus_to_superop(qx.dephasing_operators(p))
-    lindblad_channel = qx.evolve(qx.lindbladians.dephasing(gamma), t)
-
-    fid = qx.process_fidelity(lindblad_channel, kraus_channel)
-    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-@pytest.mark.parametrize("gamma,t", [(0.15, 0.5), (0.3, 1.0)])
-def test_depolarizing_matches_kraus(gamma, t):
-    """evolve(depolarizing_lindbladian(γ), t) ≈ depolarizing_operators(p) with p = ¾(1 - exp(-4γt/3))."""
-    p = 0.75 * (1.0 - float(jnp.exp(-4.0 * gamma * t / 3.0)))
-    kraus_channel = qx.kraus_to_superop(qx.depolarizing_operators(p))
-    lindblad_channel = qx.evolve(qx.lindbladians.depolarizing(gamma), t)
-
-    fid = qx.process_fidelity(lindblad_channel, kraus_channel)
-    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-@pytest.mark.parametrize("gamma,t", [(0.3, 0.5), (0.5, 1.0)])
-def test_bit_flip_matches_kraus(gamma, t):
-    """evolve(bit_flip_lindbladian(γ), t) ≈ bit_flip_operators(½(1 - exp(-2γt)))."""
-    p = 0.5 * (1.0 - float(jnp.exp(-2.0 * gamma * t)))
-    kraus_channel = qx.kraus_to_superop(qx.bit_flip_operators(p))
-    lindblad_channel = qx.evolve(qx.lindbladians.bit_flip(gamma), t)
-
-    fid = qx.process_fidelity(lindblad_channel, kraus_channel)
-    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-@pytest.mark.parametrize("gamma,t", [(0.3, 0.5), (0.5, 1.0)])
-def test_phase_flip_matches_kraus(gamma, t):
-    """evolve(phase_flip_lindbladian(γ), t) ≈ phase_flip_operators(½(1 - exp(-2γt)))."""
-    p = 0.5 * (1.0 - float(jnp.exp(-2.0 * gamma * t)))
-    kraus_channel = qx.kraus_to_superop(qx.phase_flip_operators(p))
-    lindblad_channel = qx.evolve(qx.lindbladians.phase_flip(gamma), t)
-
-    fid = qx.process_fidelity(lindblad_channel, kraus_channel)
-    assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999"
-
-
-@pytest.mark.parametrize("t1,tphi,t", [(1.0, 2.0, 0.5), (2.0, 5.0, 1.0)])
-def test_thermal_relaxation_matches_choi(t1, tphi, t):
-    """evolve(thermal_relaxation_lindbladian(t1, tphi), t) ≈ thermal_relaxation_choi."""
-    t1s = jnp.array([t1])
-    tphis = jnp.array([tphi])
-    choi_ref = qx.thermal_relaxation_choi(t1s, tphis, t)
-    ref_superop = qx.choi_to_superop(choi_ref)
-
-    lindblad_channel = qx.evolve(qx.lindbladians.thermal_relaxation(t1, tphi), t)
-
-    fid = qx.process_fidelity(lindblad_channel, ref_superop)
-    assert float(fid.real) > 0.999, f"Process fidelity {fid} < 0.999"
 
 
 # ---------------------------------------------------------------------------
@@ -507,7 +435,7 @@ def test_evolve_observable_is_literal_propagator():
 
 
 def test_purely_hamiltonian_lindbladian_matches_unitary():
-    """evolve(Lindbladian.from_operators(H, zero_jumps), t) ≈ unitary_to_superop(U(t)).
+    """evolve(Lindbladian(H, zero_jumps), t) ≈ unitary_to_superop(U(t)).
 
     The GKSL equation uses -i[H,ρ], giving evolution exp(-iHt)ρexp(iHt).
     In quax's convention evolve(H, t) = exp(-iHt), so the matching unitary is evolve(H, t).
@@ -520,7 +448,7 @@ def test_purely_hamiltonian_lindbladian_matches_unitary():
     # Lindbladian with zero dissipation — single zero jump operator
     zero_L = jnp.zeros((1, 2, 2), dtype=complex)
     jump_ops = qx.Operator.from_matrix(zero_L, ((2,), (2,)))
-    gen = qx.Lindbladian.from_operators(H, jump_ops)
+    gen = qx.Lindbladian(hamiltonian=H, jump_operators=jump_ops)
     channel_via_lindbladian = qx.evolve(gen, T)
 
     # GKSL gives exp(-iHT), matching evolve(H, T) = exp(-i*H*T)
@@ -553,11 +481,11 @@ def test_evolve_observable_jit():
     assert isinstance(U, qx.Unitary)
 
 
-def test_lindbladian_from_operators_jit():
-    """jax.jit(qx.Lindbladian.from_operators) compiles and runs."""
+def test_lindbladian_constructor_jit():
+    """jax.jit over the Lindbladian constructor compiles and runs."""
     L = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     jump_ops = qx.Operator.from_matrix(L[jnp.newaxis], ((2,), (2,)))
-    gen = jax.jit(qx.Lindbladian.from_operators)(None, jump_ops)
+    gen = jax.jit(lambda h, j: qx.Lindbladian(hamiltonian=h, jump_operators=j))(None, jump_ops)
     assert isinstance(gen, qx.Lindbladian)
 
 
@@ -610,7 +538,7 @@ def test_evolve_grad_through_rate():
 
 
 def test_lindbladian_ensemble_jump_operators():
-    """Lindbladian.from_operators with batched jump operators produces an ensemble of generators."""
+    """Batched jump operators produce an ensemble of generators."""
     n_batch = 4
     gammas = jnp.linspace(0.1, 0.5, n_batch)
     sigma_minus = jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
@@ -618,7 +546,7 @@ def test_lindbladian_ensemble_jump_operators():
     L_batch = jnp.sqrt(gammas)[:, None, None] * sigma_minus[None]  # (n_batch, 2, 2)
     L_with_ops_dim = L_batch[:, jnp.newaxis, :, :]  # (n_batch, 1, 2, 2)
     jump_ops = qx.Operator.from_matrix(L_with_ops_dim, ((2,), (2,)))
-    gen = qx.Lindbladian.from_operators(None, jump_ops)
+    gen = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops)
 
     assert gen.ensemble_size == (n_batch,)
 
@@ -632,7 +560,7 @@ def test_evolve_ensemble_lindbladian():
     L_batch = jnp.sqrt(gammas)[:, None, None] * sigma_minus[None]
     L_with_ops_dim = L_batch[:, jnp.newaxis, :, :]
     jump_ops = qx.Operator.from_matrix(L_with_ops_dim, ((2,), (2,)))
-    gen = qx.Lindbladian.from_operators(None, jump_ops)
+    gen = qx.Lindbladian(hamiltonian=None, jump_operators=jump_ops)
 
     channels = qx.evolve(gen, 0.5)
     assert channels.ensemble_size == (n_batch,)
@@ -668,22 +596,22 @@ def test_lindbladian_factory_ensemble_multi_jump():
 
 
 # ---------------------------------------------------------------------------
-# Random Lindbladians: to_operators round-trip, CPTP, QuTiP parity
+# Random Lindbladians: exact operator recovery, CPTP, QuTiP parity
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("d, n_jumps, seed", _RANDOM_CASES)
-def test_random_lindbladian_to_operators_roundtrip(d, n_jumps, seed):
-    """to_operators() returns the stored operators verbatim (no gauge canonicalization)."""
+def test_random_lindbladian_exact_operator_recovery(d, n_jumps, seed):
+    """.hamiltonian/.jump_operators return the stored operators verbatim (no gauge canonicalization)."""
     gen, H, jumps = _random_quax_lindbladian(d, n_jumps, seed)
-    H_r, jumps_r = gen.to_operators()
+    H_r, jumps_r = gen.hamiltonian, gen.jump_operators
 
-    # The exact operators supplied to from_operators come back — same count, same values.
+    # The exact operators supplied at construction come back — same count, same values.
     assert jumps_r.matrix.shape == (n_jumps, d, d)
     assert jnp.allclose(jumps_r.matrix, jnp.asarray(np.stack(jumps), dtype=complex))
     assert H_r is not None and jnp.allclose(H_r.matrix, jnp.asarray(H, dtype=complex))
 
-    rebuilt = qx.Lindbladian.from_operators(H_r, jumps_r)
+    rebuilt = qx.Lindbladian(hamiltonian=H_r, jump_operators=jumps_r)
     assert jnp.allclose(rebuilt.matrix, gen.matrix, atol=1e-6)
     assert jnp.allclose(qx.evolve(rebuilt, T).matrix, qx.evolve(gen, T).matrix, atol=1e-6)
 
@@ -709,10 +637,10 @@ def test_random_lindbladian_qutip_parity(d, n_jumps, seed):
     assert float(fid.real) > 0.9999, f"Process fidelity {fid} < 0.9999 (d={d}, n_jumps={n_jumps})"
 
 
-def test_to_operators_jit():
-    """Lindbladian.to_operators() compiles under jax.jit and returns the stored operators."""
+def test_stored_jump_operators_jit():
+    """Reading .jump_operators compiles under jax.jit and returns the stored operators."""
     gen, _, _ = _random_quax_lindbladian(2, 2, 7)
-    matrix = jax.jit(lambda g: g.to_operators()[1].matrix)(gen)
+    matrix = jax.jit(lambda g: g.jump_operators.matrix)(gen)
     assert matrix.shape == (2, 2, 2)
 
 
@@ -732,14 +660,14 @@ def test_factory_exposes_physical_jump_operators():
 
 
 def test_stored_operators_are_the_construction_inputs():
-    """Lindbladian.from_operators stores the exact Observable and Operator it was given."""
+    """The constructor stores the exact Observable and Operator it was given."""
     H = qx.Observable.from_matrix(0.5 * qx.gates.Z.matrix, _QUBIT_DIMS)
     L_mat = jnp.sqrt(0.1) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex)
     jumps = qx.Operator.from_matrix(L_mat[jnp.newaxis], _QUBIT_DIMS)
-    gen = qx.Lindbladian.from_operators(H, jumps)
+    gen = qx.Lindbladian(hamiltonian=H, jump_operators=jumps)
     assert gen.hamiltonian is H
     assert gen.jump_operators is jumps
-    H_r, jumps_r = gen.to_operators()
+    H_r, jumps_r = gen.hamiltonian, gen.jump_operators
     assert H_r is not None
     assert jnp.allclose(H_r.matrix, H.matrix)
     assert jnp.allclose(jumps_r.matrix, jumps.matrix)
@@ -771,7 +699,7 @@ def test_grad_through_stored_operators():
         jumps = qx.Operator.from_matrix(
             (jnp.sqrt(gamma) * jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex))[jnp.newaxis], _QUBIT_DIMS
         )
-        return qx.evolve(qx.Lindbladian.from_operators(None, jumps), 0.5).matrix.real.sum()
+        return qx.evolve(qx.Lindbladian(hamiltonian=None, jump_operators=jumps), 0.5).matrix.real.sum()
 
     g = jax.grad(loss)(0.1)
     assert jnp.isfinite(g)

@@ -218,7 +218,7 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
     """Compute the power of a superoperator matrix via eigendecomposition.
 
     Note: For fractional powers of quantum channels, this may not preserve CPTP properties.
-    For physically meaningful fractional powers, use ``evolve(Lindbladian.from_operators(...), alpha*t)``.
+    For physically meaningful fractional powers, use ``evolve(Lindbladian(...), alpha*t)``.
 
     :param superop: The superoperator to exponentiate.
     :param power: The power to raise the superoperator to.

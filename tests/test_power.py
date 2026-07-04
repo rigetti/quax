@@ -73,7 +73,7 @@ def _random_lindbladian(
         L_stack = jnp.asarray(np.stack(L_list), dtype=complex)  # (n_jumps, d, d)
         jump_ops = qx.Operator.from_matrix(L_stack, (dims, dims))
 
-        gen = qx.Lindbladian.from_operators(H_obs, jump_ops)
+        gen = qx.Lindbladian(hamiltonian=H_obs, jump_operators=jump_ops)
         channel = qx.evolve(gen, 0.5)
         chois.append(qx.superop_to_choi(channel).matrix)
 

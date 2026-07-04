@@ -153,4 +153,4 @@ def _mul_lindbladian(op: Lindbladian, scalar: complex | Array) -> Lindbladian:
     scaled_jumps = cast(Operator, op.jump_operators * root)
     # Real scalar ⇒ Observable * scalar stays an Observable (see :func:`_mul_observable`).
     scaled_hamiltonian = cast(Observable, op.hamiltonian * scalar) if op.hamiltonian is not None else None
-    return Lindbladian.from_operators(scaled_hamiltonian, scaled_jumps)
+    return Lindbladian(hamiltonian=scaled_hamiltonian, jump_operators=scaled_jumps)

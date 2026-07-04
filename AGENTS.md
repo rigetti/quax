@@ -214,10 +214,15 @@ All quantum objects store their data in **tensor format**, preserving the struct
 
 ### Adding a New Channel
 
-1. Implement in `src/quax/_common_channels.py`
-2. Add to `KRAUS_OPS` dictionary if applicable
-3. Export from `__init__.py`
-4. Add tests to `tests/test_common_channels.py`
+Common *noise* channels are defined canonically as Lindbladian generators in
+`src/quax/lindbladians.py` (rate-parameterized; obtain the CPTP channel via `qx.evolve(L, t)`).
+Prefer adding a new noise channel there.
+
+1. For a noise generator: add a factory to `src/quax/lindbladians.py` returning a `Lindbladian`.
+2. For a fixed non-divisible channel or instrument (no Lindbladian generator): implement in
+   `src/quax/_common_channels.py`.
+3. Export from `__init__.py`.
+4. Add tests to `tests/test_lindbladian.py` or `tests/test_common_channels.py` as appropriate.
 
 ### Adding a New Transformation
 

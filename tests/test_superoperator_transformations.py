@@ -383,7 +383,7 @@ class TestKrausTruncation:
 
     def test_depolarizing(self):
         """Depolarizing channel has exactly 4 Kraus operators (for a single qubit)."""
-        kraus = qx.depolarizing_operators(0.1)
+        kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(0.1, (2,)))
         result = qx.truncate_kraus(kraus)
 
         # All 4 operators are significant for nonzero depolarizing probability
@@ -396,7 +396,7 @@ class TestKrausTruncation:
         # Member 0: unitary (1 significant op), Member 1: depolarizing (4 significant ops)
         key = jax.random.PRNGKey(42)
         unitary_kraus = qx.to_kraus(qx.random_unitary(dims=((2,), (2,)), key=key))
-        depol_kraus = qx.to_kraus(qx.to_choi(qx.depolarizing_operators(0.1)))
+        depol_kraus = qx.to_kraus(qx.to_choi(qx.to_kraus(qx.depolarizing_channel_superoperator(0.1, (2,)))))
 
         # Stack into an ensemble of shape (2, 4, 2, 2)
         ensemble_data = jnp.stack([unitary_kraus.matrix, depol_kraus.matrix], axis=0)
@@ -411,7 +411,7 @@ class TestKrausTruncation:
 
     def test_at_least_one(self):
         """Even with a very large tolerance, at least one Kraus operator is kept."""
-        kraus = qx.depolarizing_operators(0.001)
+        kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(0.001, (2,)))
         result = qx.truncate_kraus(kraus, atol=1e10)
 
         assert result.matrix.shape[-3] >= 1

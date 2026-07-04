@@ -2060,12 +2060,10 @@ class PauliLiouville(SuperOperator):
 class Lindbladian(QuantumObject):
     """Lindbladian generator of a quantum dynamical semigroup.
 
-    Stores the GKSL master-equation ingredients directly: a Hamiltonian ``hamiltonian``
-    (:class:`Observable`, or ``None`` for pure dissipation) and the ``jump_operators``
-    (:class:`Operator`, with the jump operators stacked along a leading ``n_ops`` axis).
-    The d²×d² generator matrix :math:`\\mathcal{L}` is computed on demand from these and cached
-    (see :attr:`matrix`).  Because the operators are the source of truth, :meth:`to_operators`
-    returns exactly what was supplied — no gauge canonicalization.
+    Construct one directly from its GKSL master-equation ingredients, e.g.
+    ``Lindbladian(hamiltonian=H, jump_operators=jumps)``.  The d²×d² generator matrix
+    :math:`\\mathcal{L}` is computed on demand from those and cached (see :attr:`matrix`); the
+    stored operators remain inspectable via ``.hamiltonian`` and ``.jump_operators``.
 
     Exponentiating via :func:`evolve` produces a CPTP quantum channel for :math:`t \\geq 0`.
     This is NOT a CPTP map — it is the generator. Use :func:`evolve` to obtain the channel.
@@ -2077,8 +2075,12 @@ class Lindbladian(QuantumObject):
     Matrix shape: ``(*ensemble, d_out^2, d_in^2)`` (via :attr:`matrix`).
     """
 
-    hamiltonian: "Observable | None"
-    jump_operators: "Operator"
+    hamiltonian: Observable | None
+    """The coherent generator :math:`H` (Hermitian :class:`Observable`), or ``None`` for pure dissipation."""
+
+    jump_operators: Operator
+    """The jump operators, stacked along a leading ``n_ops`` axis; rates pre-absorbed as :math:`\\sqrt{\\gamma}\\,L`."""
+
     # ``data`` and ``num_qubits`` from the base are redundant here — both are derived from
     # ``jump_operators`` — so drop them as dataclass fields and provide them as properties.
     data: ClassVar[Array]  # pyright: ignore[reportRedeclaration]
@@ -2109,7 +2111,9 @@ class Lindbladian(QuantumObject):
     @cached_property
     def matrix(self) -> Array:
         """The generator matrix ``(*ensemble, d_out^2, d_in^2)``, computed once and cached."""
-        return _gksl_generator(self.hamiltonian, self.jump_operators)
+        from ._generators import gksl_generator
+
+        return gksl_generator(self.hamiltonian, self.jump_operators)
 
     @property
     def data(self) -> Array:  # type: ignore[override]
@@ -2128,38 +2132,6 @@ class Lindbladian(QuantumObject):
         hamiltonian, jump_operators = children
         return cls(hamiltonian=hamiltonian, jump_operators=jump_operators)
 
-    # ----- construction -----
-
-    @classmethod
-    def from_operators(
-        cls,
-        hamiltonian: "Observable | None",
-        jump_operators: "Operator",
-    ) -> "Lindbladian":
-        """Construct the GKSL Lindbladian generator from a Hamiltonian and jump operators.
-
-        Rates must be pre-absorbed into ``jump_operators``: pass ``sqrt(γ) * L_physical``.
-        Stack multiple jump operators along a leading ``n_ops`` axis.  The operators are stored
-        verbatim and are recoverable via :meth:`to_operators`.
-
-        :param hamiltonian: The Hamiltonian (``Observable``), or ``None`` for pure dissipation.
-        :param jump_operators: An ``Operator`` with shape ``(*ensemble, n_ops, d, d)``.
-        :return: The Lindbladian generator as a :class:`Lindbladian`.
-        """
-        return cls(hamiltonian=hamiltonian, jump_operators=jump_operators)
-
-    def to_operators(self) -> "Tuple[Observable | None, Operator]":
-        """Return the stored ``(hamiltonian, jump_operators)`` — the exact inputs to
-        :meth:`from_operators`.
-
-        Unlike a Kossakowski reconstruction, there is no gauge freedom: the physical operators you
-        supplied come back unchanged (``hamiltonian`` is ``None`` for a purely dissipative generator).
-
-        :return: ``(hamiltonian, jump_operators)`` with matrix shapes ``(*ensemble, d, d)`` and
-            ``(*ensemble, n_ops, d, d)``.
-        """
-        return self.hamiltonian, self.jump_operators
-
     # ----- generator algebra -----
 
     def __add__(self, other: Any) -> "Lindbladian":
@@ -2170,11 +2142,15 @@ class Lindbladian(QuantumObject):
         """
         if not isinstance(other, Lindbladian) or self.dims != other.dims:
             return NotImplemented
+        from ._generators import add_hamiltonians
+
         combined_jumps = Operator.from_matrix(
             jnp.concatenate([self.jump_operators.matrix, other.jump_operators.matrix], axis=-3),
             self.jump_operators.dims,
         )
-        return Lindbladian.from_operators(_add_hamiltonians(self.hamiltonian, other.hamiltonian), combined_jumps)
+        return Lindbladian(
+            hamiltonian=add_hamiltonians(self.hamiltonian, other.hamiltonian), jump_operators=combined_jumps
+        )
 
     def __radd__(self, other: Any) -> "Lindbladian":
         """Right-hand addition of two Lindbladian generators."""
@@ -2186,38 +2162,13 @@ class Lindbladian(QuantumObject):
         """Tensor product of two Lindbladian generators (independent subsystems).
 
         ``L_A | L_B`` gives the combined generator for the joint system A⊗B, built at the operator
-        level: the jump operators are ``{L_k^A ⊗ I_B} ∪ {I_A ⊗ L_j^B}`` and the Hamiltonian is
-        ``H_A ⊗ I_B + I_A ⊗ H_B``, using quax's index-interleaving convention so that
-        ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
+        level so that ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
         """
         if not isinstance(other, Lindbladian):
             return NotImplemented
-        if self.num_ensemble_dims != 0 or other.num_ensemble_dims != 0:
-            raise NotImplementedError("__or__ is not yet implemented for ensemble Lindbladians.")
+        from ._tensor import tensor_lindbladian
 
-        from ._tensor import tensor_operator
-
-        dims_A, dims_B = self.dims[0], other.dims[0]
-        dA = reduce(mul, dims_A, 1)
-        dB = reduce(mul, dims_B, 1)
-        I_A = Operator.from_matrix(jnp.eye(dA, dtype=complex), (dims_A, dims_A))
-        I_B = Operator.from_matrix(jnp.eye(dB, dtype=complex), (dims_B, dims_B))
-        joint_dims = (dims_A + dims_B, dims_A + dims_B)
-
-        # Jump operators embedded into the joint space, then stacked along the n_ops axis.
-        jumps_A = tensor_operator(self.jump_operators, I_B)  # {L_k^A ⊗ I_B}
-        jumps_B = tensor_operator(I_A, other.jump_operators)  # {I_A ⊗ L_j^B}
-        combined_jumps = Operator.from_matrix(jnp.concatenate([jumps_A.matrix, jumps_B.matrix], axis=-3), joint_dims)
-
-        # Joint Hamiltonian H_A ⊗ I_B + I_A ⊗ H_B (skipping absent coherent terms).
-        h_terms = []
-        if self.hamiltonian is not None:
-            h_terms.append(tensor_operator(self.hamiltonian, I_B).matrix)
-        if other.hamiltonian is not None:
-            h_terms.append(tensor_operator(I_A, other.hamiltonian).matrix)
-        hamiltonian = Observable.from_matrix(reduce(jnp.add, h_terms), joint_dims) if h_terms else None
-
-        return Lindbladian.from_operators(hamiltonian, combined_jumps)
+        return tensor_lindbladian(self, other)
 
     def __sub__(self, other: Any) -> "Lindbladian":
         """Not supported: generator subtraction can yield a non-CP generator (see class docstring)."""
@@ -2260,64 +2211,6 @@ class Lindbladian(QuantumObject):
         if self.dims != other.dims:
             return False
         return bool(jnp.allclose(self.matrix, other.matrix))
-
-
-def _add_hamiltonians(h1: "Observable | None", h2: "Observable | None") -> "Observable | None":
-    """Sum two optional Hamiltonians, treating ``None`` as the zero operator."""
-    if h1 is None:
-        return h2
-    if h2 is None:
-        return h1
-    return Observable.from_matrix(h1.matrix + h2.matrix, h1.dims)
-
-
-@jax.jit
-def _gksl_generator(hamiltonian: "Observable | None", jump_operators: "Operator") -> Array:
-    """GKSL generator matrix ``-i[H,ρ] + Σ_k D[L_k]`` as ``(*ensemble, d², d²)``.
-
-    Rates are pre-absorbed into ``jump_operators``. Engine for :attr:`Lindbladian.matrix`.
-    """
-    dims = jump_operators.dims
-    d = reduce(mul, dims[1], 1)
-    I = jnp.eye(d, dtype=complex)
-    L = jump_operators.matrix  # (*ensemble, n_ops, d, d)
-    ensemble_shape = L.shape[:-3]
-
-    # Build the GKSL generator as a rank-4 tensor with indices
-    # [out_bra a, out_ket c, in_bra b, in_ket d], reshaped at the end to a (d², d²)
-    # superoperator acting on vec(ρ).
-    #
-    # Tensor products via einsum: an einsum whose output indices are the union of the
-    # (disjoint) input indices, with none summed away, is an outer/tensor product.  E.g.
-    # ``einsum("ab,cd->acbd", A, B)`` computes A ⊗ B and then interleaves the axes so that
-    # (a, c) form the superoperator's row multi-index and (b, d) its column multi-index —
-    # exactly the layout a (d², d²) matrix on vec(ρ) needs.  ``einsum("...kab,...kcd->...acbd")``
-    # is the same tensor product but additionally summed over the jump index k.
-
-    # No-jump rate operator  G = Σ_k L_k† L_k  (Hermitian):
-    #   G_{ab} = Σ_{k,c} conj(L_k)_{ca} (L_k)_{cb}
-    G = jnp.einsum("...kca,...kcb->...ab", jnp.conj(L), L)
-    # Jump (dissipative gain) term  Σ_k L_k ρ L_k†  — tensor product Σ_k conj(L_k) ⊗ L_k:
-    #   sandwich_{acbd} = Σ_k conj(L_k)_{ab} (L_k)_{cd}
-    sandwich = jnp.einsum("...kab,...kcd->...acbd", jnp.conj(L), L)
-    # Two δ-structured halves of the anticommutator  −½{G, ρ} = −½(G ρ + ρ G), each an I ⊗ G tensor product:
-    #   G_rho_{acbd} = δ_{ab} G_{cd}          (the G ρ half)
-    G_rho = jnp.einsum("ab,...cd->...acbd", I, G)
-    #   rho_G_{acbd} = conj(G)_{ab} δ_{cd}    (the ρ G half; G Hermitian ⇒ conj(G)_{ab} = G_{ba})
-    rho_G = jnp.einsum("...ab,cd->...acbd", jnp.conj(G), I)
-    # Dissipator  D[ρ] = Σ_k ( L_k ρ L_k† − ½{L_k† L_k, ρ} )
-    gen_data = sandwich - 0.5 * G_rho - 0.5 * rho_G
-
-    if hamiltonian is not None:
-        H = hamiltonian.matrix
-        # Two δ-structured halves of the commutator  −i[H, ρ] = −i(H ρ − ρ H), each an I ⊗ H tensor product:
-        #   H_rho_{acbd} = δ_{ab} H_{cd}          (the H ρ half)
-        H_rho = jnp.einsum("ab,...cd->...acbd", I, H)
-        #   rho_H_{acbd} = conj(H)_{ab} δ_{cd}    (the ρ H half; H Hermitian ⇒ conj(H)_{ab} = H_{ba})
-        rho_H = jnp.einsum("...ab,cd->...acbd", jnp.conj(H), I)
-        gen_data = gen_data + (-1j * (H_rho - rho_H))
-
-    return gen_data.reshape(ensemble_shape + (d * d, d * d))
 
 
 # ======================================================================

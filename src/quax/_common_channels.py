@@ -24,22 +24,21 @@ import jax
 import jax.numpy as jnp
 from jax import Array, jit
 
-from ._compose import compose_superop
+from ._exponentiation import evolve
+from ._generators import unitary_to_hamiltonian
 from ._quantum_objects import (
     Choi,
     KrausMap,
+    Lindbladian,
     Operator,
     QuantumInstrument,
     SuperOp,
     Unitary,
     _extract_measured_index,
 )
-from ._superoperator_transformations import (
-    choi_to_superop,
-    unitary_to_superop,
-)
 from ._tensor import tensor_choi
-from .gates import X, Y, Z, I, GELLMANN4, GELLMANN5, GELLMANN6, GELLMANN7, TP0, TP1, TP2
+from .gates import Y, I, GELLMANN4, GELLMANN5, GELLMANN6, GELLMANN7, TP0, TP1, TP2
+from .lindbladians import thermal_relaxation
 
 
 @partial(jit, static_argnums=())
@@ -71,7 +70,7 @@ def _thermal_relaxation_choi_1q(t1: float, tphi: float, duration: float) -> Choi
     )
 
 
-def thermal_relaxation_choi(t1s: Array, tphis: Array, duration: float) -> Choi:
+def _thermal_relaxation_choi(t1s: Array, tphis: Array, duration: float) -> Choi:
     """
     Construct a multi-qubit thermal relaxation channel.
 
@@ -108,6 +107,13 @@ def depolarizing_channel_superoperator(
     :param dims: Per-subsystem dimensions, e.g. ``(2,)`` for a single qubit
         or ``(2, 2)`` for two qubits.
     :return: The superoperator matrix for the depolarizing channel.
+
+    .. note::
+        This closed form ``(1 - p)·I + p·P_mix`` is exactly the evolved depolarizing Lindbladian
+        ``exp(t·L)`` with ``L = -Γ(I - P_mix)`` and ``1 - p = e^{-Γt}`` (``P_mix`` is the projector
+        onto the maximally mixed state).  It is written analytically rather than via
+        :func:`~quax.evolve` so that the fully-depolarizing endpoint ``p = 1`` (the ``t → ∞``
+        limit) is exact.
     """
     depolarizing_prob = jnp.asarray(depolarizing_prob)
     d = reduce(mul, dims, 1)
@@ -212,75 +218,36 @@ def integrated_thermal_superoperator(
     t1s: Array,
     tphis: Array,
     duration: float,
-    num_steps: int = 100,
 ) -> SuperOp:
     """
-    Construct a thermal channel which is integrated over a unitary rotation.
+    Construct a thermal channel integrated over a unitary rotation.
 
-    For example, we may know accurate decoherence times for a qubit, and wish to calculate
-    the channel over a unitary rotation by integrating the thermal relaxation during the gate.
+    Models a gate ``U`` applied while thermal relaxation acts continuously for the gate
+    ``duration``: it solves the GKSL master equation ``dρ/dt = -i[H, ρ] + D_thermal(ρ)`` over
+    ``[0, duration]``, where ``H`` is the Hamiltonian generating ``U`` (``exp(-iH) = U``) and
+    ``D_thermal`` is the per-qubit thermal-relaxation dissipator (T1 + pure dephasing).
 
-    :param unitary: The unitary rotation object.
+    The result is the *exact* integrated channel (no Trotter step count) and is differentiable
+    with respect to ``unitary`` and the times.
+
+    :param unitary: The gate unitary.
     :param t1s: (num_qubits,) array of T1 relaxation times.
     :param tphis: (num_qubits,) array of pure dephasing times.
     :param duration: The gate duration.
-    :param num_steps: The number of steps to integrate over (static argument for JIT).
     :return: The superoperator integrated over the unitary rotation.
     """
+    # H generates the gate: exp(-iH) = U, so the coherent part integrates to U over `duration`.
+    hamiltonian = unitary_to_hamiltonian(unitary)
 
-    # 1. Compute fractional unitary: U^(1/num_steps)
-    dU = fractional_unitary_power(unitary, 1.0 / num_steps)
+    # Per-qubit thermal generators (unit-time rates 1/T1, 1/Tφ) combined into the full system.
+    thermal = reduce(lambda a, b: a | b, [thermal_relaxation(t1s[i], tphis[i]) for i in range(len(t1s))])
 
-    # Convert fractional unitary to superoperator
-    dU_super = unitary_to_superop(dU)
-
-    # 2. Compute thermal relaxation for fractional duration
-    fractional_duration = duration / num_steps
-    thermal_choi = thermal_relaxation_choi(t1s, tphis, fractional_duration)
-    thermal_super = choi_to_superop(thermal_choi)
-
-    # 3. Compute one step: thermal @ unitary
-    superstep = compose_superop(thermal_super, dU_super)
-
-    # 4. Compute the integrated channel by repeated matrix multiplication
-    # Result = (S_thermal @ S_U)^num_steps
-    # Use lax.scan for efficient repeated composition
-    def scan_fn(acc, _):
-        """Scan function: repeatedly apply the superstep."""
-        return compose_superop(superstep, acc), None
-
-    # Apply superstep (num_steps) times
-    result, _ = jax.lax.scan(scan_fn, superstep, None, length=num_steps - 1)
-
-    return result
-
-
-def bit_flip_operators(p: float) -> KrausMap:
-    """Generate the KrausMap for a bit flip channel.
-
-    The bit flip channel applies X with probability p and I with probability 1-p.
-
-    :param p: Probability of bit flip error (0 <= p <= 1)
-    :return: KrausMap with two 2x2 operator terms
-    """
-    k0 = Operator.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)))
-    k1 = Operator.from_matrix(jnp.sqrt(p) * X.matrix, ((2,), (2,)))
-    data = jnp.stack([k0.matrix, k1.matrix], axis=0)
-    return KrausMap.from_matrix(data, ((2,), (2,)))
-
-
-def phase_flip_operators(p: float) -> KrausMap:
-    """Generate the KrausMap for a phase flip channel.
-
-    The phase flip channel applies Z with probability p and I with probability 1-p.
-
-    :param p: Probability of phase flip error (0 <= p <= 1)
-    :return: KrausMap with two 2x2 operator terms
-    """
-    k0 = Operator.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)))
-    k1 = Operator.from_matrix(jnp.sqrt(p) * Z.matrix, ((2,), (2,)))
-    data = jnp.stack([k0.matrix, k1.matrix], axis=0)
-    return KrausMap.from_matrix(data, ((2,), (2,)))
+    # Scaling the jump operators by sqrt(duration) scales the dissipator by `duration`, so the
+    # generator below is  -i[H, ·] + duration · D_thermal  and  evolve(·, 1) applies U while the
+    # thermal noise acts over the gate duration.  At duration = 0 the jumps vanish → pure U channel.
+    scaled_jumps = thermal.jump_operators * jnp.sqrt(duration)
+    generator = Lindbladian(hamiltonian=hamiltonian, jump_operators=scaled_jumps)
+    return evolve(generator, 1.0)
 
 
 def bitphase_flip_operators(p: float) -> KrausMap:
@@ -295,64 +262,6 @@ def bitphase_flip_operators(p: float) -> KrausMap:
     k1 = Operator.from_matrix(jnp.sqrt(p) * Y.matrix, ((2,), (2,)))
     data = jnp.stack([k0.matrix, k1.matrix], axis=0)
     return KrausMap.from_matrix(data, ((2,), (2,)))
-
-
-def dephasing_operators(p: float) -> KrausMap:
-    """Generate the KrausMap for a dephasing channel.
-
-    The dephasing channel causes loss of quantum information without energy dissipation.
-
-    :param p: Dephasing probability (0 <= p <= 1)
-    :return: KrausMap with two 2x2 operator terms
-    """
-    sqrt_p2 = jnp.sqrt(p / 2.0)
-    sqrt_1mp2 = jnp.sqrt(1.0 - p / 2.0)
-    k0 = Operator.from_matrix(sqrt_1mp2 * I.matrix, ((2,), (2,)))
-    k1 = Operator.from_matrix(sqrt_p2 * Z.matrix, ((2,), (2,)))
-    data = jnp.stack([k0.matrix, k1.matrix], axis=0)
-    return KrausMap.from_matrix(data, ((2,), (2,)))
-
-
-def depolarizing_operators(p: float) -> KrausMap:
-    """Generate the KrausMap for a depolarizing channel.
-
-    The depolarizing channel applies I, X, Y, or Z each with equal probability p/4,
-    and I with probability 1-p.
-
-    :param p: Depolarizing probability (0 <= p <= 1)
-    :return: KrausMap with four 2x2 operator terms
-    """
-    k0 = Operator.from_matrix(jnp.sqrt(1.0 - p) * I.matrix, ((2,), (2,)))
-    k1 = Operator.from_matrix(jnp.sqrt(p / 3.0) * X.matrix, ((2,), (2,)))
-    k2 = Operator.from_matrix(jnp.sqrt(p / 3.0) * Y.matrix, ((2,), (2,)))
-    k3 = Operator.from_matrix(jnp.sqrt(p / 3.0) * Z.matrix, ((2,), (2,)))
-    data = jnp.stack([k0.matrix, k1.matrix, k2.matrix, k3.matrix], axis=0)
-    return KrausMap.from_matrix(data, ((2,), (2,)))
-
-
-def relaxation_operators(p: float) -> KrausMap:
-    """Generate the KrausMap for a relaxation channel.
-
-    The amplitude damping channel models energy dissipation (T1 decay).
-
-    :param p: Relaxation probability (0 <= p <= 1)
-    :return: KrausMap with two 2x2 operator terms
-    """
-    k0 = Operator.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.sqrt(1.0 - p)]], dtype=complex), ((2,), (2,)))
-    k1 = Operator.from_matrix(jnp.array([[0.0, jnp.sqrt(p)], [0.0, 0.0]], dtype=complex), ((2,), (2,)))
-    data = jnp.stack([k0.matrix, k1.matrix], axis=0)
-    return KrausMap.from_matrix(data, ((2,), (2,)))
-
-
-# Dictionary mapping channel names to Kraus-decomposition operator factories
-KRAUS_OPS = {
-    "bit_flip": bit_flip_operators,
-    "phase_flip": phase_flip_operators,
-    "bitphase_flip": bitphase_flip_operators,
-    "dephasing": dephasing_operators,
-    "depolarizing": depolarizing_operators,
-    "relaxation": relaxation_operators,
-}
 
 
 def stochastic_leakage_operators(gamma: float) -> KrausMap:
@@ -377,43 +286,6 @@ def stochastic_leakage_operators(gamma: float) -> KrausMap:
     k1_data = jnp.sqrt(gamma) * raise_20
     k2_data = jnp.sqrt(gamma) * raise_21
     data = jnp.stack([k0_data, k1_data, k2_data], axis=0)
-    return KrausMap.from_matrix(data, ((3,), (3,)))
-
-
-def leakage_operators(gamma: float) -> KrausMap:
-    """Generate the KrausMap for a |1⟩ → |2⟩ leakage channel on a single qutrit.
-
-    Models population transfer from the computational |1⟩ state only to
-    the leaked |2⟩ state with probability gamma. The |0⟩ state is
-    unaffected.
-
-    :param gamma: Leakage probability per gate (0 <= gamma <= 1)
-    :return: KrausMap with two 3x3 operator terms
-    """
-    # |2⟩⟨1| = (λ₆ - iλ₇)/2
-    raise_21 = (GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2
-
-    k0_data = TP0.matrix + jnp.sqrt(1.0 - gamma) * TP1.matrix + TP2.matrix
-    k1_data = jnp.sqrt(gamma) * raise_21
-    data = jnp.stack([k0_data, k1_data], axis=0)
-    return KrausMap.from_matrix(data, ((3,), (3,)))
-
-
-def seepage_operators(gamma: float) -> KrausMap:
-    """Generate the KrausMap for a seepage channel on a single qutrit.
-
-    Models population transfer from the leaked |2⟩ state back into the
-    computational |1⟩ state with probability gamma.
-
-    :param gamma: Seepage probability per gate (0 <= gamma <= 1)
-    :return: KrausMap with two 3x3 operator terms
-    """
-    # |1⟩⟨2| = (λ₆ + iλ₇)/2
-    lower_12 = (GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2
-
-    k0_data = TP0.matrix + TP1.matrix + jnp.sqrt(1.0 - gamma) * TP2.matrix
-    k1_data = jnp.sqrt(gamma) * lower_12
-    data = jnp.stack([k0_data, k1_data], axis=0)
     return KrausMap.from_matrix(data, ((3,), (3,)))
 
 

@@ -53,8 +53,8 @@ html_favicon = "_static/favicon.ico"
 # Include Plotly JS so interactive plots from notebooks render in the docs
 html_js_files = [
     # Adding the 'defer' attribute helps it play nicely with Furo's DOM loading
-    ('https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js', {'defer': 'defer'}),
-    ('https://cdn.plot.ly/plotly-2.35.2.min.js', {'defer': 'defer'}),
+    ("https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js", {"defer": "defer"}),
+    ("https://cdn.plot.ly/plotly-2.35.2.min.js", {"defer": "defer"}),
 ]
 
 html_theme_options = {

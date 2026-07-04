@@ -45,17 +45,8 @@ from ._common_channels import (
     instrument_from_axis,
     instrument_from_confusion_and_transition,
     integrated_thermal_superoperator,
-    thermal_relaxation_choi,
-    bit_flip_operators,
-    phase_flip_operators,
     bitphase_flip_operators,
-    dephasing_operators,
-    depolarizing_operators,
-    relaxation_operators,
-    leakage_operators,
     stochastic_leakage_operators,
-    seepage_operators,
-    KRAUS_OPS,
 )
 from ._compose import (
     compose_choi,
@@ -102,6 +93,7 @@ from ._exponentiation import (
     cis,
     evolve,
 )
+from ._generators import unitary_to_hamiltonian
 from ._promotion import (
     embed,
     permute,
@@ -230,19 +222,10 @@ __all__ = [
     # Common channels
     "depolarizing_channel_superoperator",
     "integrated_thermal_superoperator",
-    "thermal_relaxation_choi",
-    "bit_flip_operators",
-    "phase_flip_operators",
     "bitphase_flip_operators",
-    "dephasing_operators",
-    "depolarizing_operators",
-    "relaxation_operators",
-    "leakage_operators",
     "stochastic_leakage_operators",
-    "seepage_operators",
     "instrument_from_confusion_and_transition",
     "instrument_from_axis",
-    "KRAUS_OPS",
     # Compose quantum objects
     "compose_kraus_map",
     "compose_choi",
@@ -372,6 +355,7 @@ __all__ = [
     "exp",
     "cis",
     "evolve",
+    "unitary_to_hamiltonian",
     # Visualization
     "plot",
     # Submodules

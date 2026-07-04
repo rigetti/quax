@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 import quax as qx
 from quax import DensityMatrix
+from quax._common_channels import _thermal_relaxation_choi
 
 from .instrument_helpers import (
     basis_dm,
@@ -258,7 +259,7 @@ class TestThermalRelaxationChoi:
         tphis = jnp.array([30e-6])  # 30 microseconds
         duration = 1e-6  # 1 microsecond
 
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
         assert choi.matrix.shape == (4, 4)
 
     def test_two_qubit_thermal_relaxation_shape(self):
@@ -267,7 +268,7 @@ class TestThermalRelaxationChoi:
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
 
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
         assert choi.matrix.shape == (16, 16)
 
     def test_thermal_relaxation_preserves_trace(self):
@@ -280,7 +281,7 @@ class TestThermalRelaxationChoi:
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
 
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
 
         # For a trace-preserving channel, partial trace over output should give identity
         # Reshape to (d_out, d_in, d_out, d_in)
@@ -304,7 +305,7 @@ class TestThermalRelaxationChoi:
         tphis = jnp.array([30e-6])
         duration = 0.0
 
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
 
         # Identity channel Choi matrix
         expected = jnp.array([[1, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 1]], dtype=jnp.complex128)
@@ -312,17 +313,17 @@ class TestThermalRelaxationChoi:
         assert jnp.allclose(jnp.array(choi.matrix), jnp.array(expected), rtol=1e-5, atol=1e-7)
 
     def test_thermal_relaxation_jit_compatible(self):
-        """Test that thermal_relaxation_choi works (note: not fully JIT-compatible due to Python loop)."""
+        """Test that _thermal_relaxation_choi works (note: not fully JIT-compatible due to Python loop)."""
         t1s = jnp.array([50e-6, 45e-6])
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
 
         # Can be called directly (though not fully JIT-able)
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
         assert choi.matrix.shape == (16, 16)
 
         # Test that calling again gives same result
-        choi2 = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi2 = _thermal_relaxation_choi(t1s, tphis, duration)
 
         fid = qx.process_fidelity(choi, choi2)
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for repeated calls"
@@ -333,7 +334,7 @@ class TestThermalRelaxationChoi:
         tphis = jnp.array([30e-6])
         duration = 1e-3  # 1 millisecond >> T1
 
-        choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        choi = _thermal_relaxation_choi(t1s, tphis, duration)
 
         # After long time, should be close to projecting onto ground state
         # The (0,0) element should be close to 1, others near 0
@@ -356,7 +357,7 @@ class TestIntegratedThermalSuperoperator:
         tphis = jnp.array([30e-6, 28e-6])
         duration = 1e-6
 
-        superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
+        superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         # Superoperator for 2 qubits should be 16x16
         assert superop.matrix.shape == (16, 16)
@@ -369,10 +370,10 @@ class TestIntegratedThermalSuperoperator:
         duration = 1e-6
 
         # Integrated thermal with identity
-        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=100)
+        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         # Pure thermal channel
-        thermal_choi = qx.thermal_relaxation_choi(t1s, tphis, duration)
+        thermal_choi = _thermal_relaxation_choi(t1s, tphis, duration)
 
         # Should be approximately equal
         fid = qx.process_fidelity(qx.superop_to_choi(integrated_super), thermal_choi)
@@ -399,7 +400,7 @@ class TestIntegratedThermalSuperoperator:
         tphis = jnp.array([30e-6, 28e-6])
         duration = 0.0  # Zero duration
 
-        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
+        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         # Should give just the unitary channel
         unitary_super = qx.unitary_to_superop(unitary)
@@ -412,7 +413,7 @@ class TestIntegratedThermalSuperoperator:
 
         @jax.jit
         def compute_integrated(unitary, t1s, tphis, duration):
-            return qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
+            return qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         unitary = qx.Unitary.from_matrix(jnp.eye(4, dtype=jnp.complex128), ((2, 2), (2, 2)))
         t1s = jnp.array([50e-6, 45e-6])
@@ -427,37 +428,6 @@ class TestIntegratedThermalSuperoperator:
         superop2 = compute_integrated(unitary, t1s, tphis, duration)
         fid = qx.process_fidelity(qx.superop_to_choi(superop), qx.superop_to_choi(superop2))
         assert jnp.isclose(fid, 1.0, atol=1e-7), f"Fidelity {fid} not close to 1 for JIT calls"
-
-    def test_integrated_thermal_convergence(self):
-        """Test that more steps gives better approximation."""
-        theta = 0.3
-        unitary = qx.Unitary.from_matrix(
-            jnp.array(
-                [
-                    [jnp.cos(theta), -jnp.sin(theta), 0, 0],
-                    [jnp.sin(theta), jnp.cos(theta), 0, 0],
-                    [0, 0, jnp.cos(theta), -jnp.sin(theta)],
-                    [0, 0, jnp.sin(theta), jnp.cos(theta)],
-                ],
-                dtype=jnp.complex128,
-            ),
-            ((2, 2), (2, 2)),
-        )
-
-        t1s = jnp.array([50e-6, 45e-6])
-        tphis = jnp.array([30e-6, 28e-6])
-        duration = 2e-6
-
-        # Compute with different number of steps
-        superop_10 = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=10)
-        superop_50 = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=50)
-        superop_100 = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=100)
-
-        # Distance between 50 and 100 should be less than between 10 and 50
-        fid_10_50 = qx.process_fidelity(qx.superop_to_choi(superop_10), qx.superop_to_choi(superop_50))
-        fid_50_100 = qx.process_fidelity(qx.superop_to_choi(superop_50), qx.superop_to_choi(superop_100))
-
-        assert fid_50_100 > fid_10_50
 
     def test_integrated_thermal_single_qubit(self):
         """Test integrated thermal for single qubit."""
@@ -475,7 +445,7 @@ class TestIntegratedThermalSuperoperator:
         tphis = jnp.array([30e-6])
         duration = 1e-6
 
-        superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=50)
+        superop = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         # Should have correct shape for single qubit
         assert superop.matrix.shape == (4, 4)
@@ -503,7 +473,7 @@ class TestIntegratedThermalSuperoperator:
         t1s = jnp.array([1e-3, 1e-3])  # 1 ms >> 50 ns
         tphis = jnp.array([5e-4, 5e-4])  # 0.5 ms >> 50 ns
 
-        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration, num_steps=100)
+        integrated_super = qx.integrated_thermal_superoperator(unitary, t1s, tphis, duration)
 
         # Expected: pure unitary channel (no decoherence)
         expected_super = qx.unitary_to_superop(unitary)

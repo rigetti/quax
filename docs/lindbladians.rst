@@ -97,12 +97,13 @@ objects (the jump operators' ``n_ops`` axis is *not* an ensemble axis).
 Constructing Lindbladians
 -------------------------
 
-Use :meth:`~quax.Lindbladian.from_operators` to build a Lindbladian from a Hamiltonian
-and jump operators:
+Construct a :class:`~quax.Lindbladian` directly from a Hamiltonian and jump operators:
 
 .. code-block:: python
 
-   gen = qx.Lindbladian.from_operators(hamiltonian, jump_operators)
+   gen = qx.Lindbladian(hamiltonian=hamiltonian, jump_operators=jump_operators)
+
+Pass ``hamiltonian=None`` for a purely dissipative generator.
 
 **Rate convention:** rates must be pre-absorbed into the jump operators.  Pass
 ``sqrt(γ) * L_physical`` rather than providing ``(L_physical, γ)`` separately.
@@ -115,36 +116,32 @@ leading ``n_ops`` axis — do **NOT** sum them first:
    # Correct: stack jump operators
    L_stack = jnp.stack([L1, L2, L3])           # (3, d, d)
    jump_ops = qx.Operator.from_matrix(L_stack, (dims, dims))
-   gen = qx.Lindbladian.from_operators(H, jump_ops)
+   gen = qx.Lindbladian(hamiltonian=H, jump_operators=jump_ops)
 
    # Also correct: add separate Lindbladians
-   gen = qx.Lindbladian.from_operators(H1, L1) + qx.Lindbladian.from_operators(H2, L2)
+   gen = qx.Lindbladian(hamiltonian=H1, jump_operators=L1) + qx.Lindbladian(hamiltonian=H2, jump_operators=L2)
 
-   # WRONG: summing jump operators before calling from_operators
+   # WRONG: summing jump operators before construction
    # (L1+L2)ρ(L1+L2)† ≠ L1ρL1† + L2ρL2†
 
 
-Recovering Operators
+Inspecting Operators
 --------------------
 
 A :class:`~quax.Lindbladian` stores its Hamiltonian and jump operators directly (they are its
-only data), so :meth:`~quax.Lindbladian.to_operators` simply returns them — the exact
-``(hamiltonian, jump_operators)`` pair passed to :meth:`~quax.Lindbladian.from_operators`
-(``hamiltonian`` is ``None`` for a purely dissipative generator).  They are also available as the
-``.hamiltonian`` and ``.jump_operators`` attributes for introspection.
+only data), so they are always recoverable — exactly as supplied — via the ``.hamiltonian`` and
+``.jump_operators`` attributes (``hamiltonian`` is ``None`` for a purely dissipative generator):
 
 .. code-block:: python
 
-   H, jump_ops = gen.to_operators()
-   rebuilt = qx.Lindbladian.from_operators(H, jump_ops)   # reproduces gen exactly
+   H, jump_ops = gen.hamiltonian, gen.jump_operators
 
 .. note::
-   There is **no gauge canonicalization**: unlike a Kossakowski reconstruction, the physical
-   operators come back unchanged (a single jump operator stays a single jump operator).  Because
-   the operators are the source of truth, only physically valid (CPTP-generating) Lindbladians are
-   representable — operations that could produce a non-CP generator (negation, subtraction, and
-   multiplication by a negative or complex scalar) raise instead of silently returning an invalid
-   object.
+   There is **no gauge canonicalization**: the physical operators are stored verbatim (a single
+   jump operator stays a single jump operator).  Because the operators are the source of truth,
+   only physically valid (CPTP-generating) Lindbladians are representable — operations that could
+   produce a non-CP generator (negation, subtraction, and multiplication by a negative or complex
+   scalar) raise instead of silently returning an invalid object.
 
 
 Common Noise Channels
@@ -152,15 +149,10 @@ Common Noise Channels
 
 The factories live in the :mod:`quax.lindbladians` submodule and each returns a
 :class:`~quax.Lindbladian`.  Use :func:`~quax.evolve` to obtain the corresponding CPTP
-channel.  See each factory's docstring in the API reference for its jump operators.
-
-Qubit channel equivalences (at time *t*):
-
-* ``lindbladians.amplitude_damping(γ)`` → ``relaxation_operators(1 − exp(−γt))``
-* ``lindbladians.dephasing(γ)`` → ``dephasing_operators(1 − exp(−γt))``
-* ``lindbladians.depolarizing(γ)`` → ``depolarizing_operators(¾(1 − exp(−4γt/3)))``
-* ``lindbladians.bit_flip(γ)`` → ``bit_flip_operators(½(1 − exp(−2γt)))``
-* ``lindbladians.phase_flip(γ)`` → ``phase_flip_operators(½(1 − exp(−2γt)))``
+channel.  See each factory's docstring in the API reference for its jump operators.  These
+generators are the canonical way to build the common noise channels; evolving one for time
+*t* gives, e.g. for amplitude damping, the channel with damping probability
+:math:`1 - e^{-\gamma t}` (and analogously ``p = ¾(1 − e^{-4γt/3})`` for depolarizing).
 
 
 Evolving to a Channel

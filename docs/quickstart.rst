@@ -142,11 +142,10 @@ Quantum Channels
    p = 0.1
    depol = qx.depolarizing_channel_superoperator(p, dims=(2,))
    
-   # Thermal relaxation
-   t1s = jnp.array([50e-6])
-   tphis = jnp.array([30e-6])
+   # Thermal relaxation (T1 + pure dephasing) as a Lindbladian, evolved over the gate
+   t1, tphi = 50e-6, 30e-6
    gate_time = 20e-9
-   thermal = qx.thermal_relaxation_choi(t1s, tphis, gate_time)
+   thermal = qx.evolve(qx.lindbladians.thermal_relaxation(t1, tphi), gate_time)
 
 Multi-Qubit Systems
 -------------------

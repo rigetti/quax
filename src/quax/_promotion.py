@@ -261,7 +261,7 @@ def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindb
     _validate_promote_dims(generator.dims[0], dims)
     hamiltonian, jump_operators = generator.hamiltonian, generator.jump_operators
     promoted_hamiltonian = promote(hamiltonian, dims) if hamiltonian is not None else None
-    return Lindbladian.from_operators(promoted_hamiltonian, promote(jump_operators, dims))
+    return Lindbladian(hamiltonian=promoted_hamiltonian, jump_operators=promote(jump_operators, dims))
 
 
 @promote.register(PauliLiouville)

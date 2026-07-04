@@ -174,7 +174,6 @@ Common Channels
    :nosignatures:
 
    depolarizing_channel_superoperator
-   thermal_relaxation_choi
    integrated_thermal_superoperator
 
 Observables Computation
