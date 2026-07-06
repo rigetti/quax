@@ -144,7 +144,6 @@ from ._superoperator_transformations import (
     pauli_liouville_to_superop,
     superop_to_choi,
     superop_to_kraus,
-    superop_to_lindbladian,
     superop_to_pauli_liouville,
     to_choi,
     to_kraus,
@@ -251,7 +250,6 @@ __all__ = [
     "pauli_liouville_to_kraus",
     "pauli_liouville_to_superop",
     "superop_to_choi",
-    "superop_to_lindbladian",
     "superop_to_kraus",
     "superop_to_pauli_liouville",
     "to_choi",
@@ -266,7 +264,6 @@ __all__ = [
     # Distance metrics
     "fidelity",
     "process_fidelity",
-    "to_choi",
     "unitary_entanglement_fidelity",
     "depolarizing_constant_to_average_fidelity",
     "average_fidelity_to_depolarizing_constant",

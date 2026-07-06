@@ -112,8 +112,16 @@ def cis(operator: Operator) -> Unitary:
     return Unitary.from_matrix(phase[..., None, None] * result, dims)
 
 
+@overload
+def evolve(operator: Observable, t: float = 1.0) -> Unitary: ...
+
+
+@overload
+def evolve(operator: Lindbladian, t: float = 1.0) -> SuperOp: ...
+
+
 @singledispatch
-def evolve(operator, t: float = 1.0):
+def evolve(operator, t: float = 1.0) -> "Unitary | SuperOp":
     """Evolve a quantum generator for time ``t``, returning the corresponding quantum object.
 
     Dispatches on the type of ``operator``:
@@ -212,8 +220,7 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
 
         For meaningful (and CPTP) fractional powers, it is best to have the **Lindblad generator**:
         build the channel as ``evolve(lindbladian, t)`` and take ``evolve(lindbladian, power * t)``
-        directly.  Use :func:`~quax.superop_to_lindbladian` to recover a generator from an existing
-        channel (itself best-effort, subject to the same caveats).
+        directly.
 
     :param superop: The channel superoperator.
     :param power: The exponent.

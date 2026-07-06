@@ -36,6 +36,7 @@ from functools import reduce
 from operator import mul
 from typing import Optional, Tuple
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -82,7 +83,8 @@ def seepage(rate: float | Array, t: float = 1.0) -> SuperOp:
 def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array = 0.0, t: float = 1.0) -> SuperOp:
     """Finite-temperature thermal-relaxation channel. See :func:`quax.lindbladians.thermal_relaxation`.
 
-    ``p1`` is the equilibrium excited-state population (default 0 = zero temperature).
+    ``p1`` is the equilibrium excited-state population (default 0 = zero temperature).  Note ``tphi``
+    is the pure-dephasing time ``Tφ``, not ``T₂`` (``1/T₂ = 1/(2·T₁) + 1/Tφ``).
     """
     return evolve(lindbladians.thermal_relaxation(t1, tphi, p1), t)
 
@@ -121,8 +123,7 @@ def instrument_from_confusion_and_transition(
     d_measured = reduce(mul, (dims[i] for i in measured_qudits), 1)
     num_outcomes = confusion_matrix.shape[0]
 
-    # Shape checks use static shapes (jit-safe).  The caller is responsible for the matrices being
-    # non-negative and column-stochastic — value checks are omitted so this stays jit-compatible.
+    # Shape checks use static shapes (always run; jit-safe).
     if confusion_matrix.shape != (num_outcomes, d_measured):
         raise ValueError(
             f"Confusion matrix shape {confusion_matrix.shape} does not match "
@@ -132,6 +133,15 @@ def instrument_from_confusion_and_transition(
         raise ValueError(
             f"Transition matrix shape {transition_matrix.shape} does not match (d_total={d_total}, d_total={d_total})."
         )
+    # Value checks (non-negativity, column-stochasticity) run only for concrete inputs; they are
+    # skipped under `jax.jit` tracing (branching on traced arrays is not possible) so the function
+    # stays jit-compatible.
+    for label, m in (("Confusion", confusion_matrix), ("Transition", transition_matrix)):
+        if not isinstance(m, jax.core.Tracer):  # pyright: ignore[reportAttributeAccessIssue]
+            if not bool(jnp.all(m >= -1e-14)):
+                raise ValueError(f"{label} matrix entries must be non-negative.")
+            if not bool(jnp.allclose(jnp.sum(m, axis=0), 1.0, atol=1e-6)):
+                raise ValueError(f"{label} matrix columns must sum to 1.")
 
     superop_list: list[Array] = []
     for i in range(num_outcomes):

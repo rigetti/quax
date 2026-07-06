@@ -415,12 +415,3 @@ class TestKrausTruncation:
         result = qx.truncate_kraus(kraus, atol=1e10)
 
         assert result.matrix.shape[-3] >= 1
-
-
-def test_superop_to_lindbladian_round_trip():
-    """evolve(superop_to_lindbladian(S), 1) reproduces a divisible channel S."""
-    gen = qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)
-    S = qx.evolve(gen, 1.0)
-    recovered = qx.superop_to_lindbladian(S)
-    assert isinstance(recovered, qx.Lindbladian)
-    assert jnp.allclose(qx.evolve(recovered, 1.0).matrix, S.matrix, atol=1e-6)

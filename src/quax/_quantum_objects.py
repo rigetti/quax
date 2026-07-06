@@ -2134,7 +2134,7 @@ class Lindbladian(QuantumObject):
 
     # ----- generator algebra -----
 
-    def __add__(self, other: Any) -> "Lindbladian":
+    def __add__(self, other: "Lindbladian | Unitary") -> "Lindbladian":
         """Combine with another generator, or fold in a gate — returns a :class:`Lindbladian`.
 
         - ``Lindbladian + Lindbladian`` → combined generator (jump operators concatenated,
@@ -2144,14 +2144,16 @@ class Lindbladian(QuantumObject):
           term.  The generator is returned *un-exponentiated* because the Lindbladian is on the left.
         """
         if isinstance(other, Lindbladian):
-            return _combine_lindbladians(self, other)
+            from ._add import combine_lindbladians
+
+            return combine_lindbladians(self, other)
         if isinstance(other, Unitary):
             from ._generators import gate_plus_lindbladian
 
             return gate_plus_lindbladian(other, self)
         return NotImplemented
 
-    def __radd__(self, other: Any) -> Any:
+    def __radd__(self, other: "Lindbladian | Unitary") -> "Lindbladian | SuperOp":
         """Right-hand add: a gate on the *left* yields the noisy-gate channel.
 
         ``Unitary + Lindbladian`` reaches here (the gate's ``__add__`` returns ``NotImplemented``):
@@ -2164,7 +2166,9 @@ class Lindbladian(QuantumObject):
 
             return evolve(gate_plus_lindbladian(other, self), 1.0)
         if isinstance(other, Lindbladian):
-            return _combine_lindbladians(other, self)
+            from ._add import combine_lindbladians
+
+            return combine_lindbladians(other, self)
         return NotImplemented
 
     def __or__(self, other: Any) -> "Lindbladian":
@@ -2179,7 +2183,7 @@ class Lindbladian(QuantumObject):
 
         return tensor_lindbladian(self, other)
 
-    def __sub__(self, other: Any) -> "Lindbladian":
+    def __sub__(self, other: "Lindbladian") -> "Lindbladian":
         """Not supported: generator subtraction can yield a non-CP generator (see class docstring)."""
         raise NotImplementedError(
             "Lindbladian subtraction is not supported: the result can be a non-CP generator that "
@@ -2220,37 +2224,6 @@ class Lindbladian(QuantumObject):
         if self.dims != other.dims:
             return False
         return bool(jnp.allclose(self.matrix, other.matrix))
-
-
-def _combine_lindbladians(a: "Lindbladian", b: "Lindbladian") -> "Lindbladian":
-    """Combine two Lindbladian generators: concatenate jump operators and sum Hamiltonians.
-
-    Operands are promoted to common per-subsystem dimensions if they differ (so mixed-dimension
-    noise, e.g. qutrit leakage and qubit-subspace depolarizing, combines).
-    """
-    from ._promotion import promote
-
-    a_dims, b_dims = a.dims[0], b.dims[0]
-    if len(a_dims) != len(b_dims):
-        raise ValueError(f"Cannot add Lindbladians on {a_dims} and {b_dims} qudits: the subsystem counts differ.")
-    target = tuple(max(x, y) for x, y in zip(a_dims, b_dims))
-    if a_dims != target:
-        a = promote(a, target)
-    if b_dims != target:
-        b = promote(b, target)
-
-    combined_jumps = Operator.from_matrix(
-        jnp.concatenate([a.jump_operators.matrix, b.jump_operators.matrix], axis=-3),
-        a.jump_operators.dims,
-    )
-    # None-aware Hamiltonian sum (Observable + Observable → Observable).
-    if a.hamiltonian is None:
-        hamiltonian = b.hamiltonian
-    elif b.hamiltonian is None:
-        hamiltonian = a.hamiltonian
-    else:
-        hamiltonian = a.hamiltonian + b.hamiltonian
-    return Lindbladian(hamiltonian=hamiltonian, jump_operators=combined_jumps)
 
 
 # ======================================================================

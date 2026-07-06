@@ -120,7 +120,6 @@ Superoperator Transformations
    pauli_liouville_to_superop
    superop_to_kraus
    superop_to_choi
-   superop_to_lindbladian
    superop_to_pauli_liouville
    unitary_to_hamiltonian
 

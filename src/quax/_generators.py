@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from functools import reduce
 from operator import mul
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -89,40 +89,6 @@ def gate_plus_lindbladian(gate: Unitary, lind: Lindbladian) -> Lindbladian:
     if lind.hamiltonian is not None:
         hamiltonian = hamiltonian + lind.hamiltonian  # Observable + Observable → Observable
     return Lindbladian(hamiltonian=hamiltonian, jump_operators=lind.jump_operators)
-
-
-def reconstruct_gksl(gen_matrix: Array, d: int) -> Tuple[Array, Array]:
-    """Recover a canonical GKSL representation ``(H, {L_k})`` from a ``d²×d²`` generator matrix.
-
-    Inverse of :func:`gksl_generator` (single, un-batched generator; vmap externally for ensembles).
-    Uses the traceless-jump-operator gauge: the dissipator's Kossakowski matrix is the reshuffled
-    generator projected onto the traceless subspace; its eigendecomposition yields the jump
-    operators, and the remaining δ-structured part fixes the traceless Hamiltonian.  Negative
-    Kossakowski eigenvalues (from a non-CP-generating input) are clamped, so the result is the
-    nearest valid generator.
-
-    :param gen_matrix: ``(d², d²)`` generator matrix (single, un-batched).
-    :param d: Hilbert-space dimension.
-    :return: ``(H, jump_ops)`` with shapes ``(d, d)`` and ``(d², d, d)``.
-    """
-    tensor = gen_matrix.reshape(d, d, d, d)  # [a, c, b, d']
-    reshuffled = jnp.transpose(tensor, (0, 2, 1, 3)).reshape(d * d, d * d)  # R[(a,b),(c,d')]
-    omega = jnp.eye(d, dtype=complex).reshape(d * d)  # vec(I)
-    proj = jnp.eye(d * d, dtype=complex) - jnp.outer(omega, jnp.conj(omega)) / d
-    kossakowski = proj @ reshuffled @ proj  # PSD in the traceless subspace
-    kossakowski = 0.5 * (kossakowski + kossakowski.conj().T)
-    evals, evecs = jnp.linalg.eigh(kossakowski)
-    evals = jnp.maximum(evals.real, 0.0)  # clamp numerical/negative eigenvalues
-    weighted = evecs * jnp.sqrt(evals)[None, :]  # columns are √λ_k · v_k
-    jump_ops = jnp.conj(jnp.transpose(weighted).reshape(d * d, d, d))  # (n_ops=d², d, d)
-
-    g_matrix = jnp.einsum("kca,kcb->ab", jnp.conj(jump_ops), jump_ops)  # Σ L_k† L_k
-    tau = -0.5 * jnp.trace(g_matrix)
-    delta = (reshuffled - kossakowski).reshape(d, d, d, d)  # purely δ-structured
-    m_matrix = (jnp.einsum("aacd->cd", delta) - tau * jnp.eye(d, dtype=complex)) / d
-    hamiltonian = 1j * (m_matrix + 0.5 * g_matrix)
-    hamiltonian = 0.5 * (hamiltonian + hamiltonian.conj().T)
-    return hamiltonian, jump_ops
 
 
 @jax.jit

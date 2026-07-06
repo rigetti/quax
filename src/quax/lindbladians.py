@@ -136,6 +136,15 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array
     The total energy-relaxation rate is ``1/T1`` (``= γ↓ + γ↑``).  With the default ``p1 = 0``
     (zero temperature) the excitation jump vanishes and this reduces to pure amplitude damping.
 
+    .. note::
+        This takes the **pure-dephasing** time ``Tφ``, not the coherence time ``T₂`` usually
+        reported for hardware.  They are related by ``1/T₂ = 1/(2·T₁) + 1/Tφ``, so convert with
+
+        .. math:: T_\\varphi = \\frac{1}{\\,1/T_2 - 1/(2 T_1)\\,}.
+
+        This requires ``T₂ ≤ 2·T₁`` (equivalently ``1/T₂ ≥ 1/(2 T₁)``); the pure-dephasing rate is
+        otherwise negative and unphysical.
+
     :param t1: T1 relaxation time (total energy relaxation). Must be positive. Arrays produce an ensemble.
     :param tphi: Pure dephasing time (Tφ, not T2). Must be positive. Arrays produce an ensemble.
     :param p1: Equilibrium excited-state population ``∈ [0, 1]`` (finite temperature). Default ``0``.

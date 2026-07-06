@@ -249,11 +249,30 @@ def test_superop_fractional_power_is_cptp_and_composes():
     assert jnp.allclose((root @ root).matrix, S.matrix, atol=1e-6)
 
 
-def test_superop_fractional_power_matches_evolve():
-    """S**s equals evolving the underlying generator for a fraction of the time."""
-    gen = qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)
+# Every common channel we offer, as an infinitely divisible generator. Rates/times are chosen so
+# each channel is well-conditioned over unit time (moderate, non-degenerate decay).
+_CHANNEL_GENERATORS = [
+    ("depolarizing", lambda: qx.lindbladians.depolarizing(0.1)),
+    ("amplitude_damping", lambda: qx.lindbladians.amplitude_damping(0.3)),
+    ("dephasing", lambda: qx.lindbladians.dephasing(0.2)),
+    ("bit_flip", lambda: qx.lindbladians.bit_flip(0.15)),
+    ("phase_flip", lambda: qx.lindbladians.phase_flip(0.15)),
+    ("leakage", lambda: qx.lindbladians.leakage(0.1)),
+    ("seepage", lambda: qx.lindbladians.seepage(0.1)),
+    ("thermal_relaxation", lambda: qx.lindbladians.thermal_relaxation(2.0, 3.0, p1=0.1)),
+    ("amplitude_damping+dephasing", lambda: qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)),
+]
+
+
+@pytest.mark.parametrize("gen_fn", [g for _, g in _CHANNEL_GENERATORS], ids=[n for n, _ in _CHANNEL_GENERATORS])
+def test_superop_fractional_power_matches_evolve(gen_fn):
+    """S**s equals evolving the underlying generator for a fraction of the time, for every channel."""
+    gen = gen_fn()
     S = qx.evolve(gen, 1.0)
-    assert jnp.allclose((S**0.5).matrix, qx.evolve(gen, 0.5).matrix, atol=1e-6)
+    root = S**0.5
+    # The fractional power of an infinitely divisible channel stays CPTP and matches half-time evolution.
+    assert qx.is_cptp(root)
+    assert jnp.allclose(root.matrix, qx.evolve(gen, 0.5).matrix, atol=1e-6)
 
 
 def test_superop_integer_power_is_exact_composition():

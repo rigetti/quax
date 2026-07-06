@@ -14,7 +14,7 @@
 
 from functools import lru_cache, reduce, singledispatch
 from operator import mul
-from typing import TYPE_CHECKING, Tuple
+from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -22,9 +22,6 @@ from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
-
-if TYPE_CHECKING:
-    from ._quantum_objects import Lindbladian
 
 # ============================================================================
 # Choi <-> Superoperator transformations
@@ -644,38 +641,3 @@ def _kraus_map_to_kraus_map(kraus_map: KrausMap) -> KrausMap:
 def _unitary_to_kraus_map(unitary: Unitary) -> KrausMap:
     """Convert Unitary to KrausMap."""
     return unitary_to_kraus_map(unitary)
-
-
-def superop_to_lindbladian(superop: SuperOp) -> "Lindbladian":
-    """Recover a Lindbladian generator whose ``evolve(·, 1)`` reproduces the channel ``superop``.
-
-    Computes the principal matrix logarithm of the superoperator (its generator) and decomposes it
-    into a canonical ``(H, jump_operators)`` GKSL representation.
-
-    .. note::
-        This is exact only for **infinitely divisible** channels (those of the form ``exp(L)`` for a
-        valid GKSL generator).  For a general channel the principal log need not be a CP generator;
-        the reconstruction clamps to the nearest valid one (best-effort), so the round-trip is not
-        guaranteed.  A singular ``superop`` (zero eigenvalue) has no logarithm.
-
-    :param superop: The channel superoperator.
-    :return: A :class:`~quax.Lindbladian` generator.
-    """
-    from ._generators import reconstruct_gksl
-    from ._quantum_objects import Lindbladian, Observable, Operator
-
-    dims = superop.dims[1]
-    d = reduce(mul, dims, 1)
-    matrix = superop.matrix  # (*ensemble, d², d²)
-    ensemble_shape = matrix.shape[:-2]
-    flat = matrix.reshape((-1, d * d, d * d))
-
-    def _log_then_reconstruct(m: Array):
-        eigvals, eigvecs = jnp.linalg.eig(m)
-        log_gen = (eigvecs * jnp.log(eigvals)[..., None, :]) @ jnp.linalg.inv(eigvecs)  # principal log
-        return reconstruct_gksl(log_gen, d)
-
-    h_flat, l_flat = jax.vmap(_log_then_reconstruct)(flat)
-    hamiltonian = Observable.from_matrix(h_flat.reshape(ensemble_shape + (d, d)), (dims, dims))
-    jump_operators = Operator.from_matrix(l_flat.reshape(ensemble_shape + (d * d, d, d)), (dims, dims))
-    return Lindbladian(hamiltonian=hamiltonian, jump_operators=jump_operators)
