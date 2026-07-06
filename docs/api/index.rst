@@ -120,7 +120,9 @@ Superoperator Transformations
    pauli_liouville_to_superop
    superop_to_kraus
    superop_to_choi
+   superop_to_lindbladian
    superop_to_pauli_liouville
+   unitary_to_hamiltonian
 
 Power Operations
 ----------------
@@ -169,12 +171,16 @@ Random Generators
 Common Channels
 ---------------
 
+Rate-parameterized noise channels live in the :mod:`quax.channels` submodule (e.g.
+``qx.channels.depolarizing``), each an evolved :mod:`quax.lindbladians` generator.  Measurement
+instruments:
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
 
-   depolarizing_channel_superoperator
-   integrated_thermal_superoperator
+   instrument_from_axis
+   instrument_from_confusion_and_transition
 
 Observables Computation
 -----------------------

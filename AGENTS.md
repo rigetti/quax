@@ -31,7 +31,7 @@ src/quax/                              # Main package
 ├── ensembles.py                       # Predefined ensembles (public submodule)
 ├── _apply.py                          # Applying operators to states
 ├── _apply_superoperator.py            # Superoperator application logic
-├── _common_channels.py                # Standard quantum channels and instrument constructors
+├── channels.py                        # SuperOp channels + measurement instrument constructors (public submodule)
 ├── _compose.py                        # Operator composition
 ├── _metrics.py                        # Fidelity and distance functions
 ├── _mul.py                            # Scalar multiplication logic
@@ -219,10 +219,11 @@ Common *noise* channels are defined canonically as Lindbladian generators in
 Prefer adding a new noise channel there.
 
 1. For a noise generator: add a factory to `src/quax/lindbladians.py` returning a `Lindbladian`.
-2. For a fixed non-divisible channel or instrument (no Lindbladian generator): implement in
-   `src/quax/_common_channels.py`.
+2. For a SuperOp channel or a fixed non-divisible channel / instrument (no Lindbladian generator):
+   implement in `src/quax/channels.py`.
 3. Export from `__init__.py`.
-4. Add tests to `tests/test_lindbladian.py` or `tests/test_common_channels.py` as appropriate.
+4. Add tests to `tests/test_lindbladian.py`, `tests/test_channels.py`, or
+   `tests/test_common_channels.py` as appropriate.
 
 ### Adding a New Transformation
 

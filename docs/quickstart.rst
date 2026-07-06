@@ -140,7 +140,7 @@ Quantum Channels
    
    # Depolarizing channel
    p = 0.1
-   depol = qx.depolarizing_channel_superoperator(p, dims=(2,))
+   depol = qx.channels.depolarizing(p, dims=(2,))
    
    # Thermal relaxation (T1 + pure dephasing) as a Lindbladian, evolved over the gate
    t1, tphi = 50e-6, 30e-6

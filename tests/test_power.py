@@ -227,3 +227,45 @@ def test_cis(theta):
     expected_values = jnp.asarray([expm(1j * t * (XX + YY)) for t in thetas.flatten()]).reshape((3, 4, 4, 4))
     computed_values = qx.cis((thetas * ((qx.gates.X | qx.gates.X) + (qx.gates.Y | qx.gates.Y)))).matrix
     assert jnp.allclose(computed_values, expected_values, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Non-integer superoperator powers via the Lindbladian generator
+# ---------------------------------------------------------------------------
+
+
+def _divisible_superop(seed=0):
+    """An infinitely divisible channel: exp of a Lindbladian generator."""
+    gen = qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)
+    return qx.evolve(gen, 1.0)
+
+
+def test_superop_fractional_power_is_cptp_and_composes():
+    """S**0.5 of a divisible channel is CPTP and squares back to S."""
+    S = _divisible_superop()
+    root = S**0.5
+    assert isinstance(root, qx.SuperOp)
+    assert qx.is_cptp(root)
+    assert jnp.allclose((root @ root).matrix, S.matrix, atol=1e-6)
+
+
+def test_superop_fractional_power_matches_evolve():
+    """S**s equals evolving the underlying generator for a fraction of the time."""
+    gen = qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)
+    S = qx.evolve(gen, 1.0)
+    assert jnp.allclose((S**0.5).matrix, qx.evolve(gen, 0.5).matrix, atol=1e-6)
+
+
+def test_superop_integer_power_is_exact_composition():
+    """Integer powers are exact repeated composition (not routed through the generator)."""
+    S = _divisible_superop()
+    assert jnp.allclose((S**2).matrix, (S @ S).matrix, atol=1e-9)
+    assert jnp.allclose((S**3).matrix, (S @ S @ S).matrix, atol=1e-9)
+
+
+def test_choi_fractional_power_cptp():
+    """Choi channels inherit the Lindbladian-based fractional power."""
+    choi = qx.to_choi(_divisible_superop())
+    root = choi**0.5
+    assert qx.is_cptp(root)
+    assert jnp.allclose(qx.to_superop(root @ root).matrix, qx.to_superop(choi).matrix, atol=1e-6)

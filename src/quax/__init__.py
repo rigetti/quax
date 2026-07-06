@@ -40,13 +40,9 @@ from ._apply import (
     targeted_apply_unitary,
     targeted_apply_unitary_to_density_matrix,
 )
-from ._common_channels import (
-    depolarizing_channel_superoperator,
+from .channels import (
     instrument_from_axis,
     instrument_from_confusion_and_transition,
-    integrated_thermal_superoperator,
-    bitphase_flip_operators,
-    stochastic_leakage_operators,
 )
 from ._compose import (
     compose_choi,
@@ -148,6 +144,7 @@ from ._superoperator_transformations import (
     pauli_liouville_to_superop,
     superop_to_choi,
     superop_to_kraus,
+    superop_to_lindbladian,
     superop_to_pauli_liouville,
     to_choi,
     to_kraus,
@@ -192,6 +189,7 @@ from . import gates
 from . import states
 from . import ensembles
 from . import lindbladians
+from . import channels
 
 __all__ = [
     # Apply superoperator functions
@@ -220,10 +218,6 @@ __all__ = [
     "targeted_apply_unitary",
     "targeted_apply_unitary_to_density_matrix",
     # Common channels
-    "depolarizing_channel_superoperator",
-    "integrated_thermal_superoperator",
-    "bitphase_flip_operators",
-    "stochastic_leakage_operators",
     "instrument_from_confusion_and_transition",
     "instrument_from_axis",
     # Compose quantum objects
@@ -257,6 +251,7 @@ __all__ = [
     "pauli_liouville_to_kraus",
     "pauli_liouville_to_superop",
     "superop_to_choi",
+    "superop_to_lindbladian",
     "superop_to_kraus",
     "superop_to_pauli_liouville",
     "to_choi",
@@ -363,4 +358,5 @@ __all__ = [
     "states",
     "ensembles",
     "lindbladians",
+    "channels",
 ]

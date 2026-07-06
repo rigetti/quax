@@ -383,7 +383,7 @@ class TestKrausTruncation:
 
     def test_depolarizing(self):
         """Depolarizing channel has exactly 4 Kraus operators (for a single qubit)."""
-        kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(0.1, (2,)))
+        kraus = qx.to_kraus(qx.channels.depolarizing(0.1, (2,)))
         result = qx.truncate_kraus(kraus)
 
         # All 4 operators are significant for nonzero depolarizing probability
@@ -396,7 +396,7 @@ class TestKrausTruncation:
         # Member 0: unitary (1 significant op), Member 1: depolarizing (4 significant ops)
         key = jax.random.PRNGKey(42)
         unitary_kraus = qx.to_kraus(qx.random_unitary(dims=((2,), (2,)), key=key))
-        depol_kraus = qx.to_kraus(qx.to_choi(qx.to_kraus(qx.depolarizing_channel_superoperator(0.1, (2,)))))
+        depol_kraus = qx.to_kraus(qx.to_choi(qx.to_kraus(qx.channels.depolarizing(0.1, (2,)))))
 
         # Stack into an ensemble of shape (2, 4, 2, 2)
         ensemble_data = jnp.stack([unitary_kraus.matrix, depol_kraus.matrix], axis=0)
@@ -411,7 +411,16 @@ class TestKrausTruncation:
 
     def test_at_least_one(self):
         """Even with a very large tolerance, at least one Kraus operator is kept."""
-        kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(0.001, (2,)))
+        kraus = qx.to_kraus(qx.channels.depolarizing(0.001, (2,)))
         result = qx.truncate_kraus(kraus, atol=1e10)
 
         assert result.matrix.shape[-3] >= 1
+
+
+def test_superop_to_lindbladian_round_trip():
+    """evolve(superop_to_lindbladian(S), 1) reproduces a divisible channel S."""
+    gen = qx.lindbladians.amplitude_damping(0.3) + qx.lindbladians.dephasing(0.2)
+    S = qx.evolve(gen, 1.0)
+    recovered = qx.superop_to_lindbladian(S)
+    assert isinstance(recovered, qx.Lindbladian)
+    assert jnp.allclose(qx.evolve(recovered, 1.0).matrix, S.matrix, atol=1e-6)

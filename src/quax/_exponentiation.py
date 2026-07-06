@@ -189,40 +189,35 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     return V_scaled @ V_inv
 
 
-def _matrix_power_via_lindbladian(matrix: Array, power: float) -> Array:
-    """Compute matrix power via M^α = exp(α·log(M)) — correct for infinitely divisible channels."""
-    eigvals, eigvecs = jnp.linalg.eig(matrix)
-    log_eigvals = jnp.log(eigvals)
-    V_scaled = eigvecs * log_eigvals[..., None, :]
-    V_inv = jnp.linalg.inv(eigvecs)
-    log_matrix = V_scaled @ V_inv
-    return jax.scipy.linalg.expm(power * log_matrix)
-
-
 @jax.jit
 def power_choi(choi: Choi, power: float) -> Choi:
-    """Compute the power of a Choi matrix via eigendecomposition.
-
-    Note: For fractional powers of quantum channels, this may not preserve CPTP properties.
-
-    :param choi: The Choi matrix to exponentiate.
-    :param power: The power to raise the Choi matrix to.
-    :return: The Choi matrix raised to the specified power.
-    """
-    powered_superop = power_superop(choi_to_superop(choi), power)
-    return superop_to_choi(powered_superop)
+    """Raise a Choi channel to ``power``. See :func:`power_superop` for semantics and caveats."""
+    return superop_to_choi(power_superop(choi_to_superop(choi), power))
 
 
 @jax.jit
 def power_superop(superop: SuperOp, power: float) -> SuperOp:
-    """Compute the power of a superoperator matrix via eigendecomposition.
+    """Raise a channel superoperator to ``power`` via its generator: ``M^power = exp(power · log M)``.
 
-    Note: For fractional powers of quantum channels, this may not preserve CPTP properties.
-    For physically meaningful fractional powers, use ``evolve(Lindbladian(...), alpha*t)``.
+    Computed as ``V · Λ^power · V⁻¹`` (equivalently ``exp(power · log M)``, i.e. evolving the
+    channel's Liouvillian generator ``log M`` for a fraction ``power`` of unit time).  For an
+    integer ``power`` this is exact repeated composition; for an **infinitely divisible** channel a
+    non-integer ``power`` is the physically meaningful fractional channel and stays CPTP.
 
-    :param superop: The superoperator to exponentiate.
-    :param power: The power to raise the superoperator to.
-    :return: The superoperator raised to the specified power.
+    .. warning::
+        **Fractional powers of a superoperator are not well defined in general.**  ``log M`` uses
+        the principal branch, so a non-integer power of a non-(infinitely-)divisible channel
+        (negative/complex superoperator eigenvalues, or a coherent part whose eigenvalue gaps exceed
+        ``2π``) is branch-dependent and need not be CPTP — this function is best-effort there.
+
+        For meaningful (and CPTP) fractional powers, it is best to have the **Lindblad generator**:
+        build the channel as ``evolve(lindbladian, t)`` and take ``evolve(lindbladian, power * t)``
+        directly.  Use :func:`~quax.superop_to_lindbladian` to recover a generator from an existing
+        channel (itself best-effort, subject to the same caveats).
+
+    :param superop: The channel superoperator.
+    :param power: The exponent.
+    :return: ``superop`` raised to ``power``.
     """
     powered_data = _matrix_power_via_eig(superop.matrix, power)
     return SuperOp.from_matrix(powered_data, superop.dims)

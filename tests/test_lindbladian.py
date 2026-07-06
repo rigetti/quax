@@ -595,6 +595,23 @@ def test_lindbladian_factory_ensemble_multi_jump():
         assert jnp.allclose(therm.matrix[i], expected.matrix, atol=1e-12)
 
 
+def test_thermal_relaxation_finite_temperature():
+    """Finite-temperature thermal relaxation adds an excitation jump and relaxes toward p1."""
+
+    def equilibrium_excited(p1):
+        # long-time evolution from |0><0| — steady-state excited-state population
+        ch = qx.evolve(qx.lindbladians.thermal_relaxation(1.0, 10.0, p1=p1), 80.0)
+        rho0 = jnp.array([[1.0, 0.0], [0.0, 0.0]], dtype=complex).reshape(-1)
+        return float((ch.matrix @ rho0).reshape(2, 2)[1, 1].real)
+
+    # Zero temperature: relaxes to the ground state; three jump ops (down, up≈0, dephasing).
+    assert qx.lindbladians.thermal_relaxation(1.0, 10.0).jump_operators.matrix.shape[-3] == 3
+    assert equilibrium_excited(0.0) < 1e-6
+    # Finite temperature: relaxes toward excited-state population p1.
+    assert abs(equilibrium_excited(0.3) - 0.3) < 1e-3
+    assert qx.is_cptp(qx.evolve(qx.lindbladians.thermal_relaxation(1.0, 10.0, p1=0.3), 1.0))
+
+
 # ---------------------------------------------------------------------------
 # Random Lindbladians: exact operator recovery, CPTP, QuTiP parity
 # ---------------------------------------------------------------------------
@@ -719,3 +736,77 @@ def test_complex_scalar_multiplication_unsupported():
     L = qx.lindbladians.amplitude_damping(0.1)
     with pytest.raises(NotImplementedError):
         _ = (1.0 + 1.0j) * L
+
+
+# ---------------------------------------------------------------------------
+# Gate ⊕ noise `+` API
+# ---------------------------------------------------------------------------
+
+
+def test_gate_plus_lindbladian_returns_superop():
+    """`Unitary + Lindbladian` exponentiates to a CPTP SuperOp (gate on the left)."""
+    channel = qx.gates.X + qx.lindbladians.dephasing(0.1)
+    assert isinstance(channel, qx.SuperOp)
+    assert channel.dims == ((2,), (2,))
+    assert qx.is_cptp(channel)
+
+
+def test_lindbladian_plus_gate_returns_lindbladian():
+    """`Lindbladian + Unitary` folds the gate in as a coherent term, staying a Lindbladian."""
+    gen = qx.lindbladians.dephasing(0.1) + qx.gates.X
+    assert isinstance(gen, qx.Lindbladian)
+    # Evolving the generator reproduces the gate-on-the-left channel.
+    assert jnp.allclose(qx.evolve(gen, 1.0).matrix, (qx.gates.X + qx.lindbladians.dephasing(0.1)).matrix, atol=1e-6)
+
+
+def test_gate_plus_noise_coherent_part_is_the_gate():
+    """With zero noise rate, `gate + noise` reduces to the gate's unitary channel."""
+    channel = qx.gates.RX(0.7) + qx.lindbladians.dephasing(0.0)
+    assert jnp.allclose(channel.matrix, qx.unitary_to_superop(qx.gates.RX(0.7)).matrix, atol=1e-6)
+
+
+def test_noisy_cz_leakage_is_cptp_on_qutrits():
+    """CZ with per-qutrit leakage: gate promoted to (3,3), CPTP SuperOp."""
+    noisy = qx.gates.CZ + (qx.lindbladians.leakage(0.01) | qx.lindbladians.leakage(0.01))
+    assert isinstance(noisy, qx.SuperOp)
+    assert noisy.dims == ((3, 3), (3, 3))
+    assert qx.is_cptp(noisy)
+
+
+def test_noisy_rx_leakage_seepage_depolarizing():
+    """RX with leakage + seepage + qubit-subspace depolarizing → CPTP qutrit channel."""
+    noise = qx.lindbladians.leakage(0.01) + qx.lindbladians.seepage(0.01) + qx.lindbladians.depolarizing(0.01, (2,))
+    assert noise.dims == ((3,), (3,))  # depolarizing(2,) promoted to the qutrit space
+    channel = qx.gates.RX(0.5) + noise
+    assert isinstance(channel, qx.SuperOp)
+    assert channel.dims == ((3,), (3,))
+    assert qx.is_cptp(channel)
+
+
+def test_gate_plus_lindbladian_subsystem_count_mismatch_raises():
+    """A 2-qubit gate cannot combine with single-subsystem noise (tensor the noise instead)."""
+    with pytest.raises(ValueError, match="subsystem counts differ"):
+        _ = qx.gates.CZ + qx.lindbladians.dephasing(0.1)
+
+
+def test_gate_plus_noise_differentiable():
+    """Gradients flow through `gate + noise` w.r.t. both the gate angle and the noise rate."""
+    grad_angle = jax.grad(lambda th: (qx.gates.RX(th) + qx.lindbladians.dephasing(0.1)).matrix.real.sum())(0.5)
+    grad_rate = jax.grad(lambda g: (qx.gates.RX(0.5) + qx.lindbladians.dephasing(g)).matrix.real.sum())(0.1)
+    assert jnp.isfinite(grad_angle)
+    assert jnp.isfinite(grad_rate)
+
+
+def test_depolarizing_dims_qubit_matches_pauli_generator():
+    """depolarizing(gamma, (2,)) is the qubit {X,Y,Z} generator (unchanged default)."""
+    gen = qx.lindbladians.depolarizing(0.3, (2,))
+    assert gen.jump_operators.matrix.shape == (3, 2, 2)
+    assert gen.dims == ((2,), (2,))
+
+
+@pytest.mark.parametrize("dims, n_jumps", [((2,), 3), ((3,), 8), ((2, 2), 15)])
+def test_depolarizing_dims_generalization(dims, n_jumps):
+    """depolarizing generalizes to arbitrary dimension with D²−1 traceless jump operators."""
+    gen = qx.lindbladians.depolarizing(0.2, dims)
+    assert gen.jump_operators.matrix.shape[-3] == n_jumps
+    assert qx.is_cptp(qx.evolve(gen, 1.0))

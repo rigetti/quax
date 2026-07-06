@@ -174,6 +174,46 @@ The evolution time ``t`` is a traceable JAX value — gradients flow through it:
    grad_t = jax.grad(lambda t: loss(qx.evolve(gen, t)))(t0)
 
 
+Noisy Gates
+-----------
+
+A gate and a Lindbladian can be combined with ``+`` to build a noisy gate.  The **left** operand
+decides the result:
+
+* ``Unitary + Lindbladian`` → a :class:`~quax.SuperOp`.  The gate is converted to its Hamiltonian
+  generator (:func:`~quax.unitary_to_hamiltonian`), folded into the noise generator as the coherent
+  term, and the combined generator is exponentiated (``evolve(·, 1)``) — "apply this noise to my gate".
+* ``Lindbladian + Unitary`` → a :class:`~quax.Lindbladian` (the generator, un-exponentiated).
+
+Dimensions are promoted to the larger space automatically, so a qubit gate combines with qutrit
+(leakage) noise.  Because a gate on the left exponentiates immediately, **sum multiple noise sources
+first**:
+
+.. code-block:: python
+
+   # CZ with per-qutrit leakage (gate promoted to the qutrit space)
+   noisy_cz = qx.gates.CZ + (qx.lindbladians.leakage(0.01) | qx.lindbladians.leakage(0.01))
+
+   # fSim with thermal decoherence on each qubit
+   noisy_fsim = qx.gates.FSIM(theta, phi) + (
+       qx.lindbladians.thermal_relaxation(t1, tphi) | qx.lindbladians.thermal_relaxation(t1, tphi)
+   )
+
+   # RX with leakage, seepage, and qubit-subspace depolarizing (all on one qutrit)
+   noise = (
+       qx.lindbladians.leakage(0.01)
+       + qx.lindbladians.seepage(0.01)
+       + qx.lindbladians.depolarizing(0.01, (2,))
+   )
+   noisy_rx = qx.gates.RX(theta) + noise
+
+All of these are CPTP :class:`~quax.SuperOp` objects, and gradients flow through both the gate
+parameters and the noise rates.
+
+For a standalone channel (no gate), the :mod:`quax.channels` submodule provides SuperOp constructors,
+e.g. ``qx.channels.depolarizing(0.1)`` is ``qx.evolve(qx.lindbladians.depolarizing(0.1), 1.0)``.
+
+
 Promotion
 ---------
 

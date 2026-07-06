@@ -146,7 +146,7 @@ def _add_weyl_subspace_labels(fig: go.Figure, d_comp: int, D: int) -> None:
 
 def _make_weyl_figures(p: float = 0.1) -> None:
     """Weyl-Liouville transfer-matrix figures for the coherent/incoherent extensions."""
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     promoted_coherent = qx.promote(kraus, (3,))
     promoted_incoherent = qx.promote_incoherent(kraus, (3,))
 
@@ -168,7 +168,7 @@ def _make_weyl_figures(p: float = 0.1) -> None:
 
 def _make_block_figures(p: float = 0.1) -> None:
     """Computational-basis superoperator figures showing cross-subspace coherence."""
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     superop_c = qx.to_superop(qx.promote(kraus, (3,)))
     superop_i = qx.to_superop(qx.promote_incoherent(kraus, (3,)))
 

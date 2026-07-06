@@ -35,40 +35,55 @@ Example::
     fast = jax.jit(qx.lindbladians.amplitude_damping)(0.1)
 """
 
+from functools import reduce
+from operator import mul
+from typing import Tuple
+
 import jax.numpy as jnp
 from jax import Array
 
+from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Lindbladian, Operator
-from .gates import X, Y, Z
+from .gates import GELLMANN6, GELLMANN7, X, Y, Z
 
-# Qubit operators
-_SIGMA_MINUS = Operator.from_matrix(jnp.array([[0.0, 1.0], [0.0, 0.0]], dtype=complex), ((2,), (2,)))
+# Qubit lowering/raising operators |0⟩⟨1| = (X + iY)/2 and |1⟩⟨0| = (X − iY)/2.
+_SIGMA_MINUS = Operator.from_matrix((X.matrix + 1j * Y.matrix) / 2, ((2,), (2,)))
+_SIGMA_PLUS = Operator.from_matrix((X.matrix - 1j * Y.matrix) / 2, ((2,), (2,)))
 
-# Qutrit operators
-_SIGMA_12 = Operator.from_matrix(
-    jnp.array([[0, 0, 0], [0, 0, 0], [0, 1, 0]], dtype=complex), ((3,), (3,))
-)  # |2⟩⟨1| — leakage out of computational subspace
-_SIGMA_21 = Operator.from_matrix(
-    jnp.array([[0, 0, 0], [0, 0, 1], [0, 0, 0]], dtype=complex), ((3,), (3,))
-)  # |1⟩⟨2| — seepage back into computational subspace
+# Qutrit transition operators from the Gell-Mann generators:
+#   |2⟩⟨1| = (λ₆ − iλ₇)/2  (leakage out of the computational subspace),
+#   |1⟩⟨2| = (λ₆ + iλ₇)/2  (seepage back into it).
+_SIGMA_12 = Operator.from_matrix((GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
+_SIGMA_21 = Operator.from_matrix((GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
 
 
-def amplitude_damping(gamma: float | Array) -> Lindbladian:
-    """Lindbladian generator for the amplitude damping (T1 relaxation) channel.
+def amplitude_damping(gamma: float | Array, dims: Tuple[int, ...] = (2,)) -> Lindbladian:
+    """Lindbladian generator for amplitude damping (T1 relaxation) of a qudit.
 
-    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|0\\rangle\\langle 1|`.
+    Single jump operator :math:`L = \\sqrt{\\gamma}\\,a`, where ``a`` is the harmonic-oscillator
+    annihilation operator on the ``d``-level system (``d = prod(dims)``), :math:`a|n\\rangle =
+    \\sqrt{n}\\,|n-1\\rangle`.  In this harmonic approximation a single rate ``gamma`` sets the
+    decay of every level: the relaxation rate out of level ``n`` is ``n·gamma``.
 
-    The resulting CPTP channel ``evolve(L, t)`` is amplitude damping with damping
-    probability ``p = 1 - exp(-gamma * t)``.
+    For a qubit (``dims=(2,)``) this is :math:`L = \\sqrt{\\gamma}\\,|0\\rangle\\langle 1|` and
+    ``evolve(L, t)`` is amplitude damping with probability ``p = 1 - exp(-gamma * t)``.
 
-    :param gamma: Relaxation rate (1/T1). Must be non-negative. Arrays produce an ensemble.
+    :param gamma: Relaxation rate (1/T1) of the first excited level. Non-negative; arrays produce an ensemble.
+    :param dims: Per-subsystem dimensions of the qudit (default a single qubit ``(2,)``).
     :return: Lindbladian generator for the amplitude damping channel.
     """
+    d = reduce(mul, dims, 1)
+    # Harmonic annihilation operator a[n-1, n] = sqrt(n); a|n> = sqrt(n)|n-1>.
+    a = (
+        jnp.zeros((d, d), dtype=complex)
+        .at[jnp.arange(d - 1), jnp.arange(1, d)]
+        .set(jnp.sqrt(jnp.arange(1, d, dtype=float)))
+    )
     # scale[..., None, None, None] adds the (n_ops=1, d, d) axes so a scalar rate gives
-    # shape (1, 2, 2) and a batched rate of shape (n,) gives (n, 1, 2, 2).
+    # shape (1, d, d) and a batched rate of shape (n,) gives (n, 1, d, d).
     scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * _SIGMA_MINUS.matrix
-    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
+    L = scale[..., None, None, None] * a
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, (dims, dims)))
 
 
 def dephasing(gamma: float | Array) -> Lindbladian:
@@ -87,42 +102,56 @@ def dephasing(gamma: float | Array) -> Lindbladian:
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
-def depolarizing(gamma: float | Array) -> Lindbladian:
-    """Lindbladian generator for the depolarizing channel.
+def depolarizing(gamma: float | Array, dims: Tuple[int, ...] = (2,)) -> Lindbladian:
+    """Lindbladian generator for the (uniform, global) depolarizing channel on ``dims``.
 
-    Jump operators: :math:`L_k = \\sqrt{\\gamma/3}\\,\\sigma_k` for k ∈ {X, Y, Z}.
-
-    The resulting CPTP channel ``evolve(L, t)`` is the depolarizing channel with
-    depolarizing probability ``p = 3/4 * (1 - exp(-4*gamma*t/3))``.
+    The jump operators are the ``D²−1`` traceless Hermitian basis operators of the ``D``-dimensional
+    space (``D = prod(dims)``), each scaled by :math:`\\sqrt{\\gamma/(D^2-1)}`.  For a qubit
+    (``dims=(2,)``) these are :math:`\\sqrt{\\gamma/3}\\,\\{X, Y, Z\\}` and ``evolve(L, t)`` is the
+    depolarizing channel with probability ``p = 3/4 * (1 - exp(-4*gamma*t/3))``; higher-dimensional
+    or multi-qudit ``dims`` give the analogous uniform depolarizer toward the maximally mixed state.
 
     :param gamma: Depolarizing rate. Must be non-negative. Arrays produce an ensemble.
+    :param dims: Per-subsystem dimensions of the space to depolarize (default a single qubit).
     :return: Lindbladian generator for the depolarizing channel.
     """
-    # scale[..., None, None] broadcasts the rate over each Pauli; stacking on axis=-3
-    # inserts the n_ops axis, giving (3, 2, 2) for a scalar rate and (n, 3, 2, 2) for a batch.
-    scale = jnp.sqrt(gamma / 3.0)[..., None, None]
-    L_stack = jnp.stack([scale * X.matrix, scale * Y.matrix, scale * Z.matrix], axis=-3)
-    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L_stack, ((2,), (2,))))
+    d = reduce(mul, dims, 1)
+    # Traceless Hermitian basis (drop the leading identity element). Uniform norm ⇒ isotropic.
+    traceless = n_qudit_herm_basis(dims).matrix[1:]  # (D²−1, D, D)
+    scale = jnp.sqrt(gamma / (d * d - 1))[..., None, None, None]  # broadcast over (n_ops, D, D)
+    L_stack = scale * traceless
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L_stack, (dims, dims)))
 
 
-def thermal_relaxation(t1: float | Array, tphi: float | Array) -> Lindbladian:
-    """Lindbladian generator for the thermal relaxation channel.
+def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array = 0.0) -> Lindbladian:
+    """Lindbladian generator for the finite-temperature thermal relaxation channel.
 
-    Combines amplitude damping (1/T1) and pure dephasing (1/Tφ):
+    Combines T1 relaxation (energy exchange with a bath at finite temperature) and pure dephasing
+    (1/Tφ).  At equilibrium the qubit relaxes toward an excited-state population ``p1``:
 
-    - :math:`L_1 = \\sqrt{1/T_1}\\,|0\\rangle\\langle 1|`
-    - :math:`L_2 = \\sqrt{1/T_\\varphi}\\,Z/\\sqrt{2}`
+    - downward (decay)      :math:`L_\\downarrow = \\sqrt{(1-p_1)/T_1}\\,|0\\rangle\\langle 1|`
+    - upward (excitation)   :math:`L_\\uparrow = \\sqrt{p_1/T_1}\\,|1\\rangle\\langle 0|`
+    - pure dephasing        :math:`L_\\varphi = \\sqrt{1/(2 T_\\varphi)}\\,Z`
 
-    The resulting channel ``evolve(L, t)`` is the thermal relaxation channel for
-    relaxation time ``t1`` and pure-dephasing time ``tphi`` over duration ``t``.
+    The total energy-relaxation rate is ``1/T1`` (``= γ↓ + γ↑``).  With the default ``p1 = 0``
+    (zero temperature) the excitation jump vanishes and this reduces to pure amplitude damping.
 
-    :param t1: T1 relaxation time (energy decay). Must be positive. Arrays produce an ensemble.
+    :param t1: T1 relaxation time (total energy relaxation). Must be positive. Arrays produce an ensemble.
     :param tphi: Pure dephasing time (Tφ, not T2). Must be positive. Arrays produce an ensemble.
+    :param p1: Equilibrium excited-state population ``∈ [0, 1]`` (finite temperature). Default ``0``.
     :return: Lindbladian generator for the thermal relaxation channel.
     """
-    scale_t1 = jnp.sqrt(1.0 / t1)[..., None, None]
+    scale_down = jnp.sqrt((1.0 - p1) / t1)[..., None, None]
+    scale_up = jnp.sqrt(p1 / t1)[..., None, None]
     scale_tphi = (jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0))[..., None, None]
-    L_stack = jnp.stack([scale_t1 * _SIGMA_MINUS.matrix, scale_tphi * Z.matrix], axis=-3)
+    L_stack = jnp.stack(
+        [
+            scale_down * _SIGMA_MINUS.matrix,
+            scale_up * _SIGMA_PLUS.matrix,
+            scale_tphi * Z.matrix,
+        ],
+        axis=-3,
+    )
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L_stack, ((2,), (2,))))
 
 

@@ -551,7 +551,7 @@ def test_incoherent_promotion_destroys_cross_coherences(promote_fn, to_superop_f
     """promote_incoherent should destroy cross-subspace coherences."""
     # Build a depolarizing channel on a single qubit (d=2) and promote to d=3.
     p = 0.1
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
 
     promoted_superop = promote_fn(kraus, (3,))
 
@@ -581,7 +581,7 @@ def test_incoherent_promotion_destroys_cross_coherences(promote_fn, to_superop_f
 def test_incoherent_promotion_is_cptp(rep):
     """promote_incoherent should produce a valid CPTP channel."""
     p = 0.1
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
 
     if rep == "superop":
         ch = qx.kraus_to_superop(kraus)
@@ -599,7 +599,7 @@ def test_incoherent_promotion_is_cptp(rep):
 def test_incoherent_promotion_all_reps_agree():
     """All representations should produce the same result for promote_incoherent."""
     p = 0.1
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     target = (3,)
 
     s_from_kraus = qx.kraus_to_superop(qx.promote_incoherent(kraus, target))
@@ -623,7 +623,7 @@ def test_promote_incoherent_rejects_non_superoperator():
 def test_promoted_superop_self_fidelity():
     """Process fidelity of a promoted superoperator with itself should be 1."""
     p = 0.1
-    kraus = qx.to_kraus(qx.depolarizing_channel_superoperator(p, (2,)))
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     promoted = qx.kraus_to_superop(qx.promote(kraus, (3,)))
     assert jnp.isclose(qx.process_fidelity(promoted, promoted), 1.0, atol=1e-12)
 
