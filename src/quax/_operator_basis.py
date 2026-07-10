@@ -24,13 +24,36 @@ which is the standard normalization used for the Pauli-Liouville
 (or Weyl-Liouville) representation of superoperators.
 """
 
-from functools import lru_cache
+from functools import lru_cache, wraps
 from typing import List, Tuple
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ._quantum_objects import Observable, Unitary
+
+
+def _constant_cache(maxsize: int = 32):
+    """``lru_cache`` that materializes the cached arrays as concrete constants.
+
+    The basis builders below are pure functions of static integer dimensions.  Wrapping the
+    computation in :func:`jax.ensure_compile_time_eval` forces the arrays to be evaluated as
+    constants even when the builder is first called inside a ``jax.jit`` trace, so the cached
+    value never holds a tracer that would leak into a later (non-traced) call.
+    """
+
+    def decorate(func):
+        cached = lru_cache(maxsize=maxsize)(func)
+
+        @wraps(func)
+        def wrapper(*args):
+            with jax.ensure_compile_time_eval():
+                return cached(*args)
+
+        return wrapper
+
+    return decorate
 
 
 def _batched_kron(a: Array, b: Array) -> Array:
@@ -86,7 +109,7 @@ def weyl_basis_labels(qudit_dim: int) -> List[str]:
     return [f"W{x}{z}" for x, z in _xz_pairs(qudit_dim)]
 
 
-@lru_cache(maxsize=32)
+@_constant_cache()
 def weyl_basis(qudit_dim: int) -> Unitary:
     """
     Generate the Weyl-Heisenberg operator basis for a single qudit of
@@ -136,7 +159,7 @@ def hermitian_weyl_basis_labels(qudit_dim: int) -> List[str]:
     return weyl_basis_labels(qudit_dim)
 
 
-@lru_cache(maxsize=32)
+@_constant_cache()
 def hermitian_weyl_basis(qudit_dim: int) -> Observable:
     """
     Generate the Hermitian Weyl-Heisenberg operator basis for a single qudit.
@@ -182,7 +205,7 @@ def hermitian_weyl_basis(qudit_dim: int) -> Observable:
     return Observable.from_matrix(hermitian_ops, ((qudit_dim,), (qudit_dim,)))
 
 
-@lru_cache(maxsize=32)
+@_constant_cache()
 def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
     """
     Construct the tensor product Hermitian operator basis for a composite
@@ -204,7 +227,7 @@ def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
     return Observable.from_matrix(ops, (dims, dims))
 
 
-@lru_cache(maxsize=32)
+@_constant_cache()
 def n_qudit_basis(dims: Tuple[int, ...]) -> Unitary:
     """
     Construct the tensor product operator basis for a composite system of

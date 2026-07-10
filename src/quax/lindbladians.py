@@ -150,8 +150,17 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array
     :param p1: Equilibrium excited-state population ``∈ [0, 1]`` (finite temperature). Default ``0``.
     :return: Lindbladian generator for the thermal relaxation channel.
     """
-    scale_down = jnp.sqrt((1.0 - p1) / t1)[..., None, None]
-    scale_up = jnp.sqrt(p1 / t1)[..., None, None]
+    # Broadcast the (possibly mixed scalar/array) rate arguments to a common ensemble shape so the
+    # three jump operators stack cleanly even when, e.g., t1 is batched but tphi is a scalar.
+    t1, tphi, p1 = jnp.broadcast_arrays(
+        jnp.asarray(t1, dtype=float), jnp.asarray(tphi, dtype=float), jnp.asarray(p1, dtype=float)
+    )
+    # Factor each rate as sqrt(population) / sqrt(time) rather than sqrt(population / time): the two
+    # are identical in value but the factored form has a finite gradient w.r.t. t1 even at p1 = 0
+    # (sqrt(p1 / t1) hits a 0/0 → NaN gradient there, whereas sqrt(p1) / sqrt(t1) → 0).
+    inv_sqrt_t1 = (1.0 / jnp.sqrt(t1))[..., None, None]
+    scale_down = jnp.sqrt(1.0 - p1)[..., None, None] * inv_sqrt_t1
+    scale_up = jnp.sqrt(p1)[..., None, None] * inv_sqrt_t1
     scale_tphi = (jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0))[..., None, None]
     L_stack = jnp.stack(
         [

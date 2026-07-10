@@ -14,6 +14,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.0] - 2026-07-10
+
+### Added
+
+- `Lindbladian` quantum object represents the Lindbladian generator of a channel.
+- `linbladians` module provides common Lindbladian generators.
+- `channels` module provides common channels. 
+- `evolve` now evolves operators or Lindbladians to produce `Unitary` or `SuperOp`
+
+### Changed
+
+- All common channels are now generated from Lindbladians.
+- Gates are now generated via `evolve`.
+
+### Deprecated
+
+- `cis` is deprecated in favour of `evolve`
+ 
+### Removed
+
+- `integrated_thermal_superoperator`, `thermal_relaxation_choi`, `bit_flip_operators`, `phase_flip_operators` `bitphase_flip_operators`, `dephasing_operators`, `depolarizing_operators`, `relaxation_operators`, `leakage_operators`, `stochastic_leakage_operators`, `seepage_operators`, `KRAUS_OPS` are removed in favour of Linbladian constructors.
+
 ## [0.6.6] - 2026-06-30
 
 ### Added

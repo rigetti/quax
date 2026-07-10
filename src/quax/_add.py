@@ -19,11 +19,12 @@ import jax.numpy as jnp
 from ._quantum_objects import Lindbladian, Operator
 
 
-def combine_lindbladians(a: Lindbladian, b: Lindbladian) -> Lindbladian:
-    """Combine two Lindbladian generators: concatenate jump operators and sum Hamiltonians.
+def add_lindbladian(a: Lindbladian, b: Lindbladian) -> Lindbladian:
+    """Add two Lindbladian generators: concatenate jump operators and sum Hamiltonians.
 
     Operands are promoted to common per-subsystem dimensions if they differ (so mixed-dimension
-    noise, e.g. qutrit leakage and qubit-subspace depolarizing, combines).
+    noise, e.g. qutrit leakage and qubit-subspace depolarizing, combines).  Ensemble (batch) axes
+    broadcast, so a single generator adds to an ensemble of generators.
     """
     from ._promotion import promote
 
@@ -36,8 +37,13 @@ def combine_lindbladians(a: Lindbladian, b: Lindbladian) -> Lindbladian:
     if b_dims != target:
         b = promote(b, target)
 
+    # Concatenate the jump stacks along the n_ops axis (-3), broadcasting any leading ensemble axes.
+    a_jumps, b_jumps = a.jump_operators.matrix, b.jump_operators.matrix
+    ensemble = jnp.broadcast_shapes(a_jumps.shape[:-3], b_jumps.shape[:-3])
+    a_jumps = jnp.broadcast_to(a_jumps, ensemble + a_jumps.shape[-3:])
+    b_jumps = jnp.broadcast_to(b_jumps, ensemble + b_jumps.shape[-3:])
     combined_jumps = Operator.from_matrix(
-        jnp.concatenate([a.jump_operators.matrix, b.jump_operators.matrix], axis=-3),
+        jnp.concatenate([a_jumps, b_jumps], axis=-3),
         a.jump_operators.dims,
     )
     # None-aware Hamiltonian sum (Observable + Observable → Observable).

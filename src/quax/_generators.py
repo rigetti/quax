@@ -31,7 +31,7 @@ import jax.numpy as jnp
 from jax import Array
 
 if TYPE_CHECKING:
-    from ._quantum_objects import Lindbladian, Observable, Operator, Unitary
+    from ._quantum_objects import Observable, Operator, Unitary
 
 
 def unitary_to_hamiltonian(unitary: Unitary) -> Observable:
@@ -56,39 +56,6 @@ def unitary_to_hamiltonian(unitary: Unitary) -> Observable:
     hamiltonian = (eigvecs * h_eig[..., None, :]) @ jnp.linalg.inv(eigvecs)  # V diag(h) V⁻¹
     hamiltonian = 0.5 * (hamiltonian + jnp.conj(jnp.swapaxes(hamiltonian, -1, -2)))  # enforce Hermiticity
     return Observable.from_matrix(hamiltonian, unitary.dims)
-
-
-def gate_plus_lindbladian(gate: Unitary, lind: Lindbladian) -> Lindbladian:
-    """Fold a gate ``U`` into a Lindbladian as a coherent term, returning a new generator.
-
-    The gate contributes ``-i[H_U, ·]`` with ``H_U = unitary_to_hamiltonian(U)`` (so evolving the
-    result for unit time reproduces ``U`` alongside the dissipation).  If the gate and the
-    Lindbladian act on different (per-subsystem) dimensions, both are promoted to the common
-    (element-wise larger) dimensions first — e.g. a qubit ``CZ`` combined with qutrit leakage.
-
-    :param gate: The gate unitary.
-    :param lind: The Lindbladian carrying the jump operators (and any existing Hamiltonian).
-    :return: A :class:`~quax.Lindbladian` whose Hamiltonian is ``H_U + lind.hamiltonian``.
-    """
-    from ._promotion import promote
-    from ._quantum_objects import Lindbladian
-
-    gate_dims, noise_dims = gate.dims[0], lind.dims[0]
-    if len(gate_dims) != len(noise_dims):
-        raise ValueError(
-            f"Cannot combine a gate on {gate_dims} qudits with a Lindbladian on {noise_dims} qudits: "
-            "the subsystem counts differ.  Tensor the noise to match (e.g. `leakage() | leakage()`)."
-        )
-    target = tuple(max(g, n) for g, n in zip(gate_dims, noise_dims))
-    if gate_dims != target:
-        gate = promote(gate, target)
-    if noise_dims != target:
-        lind = promote(lind, target)
-
-    hamiltonian = unitary_to_hamiltonian(gate)
-    if lind.hamiltonian is not None:
-        hamiltonian = hamiltonian + lind.hamiltonian  # Observable + Observable → Observable
-    return Lindbladian(hamiltonian=hamiltonian, jump_operators=lind.jump_operators)
 
 
 @jax.jit

@@ -2140,17 +2140,19 @@ class Lindbladian(QuantumObject):
         - ``Lindbladian + Lindbladian`` → combined generator (jump operators concatenated,
           Hamiltonians summed); operands are promoted to common dims if they differ, so e.g. qutrit
           leakage and qubit-subspace depolarizing can be combined.
-        - ``Lindbladian + Unitary`` → the gate's Hamiltonian ``-i[H_U, ·]`` folded in as a coherent
-          term.  The generator is returned *un-exponentiated* because the Lindbladian is on the left.
+        - ``Lindbladian + Unitary`` → the gate is promoted to its Hamiltonian generator
+          ``H_U = unitary_to_hamiltonian(U)`` and added as a purely-coherent Lindbladian (folding
+          ``-i[H_U, ·]`` into the coherent term).  The generator is returned *un-exponentiated*
+          because the Lindbladian is on the left.
         """
         if isinstance(other, Lindbladian):
-            from ._add import combine_lindbladians
+            from ._add import add_lindbladian
 
-            return combine_lindbladians(self, other)
+            return add_lindbladian(self, other)
         if isinstance(other, Unitary):
-            from ._generators import gate_plus_lindbladian
+            from ._add import add_lindbladian
 
-            return gate_plus_lindbladian(other, self)
+            return add_lindbladian(self, self._unitary_as_generator(other))
         return NotImplemented
 
     def __radd__(self, other: "Lindbladian | Unitary") -> "Lindbladian | SuperOp":
@@ -2162,14 +2164,26 @@ class Lindbladian(QuantumObject):
         """
         if isinstance(other, Unitary):
             from ._exponentiation import evolve
-            from ._generators import gate_plus_lindbladian
 
-            return evolve(gate_plus_lindbladian(other, self), 1.0)
+            return evolve(self + other, 1.0)
         if isinstance(other, Lindbladian):
-            from ._add import combine_lindbladians
+            from ._add import add_lindbladian
 
-            return combine_lindbladians(other, self)
+            return add_lindbladian(other, self)
         return NotImplemented
+
+    @staticmethod
+    def _unitary_as_generator(gate: Unitary) -> "Lindbladian":
+        """Represent a gate as a purely-coherent Lindbladian ``-i[H_U, ·]`` (no dissipation).
+
+        The gate's Hamiltonian generator ``H_U`` satisfies ``exp(-i H_U) = U``; the jump stack is a
+        single zero operator, so :func:`~quax.evolve` reproduces the gate's unitary channel.
+        """
+        from ._generators import unitary_to_hamiltonian
+
+        d = gate.matrix.shape[-1]
+        zero_jump = Operator.from_matrix(jnp.zeros((1, d, d), dtype=complex), gate.dims)
+        return Lindbladian(hamiltonian=unitary_to_hamiltonian(gate), jump_operators=zero_jump)
 
     def __or__(self, other: Any) -> "Lindbladian":
         """Tensor product of two Lindbladian generators (independent subsystems).
