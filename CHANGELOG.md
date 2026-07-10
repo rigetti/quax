@@ -19,9 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ### Added
 
 - `Lindbladian` quantum object represents the Lindbladian generator of a channel.
-- `linbladians` module provides common Lindbladian generators.
+- `lindbladians` module provides common Lindbladian generators.
 - `channels` module provides common channels. 
 - `evolve` now evolves operators or Lindbladians to produce `Unitary` or `SuperOp`
+- `unitary_to_hamiltonian` returns the Hermitian generator `H` with `exp(-iH) = U`.
+- Noisy gates via `+`: `Unitary + Lindbladian` produces a CPTP `SuperOp` and `Lindbladian + Unitary` produces a `Lindbladian`, promoting dimensions automatically.
+- `promote` now supports `Lindbladian`, embedding it in a larger space at the operator level.
 
 ### Changed
 
@@ -34,7 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
  
 ### Removed
 
-- `integrated_thermal_superoperator`, `thermal_relaxation_choi`, `bit_flip_operators`, `phase_flip_operators` `bitphase_flip_operators`, `dephasing_operators`, `depolarizing_operators`, `relaxation_operators`, `leakage_operators`, `stochastic_leakage_operators`, `seepage_operators`, `KRAUS_OPS` are removed in favour of Linbladian constructors.
+- `integrated_thermal_superoperator`, `thermal_relaxation_choi`, `bit_flip_operators`, `phase_flip_operators`, `bitphase_flip_operators`, `dephasing_operators`, `depolarizing_operators`, `depolarizing_channel_superoperator`, `relaxation_operators`, `leakage_operators`, `stochastic_leakage_operators`, `seepage_operators`, `KRAUS_OPS` are removed in favour of Lindbladian constructors.
 
 ## [0.6.6] - 2026-06-30
 
