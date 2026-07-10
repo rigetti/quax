@@ -24,40 +24,29 @@ which is the standard normalization used for the Pauli-Liouville
 (or Weyl-Liouville) representation of superoperators.
 """
 
-from functools import lru_cache, wraps
+from functools import lru_cache
 from typing import List, Tuple
 
-import jax
-import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ._quantum_objects import Observable, Unitary
 
-
-def _constant_cache(maxsize: int = 32):
-    """``lru_cache`` that materializes the cached arrays as concrete constants.
-
-    The basis builders below are pure functions of static integer dimensions.  Wrapping the
-    computation in :func:`jax.ensure_compile_time_eval` forces the arrays to be evaluated as
-    constants even when the builder is first called inside a ``jax.jit`` trace, so the cached
-    value never holds a tracer that would leak into a later (non-traced) call.
-    """
-
-    def decorate(func):
-        cached = lru_cache(maxsize=maxsize)(func)
-
-        @wraps(func)
-        def wrapper(*args):
-            with jax.ensure_compile_time_eval():
-                return cached(*args)
-
-        return wrapper
-
-    return decorate
+# The basis builders below are pure functions of static integer dimensions, and their results are
+# cached with ``lru_cache``.  They are deliberately built with NumPy rather than ``jax.numpy``: a
+# builder may first be called from inside a ``jax.jit`` trace (e.g. ``jax.jit(qx.lindbladians.
+# depolarizing)`` reaches ``n_qudit_herm_basis``), and ``jnp`` operations under a trace produce
+# tracers even when their inputs are static.  ``lru_cache`` would then store a tracer that escapes
+# its trace and raises ``UnexpectedTracerError`` on the next (non-traced) call.  NumPy always
+# evaluates eagerly to concrete host arrays, so the cached constants are trace-independent; the
+# single ``jnp`` conversion inside ``from_matrix`` bakes them in as constants.
 
 
 def _batched_kron(a: Array, b: Array) -> Array:
     """Batched Kronecker product of two ensembles of square matrices.
+
+    Operates elementwise, so it stays on whatever array type it is given (the basis builders
+    pass concrete NumPy arrays; see the module comment above).
 
     Given *a* with shape ``(n, p, p)`` and *b* with shape ``(m, q, q)``,
     returns the ``n * m`` pairwise Kronecker products with shape
@@ -109,7 +98,7 @@ def weyl_basis_labels(qudit_dim: int) -> List[str]:
     return [f"W{x}{z}" for x, z in _xz_pairs(qudit_dim)]
 
 
-@_constant_cache()
+@lru_cache(maxsize=32)
 def weyl_basis(qudit_dim: int) -> Unitary:
     """
     Generate the Weyl-Heisenberg operator basis for a single qudit of
@@ -132,16 +121,16 @@ def weyl_basis(qudit_dim: int) -> Unitary:
         return Unitary.from_matrix(hermitian_weyl_basis(qudit_dim).matrix, ((qudit_dim,), (qudit_dim,)))
 
     # d > 2: plain Weyl unitaries W_{x,z} = X^x Z^z
-    root_of_unity = jnp.exp(2j * jnp.pi / qudit_dim)
-    pairs = jnp.array(_xz_pairs(qudit_dim))  # (d², 2)
+    root_of_unity = np.exp(2j * np.pi / qudit_dim)
+    pairs = np.array(_xz_pairs(qudit_dim))  # (d², 2)
     x_vals, z_vals = pairs[:, 0], pairs[:, 1]
 
     # W_{x,z}[i, j] = omega^{jz} * delta(i, (j + x) mod d)
-    j = jnp.arange(qudit_dim)
+    j = np.arange(qudit_dim)
     row_idx = (j[None, :] + x_vals[:, None]) % qudit_dim  # (d², d)
     clock_vals = root_of_unity ** (j[None, :] * z_vals[:, None])  # (d², d)
 
-    i = jnp.arange(qudit_dim)
+    i = np.arange(qudit_dim)
     shift_mask = i[None, :, None] == row_idx[:, None, :]  # (d², d, d)
     weyl_ops = (clock_vals[:, None, :] * shift_mask).astype(complex)
 
@@ -159,7 +148,7 @@ def hermitian_weyl_basis_labels(qudit_dim: int) -> List[str]:
     return weyl_basis_labels(qudit_dim)
 
 
-@_constant_cache()
+@lru_cache(maxsize=32)
 def hermitian_weyl_basis(qudit_dim: int) -> Observable:
     """
     Generate the Hermitian Weyl-Heisenberg operator basis for a single qudit.
@@ -170,8 +159,8 @@ def hermitian_weyl_basis(qudit_dim: int) -> Observable:
     :param qudit_dim: Local qudit dimension d.
     :return: Ensemble of d² Hermitian basis operators as an :class:`Observable`.
     """
-    root_of_unity = jnp.exp(2j * jnp.pi / qudit_dim)
-    pairs = jnp.array(_xz_pairs(qudit_dim))  # (d², 2)
+    root_of_unity = np.exp(2j * np.pi / qudit_dim)
+    pairs = np.array(_xz_pairs(qudit_dim))  # (d², 2)
     x_vals, z_vals = pairs[:, 0], pairs[:, 1]
 
     # Inverse pair indices: W_{x,z}^{-1} = W_{-x,-z}
@@ -180,32 +169,32 @@ def hermitian_weyl_basis(qudit_dim: int) -> Observable:
 
     # Build all phased Weyl operators: phase(x,z) * W_{x,z}
     # W_{x,z}[i, j] = omega^{jz} * delta(i, (j + x) mod d)
-    j = jnp.arange(qudit_dim)
+    j = np.arange(qudit_dim)
     row_idx = (j[None, :] + x_vals[:, None]) % qudit_dim  # (d², d)
     clock_vals = root_of_unity ** (j[None, :] * z_vals[:, None])  # (d², d)
     phase_prefactor = root_of_unity ** ((x_vals * z_vals % qudit_dim) / 2)  # (d²,)
 
-    i = jnp.arange(qudit_dim)
+    i = np.arange(qudit_dim)
     shift_mask = i[None, :, None] == row_idx[:, None, :]  # (d², d, d)
     weyl_ops = (phase_prefactor[:, None, None] * clock_vals[:, None, :] * shift_mask).astype(complex)
 
     # Hermitian combinations: (W + W†) if (x,z) >= (x',z'), else i(W - W†)
     weyl_dag = weyl_ops.conj().transpose(0, 2, 1)
     is_geq = (x_vals * qudit_dim + z_vals) >= (inv_x * qudit_dim + inv_z)
-    hermitian_ops = jnp.where(
+    hermitian_ops = np.where(
         is_geq[:, None, None],
         weyl_ops + weyl_dag,
         1j * (weyl_ops - weyl_dag),
     )
 
     # Normalize so that Tr[O_i† O_j] = d δ_{ij}
-    frob_sq = jnp.sum(jnp.abs(hermitian_ops) ** 2, axis=(-2, -1), keepdims=True)
-    hermitian_ops = hermitian_ops * jnp.sqrt(qudit_dim / frob_sq)
+    frob_sq = np.sum(np.abs(hermitian_ops) ** 2, axis=(-2, -1), keepdims=True)
+    hermitian_ops = hermitian_ops * np.sqrt(qudit_dim / frob_sq)
 
     return Observable.from_matrix(hermitian_ops, ((qudit_dim,), (qudit_dim,)))
 
 
-@_constant_cache()
+@lru_cache(maxsize=32)
 def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
     """
     Construct the tensor product Hermitian operator basis for a composite
@@ -227,7 +216,7 @@ def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
     return Observable.from_matrix(ops, (dims, dims))
 
 
-@_constant_cache()
+@lru_cache(maxsize=32)
 def n_qudit_basis(dims: Tuple[int, ...]) -> Unitary:
     """
     Construct the tensor product operator basis for a composite system of
