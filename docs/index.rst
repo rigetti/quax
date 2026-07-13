@@ -69,6 +69,7 @@ Automatic Promotion
    quickstart
    quantum-objects
    quantum-instruments
+   lindbladians
    promotion
    examples/quantum-objects
    examples/hamiltonians

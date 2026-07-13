@@ -38,8 +38,9 @@ def _contiguous_groups(positions: list[int]) -> list[tuple[int, int]]:
     return groups
 
 
-def _band_trace(x0: float, x1: float, y0: float, y1: float,
-                hatch: str, group: str, name: str, show: bool) -> go.Scatter:
+def _band_trace(
+    x0: float, x1: float, y0: float, y1: float, hatch: str, group: str, name: str, show: bool
+) -> go.Scatter:
     return go.Scatter(
         x=[x0, x1, x1, x0, x0],
         y=[y0, y0, y1, y1, y0],
@@ -93,10 +94,12 @@ def _apply_subspace_hatching(
     ]:
         first = True
         for start, end in _contiguous_groups(indices):
-            fig.add_trace(_band_trace(start - 0.5, end + 0.5, -0.5, n - 0.5,
-                                      hatch, group, label, show=first), row=1, col=1)
-            fig.add_trace(_band_trace(-0.5, n - 0.5, start - 0.5, end + 0.5,
-                                      hatch, group, label, show=False), row=1, col=1)
+            fig.add_trace(
+                _band_trace(start - 0.5, end + 0.5, -0.5, n - 0.5, hatch, group, label, show=first), row=1, col=1
+            )
+            fig.add_trace(
+                _band_trace(-0.5, n - 0.5, start - 0.5, end + 0.5, hatch, group, label, show=False), row=1, col=1
+            )
             first = False
 
     fig.update_xaxes(range=[-0.5, n - 0.5], showgrid=False, zeroline=False)
@@ -105,8 +108,7 @@ def _apply_subspace_hatching(
         paper_bgcolor="white",
         plot_bgcolor="white",
         showlegend=True,
-        legend=dict(orientation="h", x=0.0, y=-0.12, xanchor="left", yanchor="top",
-                    font=dict(size=11)),
+        legend=dict(orientation="h", x=0.0, y=-0.12, xanchor="left", yanchor="top", font=dict(size=11)),
         margin=dict(b=70),
     )
 
@@ -144,7 +146,7 @@ def _add_weyl_subspace_labels(fig: go.Figure, d_comp: int, D: int) -> None:
 
 def _make_weyl_figures(p: float = 0.1) -> None:
     """Weyl-Liouville transfer-matrix figures for the coherent/incoherent extensions."""
-    kraus = qx.depolarizing_operators(p)
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     promoted_coherent = qx.promote(kraus, (3,))
     promoted_incoherent = qx.promote_incoherent(kraus, (3,))
 
@@ -166,7 +168,7 @@ def _make_weyl_figures(p: float = 0.1) -> None:
 
 def _make_block_figures(p: float = 0.1) -> None:
     """Computational-basis superoperator figures showing cross-subspace coherence."""
-    kraus = qx.depolarizing_operators(p)
+    kraus = qx.to_kraus(qx.channels.depolarizing(p, (2,)))
     superop_c = qx.to_superop(qx.promote(kraus, (3,)))
     superop_i = qx.to_superop(qx.promote_incoherent(kraus, (3,)))
 

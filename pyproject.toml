@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.6.6"
+version = "0.7.0"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -34,7 +34,7 @@ Documentation = "https://rigetti.gitlab.io/application_benchmarking/quax"
 
 [dependency-groups]
 cuda = [
-    "jax[cuda12] (>=0.8.2)",
+    "jax[cuda13] (>=0.8.2)",
 ]
 dev = [
     "pytest (>=9.0.2,<10.0.0)",

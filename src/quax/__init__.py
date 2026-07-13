@@ -40,22 +40,9 @@ from ._apply import (
     targeted_apply_unitary,
     targeted_apply_unitary_to_density_matrix,
 )
-from ._common_channels import (
-    depolarizing_channel_superoperator,
+from .channels import (
     instrument_from_axis,
     instrument_from_confusion_and_transition,
-    integrated_thermal_superoperator,
-    thermal_relaxation_choi,
-    bit_flip_operators,
-    phase_flip_operators,
-    bitphase_flip_operators,
-    dephasing_operators,
-    depolarizing_operators,
-    relaxation_operators,
-    leakage_operators,
-    stochastic_leakage_operators,
-    seepage_operators,
-    KRAUS_OPS,
 )
 from ._compose import (
     compose_choi,
@@ -92,7 +79,17 @@ from ._operator_basis import (
     weyl_basis_labels,
 )
 from ._observables import bitstring_probability, probabilities
-from ._power import power_choi, power_kraus, power_pauli_liouville, power_superop, power_unitary, exp, cis
+from ._exponentiation import (
+    power_choi,
+    power_kraus,
+    power_pauli_liouville,
+    power_superop,
+    power_unitary,
+    exp,
+    cis,
+    evolve,
+)
+from ._generators import unitary_to_hamiltonian
 from ._promotion import (
     embed,
     permute,
@@ -108,6 +105,7 @@ from ._quantum_objects import (
     DensityMatrix,
     Involution,
     KrausMap,
+    Lindbladian,
     Observable,
     Operator,
     PauliLiouville,
@@ -185,10 +183,12 @@ from ._validation import (
 )
 from ._visualization import plot
 
-# Import gates, states and ensembles as submodules
+# Import gates, states, ensembles and lindbladians as submodules
 from . import gates
 from . import states
 from . import ensembles
+from . import lindbladians
+from . import channels
 
 __all__ = [
     # Apply superoperator functions
@@ -217,21 +217,8 @@ __all__ = [
     "targeted_apply_unitary",
     "targeted_apply_unitary_to_density_matrix",
     # Common channels
-    "depolarizing_channel_superoperator",
-    "integrated_thermal_superoperator",
-    "thermal_relaxation_choi",
-    "bit_flip_operators",
-    "phase_flip_operators",
-    "bitphase_flip_operators",
-    "dephasing_operators",
-    "depolarizing_operators",
-    "relaxation_operators",
-    "leakage_operators",
-    "stochastic_leakage_operators",
-    "seepage_operators",
     "instrument_from_confusion_and_transition",
     "instrument_from_axis",
-    "KRAUS_OPS",
     # Compose quantum objects
     "compose_kraus_map",
     "compose_choi",
@@ -277,7 +264,6 @@ __all__ = [
     # Distance metrics
     "fidelity",
     "process_fidelity",
-    "to_choi",
     "unitary_entanglement_fidelity",
     "depolarizing_constant_to_average_fidelity",
     "average_fidelity_to_depolarizing_constant",
@@ -303,6 +289,7 @@ __all__ = [
     "State",
     "QuantumInstrument",
     "Operator",
+    "Lindbladian",
     # Instrument fidelity functions
     "classification_fidelity",
     "instrument_fidelity",
@@ -351,7 +338,7 @@ __all__ = [
     # Observables
     "bitstring_probability",
     "probabilities",
-    # Power functions
+    # Power / evolution functions
     "power_choi",
     "power_kraus",
     "power_pauli_liouville",
@@ -359,12 +346,14 @@ __all__ = [
     "power_unitary",
     "exp",
     "cis",
+    "evolve",
+    "unitary_to_hamiltonian",
     # Visualization
     "plot",
     # Submodules
     "gates",
     "states",
     "ensembles",
-    # Visualization
-    "plot",
+    "lindbladians",
+    "channels",
 ]

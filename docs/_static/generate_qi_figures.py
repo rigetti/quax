@@ -5,6 +5,7 @@ Run from the docs/_static directory:
 """
 
 import sys
+
 sys.path.insert(0, "../../src")
 
 import jax
@@ -22,11 +23,13 @@ import quax as qx
 def generate_confused_qutrit():
     """Generate a qutrit instrument with asymmetric confusion."""
     d = 3
-    confusion = jnp.array([
-        [0.95, 0.04, 0.02],
-        [0.04, 0.90, 0.08],
-        [0.01, 0.06, 0.90],
-    ])
+    confusion = jnp.array(
+        [
+            [0.95, 0.04, 0.02],
+            [0.04, 0.90, 0.08],
+            [0.01, 0.06, 0.90],
+        ]
+    )
     transition = jnp.eye(d)
     qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(3,))
     fig = qx.plot(qi)
@@ -63,11 +66,13 @@ def generate_transition_qutrit():
 def generate_binary_leakage_confusion():
     """Generate a qutrit instrument where |2> is misclassified as |1> (80%) or |0> (20%)."""
     d = 3
-    confusion = jnp.array([
-        [1.0, 0.0, 0.20],
-        [0.0, 1.0, 0.80],
-        [0.0, 0.0, 0.00],
-    ])
+    confusion = jnp.array(
+        [
+            [1.0, 0.0, 0.20],
+            [0.0, 1.0, 0.80],
+            [0.0, 0.0, 0.00],
+        ]
+    )
     transition = jnp.eye(d)
     qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(3,))
     fig = qx.plot(qi)
@@ -84,11 +89,13 @@ def generate_leakage_instrument():
     """Generate a qutrit instrument that induces leakage to |2>."""
     d = 3
     confusion = jnp.eye(d)
-    transition = jnp.array([
-        [1.0, 0.0, 0.0],
-        [0.0, 0.9, 0.0],
-        [0.0, 0.1, 1.0],
-    ])
+    transition = jnp.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.9, 0.0],
+            [0.0, 0.1, 1.0],
+        ]
+    )
     qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(3,))
     fig = qx.plot(qi)
     fig.write_image("leakage-qi-qutrit.png", scale=3)
@@ -119,12 +126,14 @@ def generate_composition_figure():
 
 def generate_correlated_2qubit():
     """Show a 2-qubit instrument with correlated confusion."""
-    confusion = jnp.array([
-        [0.90, 0.04, 0.06, 0.01],
-        [0.04, 0.85, 0.01, 0.08],
-        [0.05, 0.01, 0.88, 0.04],
-        [0.01, 0.10, 0.05, 0.87],
-    ])
+    confusion = jnp.array(
+        [
+            [0.90, 0.04, 0.06, 0.01],
+            [0.04, 0.85, 0.01, 0.08],
+            [0.05, 0.01, 0.88, 0.04],
+            [0.01, 0.10, 0.05, 0.87],
+        ]
+    )
     transition = jnp.eye(4)
     qi = qx.instrument_from_confusion_and_transition(confusion, transition, dims=(2, 2))
     fig = qx.plot(qi)

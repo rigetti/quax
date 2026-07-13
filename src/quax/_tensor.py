@@ -26,6 +26,7 @@ from ._quantum_objects import (
     DensityMatrix,
     Involution,
     KrausMap,
+    Lindbladian,
     Observable,
     Operator,
     PauliLiouville,
@@ -186,6 +187,44 @@ def tensor_operator(O1: Operator, O2: Operator) -> Operator:
     data = out.reshape(ensemble_size + (m * p, n * q))
 
     return Operator.from_matrix(data, new_dims)
+
+
+def tensor_lindbladian(L1: Lindbladian, L2: Lindbladian) -> Lindbladian:
+    """Tensor product of two Lindbladian generators on independent subsystems.
+
+    ``L_A | L_B`` gives the combined generator for the joint system A⊗B, built at the operator
+    level: the jump operators are ``{L_k^A ⊗ I_B} ∪ {I_A ⊗ L_j^B}`` and the Hamiltonian is
+    ``H_A ⊗ I_B + I_A ⊗ H_B``, using quax's index-interleaving convention so that
+    ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
+
+    :param L1: Lindbladian generator for the first system.
+    :param L2: Lindbladian generator for the second system.
+    :return: Lindbladian generator for the tensor product system.
+    """
+    if L1.num_ensemble_dims != 0 or L2.num_ensemble_dims != 0:
+        raise NotImplementedError("Tensor product is not yet implemented for ensemble Lindbladians.")
+
+    dims_A, dims_B = L1.dims[0], L2.dims[0]
+    dA = reduce(mul, dims_A, 1)
+    dB = reduce(mul, dims_B, 1)
+    I_A = Operator.from_matrix(jnp.eye(dA, dtype=complex), (dims_A, dims_A))
+    I_B = Operator.from_matrix(jnp.eye(dB, dtype=complex), (dims_B, dims_B))
+    joint_dims = (dims_A + dims_B, dims_A + dims_B)
+
+    # Jump operators embedded into the joint space, then stacked along the n_ops axis.
+    jumps_A = tensor_operator(L1.jump_operators, I_B)  # {L_k^A ⊗ I_B}
+    jumps_B = tensor_operator(I_A, L2.jump_operators)  # {I_A ⊗ L_j^B}
+    combined_jumps = Operator.from_matrix(jnp.concatenate([jumps_A.matrix, jumps_B.matrix], axis=-3), joint_dims)
+
+    # Joint Hamiltonian H_A ⊗ I_B + I_A ⊗ H_B (skipping absent coherent terms).
+    h_terms = []
+    if L1.hamiltonian is not None:
+        h_terms.append(tensor_operator(L1.hamiltonian, I_B).matrix)
+    if L2.hamiltonian is not None:
+        h_terms.append(tensor_operator(I_A, L2.hamiltonian).matrix)
+    hamiltonian = Observable.from_matrix(reduce(jnp.add, h_terms), joint_dims) if h_terms else None
+
+    return Lindbladian(hamiltonian=hamiltonian, jump_operators=combined_jumps)
 
 
 @jax.jit

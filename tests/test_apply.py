@@ -513,7 +513,7 @@ class TestTargetedApplySuperop:
         """Depolarizing channel as superop on qubit 1."""
         key = jax.random.key(90573)
         initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
-        s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+        s = qx.channels.depolarizing(jnp.array(0.05), dims=(2,))
         reference_operator = qx.gates.I | s | qx.gates.I
         rho_reference = reference_operator @ initial_state
         rho_targeted = qx.targeted_apply_superop(s, initial_state, (1,))
@@ -523,7 +523,7 @@ class TestTargetedApplySuperop:
         """Depolarizing channel as superop on all qubits."""
         key = jax.random.key(90573)
         initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
-        s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2, 2, 2))
+        s = qx.channels.depolarizing(jnp.array(0.05), dims=(2, 2, 2))
         rho_reference = s @ initial_state
         rho_targeted = qx.targeted_apply_superop(s, initial_state, (0, 1, 2))
         assert rho_targeted == rho_reference
@@ -631,7 +631,7 @@ class TestTargetedApplyKrausMap:
         """Depolarizing channel as Kraus map on qubit 1."""
         key = jax.random.key(90573)
         initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
-        s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+        s = qx.channels.depolarizing(jnp.array(0.05), dims=(2,))
         reference_operator = qx.gates.I | s | qx.gates.I
         rho_reference = reference_operator @ initial_state
         rho_targeted = qx.targeted_apply_kraus_map(qx.superop_to_kraus(s), initial_state, (1,))
@@ -641,7 +641,7 @@ class TestTargetedApplyKrausMap:
         """Depolarizing channel as Kraus map on all qubits."""
         key = jax.random.key(90573)
         initial_state = qx.random_density_matrix(3, (2, 2, 2), key)
-        s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2, 2, 2))
+        s = qx.channels.depolarizing(jnp.array(0.05), dims=(2, 2, 2))
         rho_reference = s @ initial_state
         rho_targeted = qx.targeted_apply_kraus_map(qx.superop_to_kraus(s), initial_state, (0, 1, 2))
         assert rho_targeted == rho_reference
@@ -823,15 +823,13 @@ def test_targeted_apply_superop_ensemble(seed, ensemble_size):
     initial_state = qx.random_density_matrix(3, (2, 2, 2), key, size=ens_rho)
 
     # Single-qubit depolarizing channel on qubit 1
-    s_1q = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+    s_1q = qx.channels.depolarizing(jnp.array(0.05), dims=(2,))
 
     # Build ensemble of superops if needed (stack copies with different noise params)
     if ens_op:
         keys = jax.random.split(subkey, num=reduce(lambda a, b: a * b, ens_op, 1))
         noise_params = jnp.linspace(0.01, 0.1, len(keys))
-        superop_mats = jnp.stack(
-            [qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,)).data for p in noise_params]
-        )
+        superop_mats = jnp.stack([qx.channels.depolarizing(jnp.asarray(p), dims=(2,)).data for p in noise_params])
         superop_mats = superop_mats.reshape(ens_op + superop_mats.shape[1:])
         s_ensemble = qx.SuperOp(data=superop_mats, num_qubits=1)
     else:
@@ -875,12 +873,12 @@ def test_targeted_apply_superop_ensemble_general(seed, dims, ensemble_size):
     target = len(dims) - 1
     target_dim = dims[target]
 
-    s_1d = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(target_dim,))
+    s_1d = qx.channels.depolarizing(jnp.array(0.05), dims=(target_dim,))
 
     if ens_op:
         noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
         superop_mats = jnp.stack(
-            [qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(target_dim,)).data for p in noise_params]
+            [qx.channels.depolarizing(jnp.asarray(p), dims=(target_dim,)).data for p in noise_params]
         )
         superop_mats = superop_mats.reshape(ens_op + superop_mats.shape[1:])
         s_ensemble = qx.SuperOp(data=superop_mats, num_qubits=1)
@@ -924,7 +922,7 @@ def test_targeted_apply_kraus_map_ensemble(seed, ensemble_size):
     initial_state = qx.random_density_matrix(3, (2, 2, 2), key, size=ens_rho)
 
     # Single-qubit depolarizing channel on qubit 1
-    s_1q = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,))
+    s_1q = qx.channels.depolarizing(jnp.array(0.05), dims=(2,))
     k_1q = qx.superop_to_kraus(s_1q)
 
     # Build ensemble of kraus maps if needed
@@ -932,14 +930,13 @@ def test_targeted_apply_kraus_map_ensemble(seed, ensemble_size):
         keys = jax.random.split(subkey, num=reduce(lambda a, b: a * b, ens_op, 1))
         noise_params = jnp.linspace(0.01, 0.1, len(keys))
         kraus_list = [
-            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,))).data
-            for p in noise_params
+            qx.superop_to_kraus(qx.channels.depolarizing(jnp.asarray(p), dims=(2,))).data for p in noise_params
         ]
         kraus_mats = jnp.stack(kraus_list)
         kraus_mats = kraus_mats.reshape(ens_op + kraus_mats.shape[1:])
         k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
         # Also build corresponding superops for the reference
-        superop_list = [qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,)).data for p in noise_params]
+        superop_list = [qx.channels.depolarizing(jnp.asarray(p), dims=(2,)).data for p in noise_params]
         superop_mats = jnp.stack(superop_list).reshape(ens_op + jnp.stack(superop_list).shape[1:])
         s_ensemble = qx.SuperOp(data=superop_mats, num_qubits=1)
     else:
@@ -983,21 +980,18 @@ def test_targeted_apply_kraus_map_ensemble_general(seed, dims, ensemble_size):
     target = len(dims) - 1
     target_dim = dims[target]
 
-    s_1d = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(target_dim,))
+    s_1d = qx.channels.depolarizing(jnp.array(0.05), dims=(target_dim,))
     k_1d = qx.superop_to_kraus(s_1d)
 
     if ens_op:
         noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
         kraus_list = [
-            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(target_dim,))).data
-            for p in noise_params
+            qx.superop_to_kraus(qx.channels.depolarizing(jnp.asarray(p), dims=(target_dim,))).data for p in noise_params
         ]
         kraus_mats = jnp.stack(kraus_list)
         kraus_mats = kraus_mats.reshape(ens_op + kraus_mats.shape[1:])
         k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
-        superop_list = [
-            qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(target_dim,)).data for p in noise_params
-        ]
+        superop_list = [qx.channels.depolarizing(jnp.asarray(p), dims=(target_dim,)).data for p in noise_params]
         superop_mats = jnp.stack(superop_list).reshape(ens_op + jnp.stack(superop_list).shape[1:])
         s_ensemble = qx.SuperOp(data=superop_mats, num_qubits=1)
     else:
@@ -1146,7 +1140,7 @@ def test_targeted_apply_kraus_map_trajectory_normalization():
     initial_state = qx.random_state_vector((2, 2, 2), key)
 
     # Depolarizing channel on qubit 1
-    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(2,))
+    s = qx.channels.depolarizing(jnp.array(0.1), dims=(2,))
     kraus = qx.superop_to_kraus(s)
     psi_out = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (1,))
     norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
@@ -1173,7 +1167,7 @@ def test_targeted_apply_kraus_map_trajectory_statistical_convergence(seed, dims,
     initial_state = qx.random_state_vector(dims, state_key)
 
     target_dims = tuple(dims[t] for t in target)
-    s = qx.depolarizing_channel_superoperator(jnp.asarray(noise_p), dims=target_dims)
+    s = qx.channels.depolarizing(jnp.asarray(noise_p), dims=target_dims)
     kraus = qx.superop_to_kraus(s)
 
     # Reference: apply Kraus map to density matrix
@@ -1197,9 +1191,9 @@ def test_targeted_apply_kraus_map_trajectory_statistical_convergence(seed, dims,
     initial_state_full = qx.random_state_vector(dims, state_key2)
 
     last = len(dims) - 1
-    s_1d = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(dims[last],))
+    s_1d = qx.channels.depolarizing(jnp.array(0.05), dims=(dims[last],))
     kraus_1d = qx.superop_to_kraus(s_1d)
-    s_all = qx.depolarizing_channel_superoperator(jnp.array(0.08), dims=dims)
+    s_all = qx.channels.depolarizing(jnp.array(0.08), dims=dims)
     kraus_all = qx.superop_to_kraus(s_all)
 
     # Reference: apply both channels to density matrix
@@ -1236,13 +1230,12 @@ def test_targeted_apply_kraus_map_trajectory_ensemble(seed, ens_op, ens_psi, ens
     if ens_op:
         noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
         kraus_list = [
-            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,))).data
-            for p in noise_params
+            qx.superop_to_kraus(qx.channels.depolarizing(jnp.asarray(p), dims=(2,))).data for p in noise_params
         ]
         kraus_mats = jnp.stack(kraus_list).reshape(ens_op + jnp.stack(kraus_list).shape[1:])
         k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
     else:
-        k_ensemble = qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,)))
+        k_ensemble = qx.superop_to_kraus(qx.channels.depolarizing(jnp.array(0.05), dims=(2,)))
 
     # Build ensemble of keys if needed
     if ens_key:
@@ -1283,13 +1276,12 @@ def test_targeted_apply_kraus_map_trajectory_key_extra_dims(seed, ens_op, ens_ps
     if ens_op:
         noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
         kraus_list = [
-            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(2,))).data
-            for p in noise_params
+            qx.superop_to_kraus(qx.channels.depolarizing(jnp.asarray(p), dims=(2,))).data for p in noise_params
         ]
         kraus_mats = jnp.stack(kraus_list).reshape(ens_op + jnp.stack(kraus_list).shape[1:])
         k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
     else:
-        k_ensemble = qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(2,)))
+        k_ensemble = qx.superop_to_kraus(qx.channels.depolarizing(jnp.array(0.05), dims=(2,)))
 
     # Build ensemble of keys
     n_keys = reduce(lambda a, b: a * b, ens_key, 1)
@@ -1321,7 +1313,7 @@ def test_targeted_apply_kraus_map_trajectory_normalization_general(seed, dims):
 
     target = len(dims) - 1
     target_dim = dims[target]
-    s = qx.depolarizing_channel_superoperator(jnp.array(0.1), dims=(target_dim,))
+    s = qx.channels.depolarizing(jnp.array(0.1), dims=(target_dim,))
     kraus = qx.superop_to_kraus(s)
     psi_out = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_key, (target,))
     norm = jnp.sum(jnp.abs(psi_out.matrix) ** 2)
@@ -1346,13 +1338,12 @@ def test_targeted_apply_kraus_map_trajectory_ensemble_general(seed, dims, ens_op
     if ens_op:
         noise_params = jnp.linspace(0.01, 0.1, reduce(lambda a, b: a * b, ens_op, 1))
         kraus_list = [
-            qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.asarray(p), dims=(target_dim,))).data
-            for p in noise_params
+            qx.superop_to_kraus(qx.channels.depolarizing(jnp.asarray(p), dims=(target_dim,))).data for p in noise_params
         ]
         kraus_mats = jnp.stack(kraus_list).reshape(ens_op + jnp.stack(kraus_list).shape[1:])
         k_ensemble = qx.KrausMap(data=kraus_mats, num_qubits=1)
     else:
-        k_ensemble = qx.superop_to_kraus(qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=(target_dim,)))
+        k_ensemble = qx.superop_to_kraus(qx.channels.depolarizing(jnp.array(0.05), dims=(target_dim,)))
 
     if ens_key:
         n_keys = reduce(lambda a, b: a * b, ens_key, 1)
@@ -1460,13 +1451,13 @@ def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
         noise_ps = jnp.full(ens_k, noise_p)
         kraus_list = []
         for i in range(ens_k[0]):
-            s = qx.depolarizing_channel_superoperator(noise_ps[i], dims=(2,))
+            s = qx.channels.depolarizing(noise_ps[i], dims=(2,))
             k = qx.superop_to_kraus(s)
             kraus_list.append(k.data)
         kraus_data = jnp.stack(kraus_list)
         kraus = qx.KrausMap(data=kraus_data, num_qubits=1)
     else:
-        s = qx.depolarizing_channel_superoperator(jnp.array(noise_p), dims=(2,))
+        s = qx.channels.depolarizing(jnp.array(noise_p), dims=(2,))
         kraus = qx.superop_to_kraus(s)
 
     psi = qx.random_state_vector(dims=dims, key=jax.random.key(seed + 1), size=ens_psi)
@@ -1491,7 +1482,7 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
     noise_levels = jnp.array([0.01, 0.2])
     kraus_list = []
     for p in noise_levels:
-        s = qx.depolarizing_channel_superoperator(p, dims=(2,))
+        s = qx.channels.depolarizing(p, dims=(2,))
         k = qx.superop_to_kraus(s)
         kraus_list.append(k.data)
     kraus_data = jnp.stack(kraus_list)
@@ -1512,7 +1503,7 @@ def test_trajectory_ensembled_kraus_statistical_convergence():
         rho_samples = jnp.einsum("si,sj->sij", results[:, e], results[:, e].conj())
         rho_avg = jnp.mean(rho_samples, axis=0)
 
-        s = qx.depolarizing_channel_superoperator(noise_levels[e], dims=(2,))
+        s = qx.channels.depolarizing(noise_levels[e], dims=(2,))
         rho_expected = qx.apply_superop_to_density_matrix(
             s, qx.DensityMatrix.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), (2,))
         )

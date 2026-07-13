@@ -25,6 +25,7 @@ from ._quantum_objects import (
     Choi,
     DensityMatrix,
     KrausMap,
+    Lindbladian,
     Operator,
     PauliLiouville,
     QuantumInstrument,
@@ -240,6 +241,27 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
     padded = padded.at[k0_slices].add(complement)
 
     return KrausMap(padded, num_qubits=len(dims))
+
+
+@promote.register(Lindbladian)
+@jax.jit(static_argnames=("dims",))
+def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
+    """Embed a Lindbladian generator in a larger Hilbert space at the *operator* level.
+
+    The stored Hamiltonian and jump operators are each zero-padded into the larger space (the
+    operator-level :func:`promote`) and a new generator is built from them.  The result is a valid
+    (CPTP-generating) Lindbladian: it correctly **damps** coherences between the original and added
+    subspaces — e.g. amplitude damping ``L = √γ|0⟩⟨1|`` decays ``ρ₁₂``/``ρ₂₁`` at rate γ/2 via the
+    ``-½{L†L, ρ}`` term.
+
+    This is *not* a naive zero-padding of the generator matrix: that would freeze those
+    coherences while population still decays, which is not a valid GKSL generator (its
+    exponential is not completely positive).
+    """
+    _validate_promote_dims(generator.dims[0], dims)
+    hamiltonian, jump_operators = generator.hamiltonian, generator.jump_operators
+    promoted_hamiltonian = promote(hamiltonian, dims) if hamiltonian is not None else None
+    return Lindbladian(hamiltonian=promoted_hamiltonian, jump_operators=promote(jump_operators, dims))
 
 
 @promote.register(PauliLiouville)
