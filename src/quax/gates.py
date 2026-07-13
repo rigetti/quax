@@ -119,7 +119,7 @@ Specialized gates / internal utility gates:
 
 import jax.numpy as jnp
 from ._quantum_objects import Involution, Observable, Operator, SuperOp, Unitary, QuantumInstrument
-from ._power import cis
+from ._exponentiation import evolve
 
 I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
 
@@ -137,15 +137,15 @@ T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0
 
 
 def PHASE(phi: float) -> Unitary:
-    return cis((I - Z) * (0.5 * phi))
+    return evolve((I - Z) * (-0.5 * phi))
 
 
 def RX(phi) -> Unitary:
-    return cis(X * (-0.5 * phi))
+    return evolve(X * (0.5 * phi))
 
 
 def RY(phi: float) -> Unitary:
-    return cis(Y * (-0.5 * phi))
+    return evolve(Y * (0.5 * phi))
 
 
 def RZ(phi: float) -> Unitary:
@@ -189,20 +189,20 @@ CCNOT = Involution.from_matrix(
 
 
 def CPHASE00(phi: float) -> Unitary:
-    result = jnp.exp(1j * phi) * cis((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi))
+    result = jnp.exp(0.5j * phi) * evolve((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (0.25 * phi))
     return Unitary(result.data, result.num_qubits)
 
 
 def CPHASE01(phi: float) -> Unitary:
-    return cis((((I | I) + (Z | I) - (I | Z)) - (Z | Z)) * (0.25 * phi))
+    return evolve((((I | I) + (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi))
 
 
 def CPHASE10(phi: float) -> Unitary:
-    return cis((((I | I) - (Z | I) + (I | Z)) - (Z | Z)) * (0.25 * phi))
+    return evolve((((I | I) - (Z | I) + (I | Z)) - (Z | Z)) * (-0.25 * phi))
 
 
 def CPHASE(phi: float) -> Unitary:
-    return cis((((I | I) - (Z | I) - (I | Z)) + (Z | Z)) * (0.25 * phi))
+    return evolve((((I | I) - (Z | I) - (I | Z)) + (Z | Z)) * (-0.25 * phi))
 
 
 SWAP = Involution.from_matrix(
@@ -232,11 +232,11 @@ ISWAP = Unitary.from_matrix(
 
 
 def PSWAP(phi: float) -> Unitary:
-    return cis(((I | I) - (Z | Z)) * (0.5 * (phi - jnp.pi / 2.0))) @ cis(((X | X) + (Y | Y)) * (jnp.pi / 4.0))
+    return evolve(((I | I) - (Z | Z)) * (-0.5 * (phi - jnp.pi / 2.0))) @ evolve(((X | X) + (Y | Y)) * (-jnp.pi / 4.0))
 
 
 def XY(phi: float) -> Unitary:
-    return cis(((X | X) + (Y | Y)) * (phi / 4.0))
+    return evolve(((X | X) + (Y | Y)) * (-phi / 4.0))
 
 
 def FSIM(theta: float, phi: float) -> Unitary:
@@ -252,20 +252,21 @@ def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) 
         ((Y | X) - (X | Y)) * (theta / 4.0) * jnp.sin(chi)
     )
 
-    return cis(diagonal_generator) @ cis(zeta_generator) @ cis(interaction_generator) @ cis(zeta_generator)
+    return (
+        evolve(-diagonal_generator) @ evolve(-zeta_generator) @ evolve(-interaction_generator) @ evolve(-zeta_generator)
+    )
 
 
 def RZZ(phi: float) -> Unitary:
-    result = jnp.exp(-1j * phi / 2.0) * cis((Z | Z) * (-0.5 * phi))
-    return Unitary(result.data, result.num_qubits)
+    return evolve((Z | Z) * (0.5 * phi))
 
 
 def RXX(phi: float) -> Unitary:
-    return cis((X | X) * (-0.5 * phi))
+    return evolve((X | X) * (0.5 * phi))
 
 
 def RYY(phi: float) -> Unitary:
-    return cis((Y | Y) * (-0.5 * phi))
+    return evolve((Y | Y) * (0.5 * phi))
 
 
 SQISWAP = SQISW = Unitary.from_matrix(
@@ -321,19 +322,18 @@ def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
 
 def CAN(tx: float, ty: float, tz: float) -> Unitary:
     """Canonical gate."""
-    result = jnp.exp(1j * tz / 2.0) * cis((X | X) * (0.5 * tx) + (Y | Y) * (0.5 * ty) + (Z | Z) * (0.5 * tz))
-    return Unitary(result.data, result.num_qubits)
+    return evolve((X | X) * (-0.5 * tx) + (Y | Y) * (-0.5 * ty) + (Z | Z) * (-0.5 * tz))
 
 
 B = CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
 
 
-ECR = cis((jnp.pi / 4.0) * (Z | X)) @ (X | I)
+ECR = evolve((-jnp.pi / 4.0) * (Z | X)) @ (X | I)
 
 
 def GIVENS(theta: float) -> Unitary:
     """Givens rotation on the subspace spanned by |01> and |10>."""
-    return cis(((Y | X) - (X | Y)) * (-0.5 * theta))
+    return evolve(((Y | X) - (X | Y)) * (0.5 * theta))
 
 
 SYCAMORE = CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
@@ -542,47 +542,47 @@ _Z12 = GELLMANN8 * (jnp.sqrt(3.0) * 0.5) - GELLMANN3 * 0.5
 
 def TRX01(phi) -> Unitary:
     """Qutrit X-rotation in the |0⟩–|1⟩ subspace."""
-    return cis(GELLMANN1 * (-0.5 * phi))
+    return evolve(GELLMANN1 * (0.5 * phi))
 
 
 def TRY01(phi) -> Unitary:
     """Qutrit Y-rotation in the |0⟩–|1⟩ subspace."""
-    return cis(GELLMANN2 * (-0.5 * phi))
+    return evolve(GELLMANN2 * (0.5 * phi))
 
 
 def TRZ01(phi) -> Unitary:
     """Qutrit Z-rotation in the |0⟩–|1⟩ subspace."""
-    return cis(GELLMANN3 * (-0.5 * phi))
+    return evolve(GELLMANN3 * (0.5 * phi))
 
 
 def TRX02(phi) -> Unitary:
     """Qutrit X-rotation in the |0⟩–|2⟩ subspace."""
-    return cis(GELLMANN4 * (-0.5 * phi))
+    return evolve(GELLMANN4 * (0.5 * phi))
 
 
 def TRY02(phi) -> Unitary:
     """Qutrit Y-rotation in the |0⟩–|2⟩ subspace."""
-    return cis(GELLMANN5 * (-0.5 * phi))
+    return evolve(GELLMANN5 * (0.5 * phi))
 
 
 def TRZ02(phi) -> Unitary:
     """Qutrit Z-rotation in the |0⟩–|2⟩ subspace."""
-    return cis(_Z02 * (-0.5 * phi))
+    return evolve(_Z02 * (0.5 * phi))
 
 
 def TRX12(phi) -> Unitary:
     """Qutrit X-rotation in the |1⟩–|2⟩ subspace."""
-    return cis(GELLMANN6 * (-0.5 * phi))
+    return evolve(GELLMANN6 * (0.5 * phi))
 
 
 def TRY12(phi) -> Unitary:
     """Qutrit Y-rotation in the |1⟩–|2⟩ subspace."""
-    return cis(GELLMANN7 * (-0.5 * phi))
+    return evolve(GELLMANN7 * (0.5 * phi))
 
 
 def TRZ12(phi) -> Unitary:
     """Qutrit Z-rotation in the |1⟩–|2⟩ subspace."""
-    return cis(_Z12 * (-0.5 * phi))
+    return evolve(_Z12 * (0.5 * phi))
 
 
 # Convenience aliases

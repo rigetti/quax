@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from functools import reduce
+from functools import cached_property, reduce
 from operator import mul
-from typing import TYPE_CHECKING, Any, Iterator, Self, Sequence, Tuple, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Iterator, Self, Sequence, Tuple, overload
 
 import jax
 import jax.numpy as jnp
@@ -696,7 +696,7 @@ class DensityMatrix(State):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the density matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import density_matrix_power
+        from ._exponentiation import density_matrix_power
 
         return density_matrix_power(self, exponent)
 
@@ -875,7 +875,7 @@ class Unitary(Operator):
 
     def __pow__(self, exponent: float) -> "Unitary":
         """Exponentiation of the unitary using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_unitary
+        from ._exponentiation import power_unitary
 
         return power_unitary(self, exponent)
 
@@ -1064,7 +1064,7 @@ class Observable(Operator):
 
         Supports both integer and fractional exponents via eigendecomposition.
         """
-        from ._power import power_observable
+        from ._exponentiation import power_observable
 
         return power_observable(self, exponent)
 
@@ -1235,7 +1235,7 @@ class Involution(Observable, Unitary):
             new_data = jnp.linalg.matrix_power(self.matrix, int(exponent))
             return Involution.from_matrix(new_data, self.dims)
 
-        from ._power import power_unitary
+        from ._exponentiation import power_unitary
 
         return power_unitary(self, exponent)
 
@@ -1331,9 +1331,9 @@ class SuperOp(SuperOperator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the superoperator using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_superop
+    def __pow__(self, exponent: float) -> "SuperOp":
+        """Raise the superoperator to a power (integer: exact; non-integer: via its Lindbladian)."""
+        from ._exponentiation import power_superop
 
         return power_superop(self, exponent)
 
@@ -1514,7 +1514,7 @@ class KrausMap(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the Kraus channel using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_kraus
+        from ._exponentiation import power_kraus
 
         return power_kraus(self, exponent)
 
@@ -1677,9 +1677,9 @@ class Choi(SuperOperator):
         )
         return qobjs.reshape(self.ensemble_size)
 
-    def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Choi matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_choi
+    def __pow__(self, exponent: float) -> "Choi":
+        """Raise the Choi channel to a power (integer: exact; non-integer: via its Lindbladian)."""
+        from ._exponentiation import power_choi
 
         return power_choi(self, exponent)
 
@@ -1936,7 +1936,7 @@ class PauliLiouville(SuperOperator):
 
     def __pow__(self, exponent: float) -> Self:
         """Exponentiation of the Pauli-Liouville matrix using eigendecomposition (ensemble-compatible)."""
-        from ._power import power_pauli_liouville
+        from ._exponentiation import power_pauli_liouville
 
         return power_pauli_liouville(self, exponent)
 
@@ -2048,6 +2048,196 @@ class PauliLiouville(SuperOperator):
                 return False
             case _:
                 return NotImplemented
+
+
+# ======================================================================
+# Lindbladian
+# ======================================================================
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True)
+class Lindbladian(QuantumObject):
+    """Lindbladian generator of a quantum dynamical semigroup.
+
+    Construct one directly from its GKSL master-equation ingredients, e.g.
+    ``Lindbladian(hamiltonian=H, jump_operators=jumps)``.  The d²×d² generator matrix
+    :math:`\\mathcal{L}` is computed on demand from those and cached (see :attr:`matrix`); the
+    stored operators remain inspectable via ``.hamiltonian`` and ``.jump_operators``.
+
+    Exponentiating via :func:`evolve` produces a CPTP quantum channel for :math:`t \\geq 0`.
+    This is NOT a CPTP map — it is the generator. Use :func:`evolve` to obtain the channel.
+
+    Only physically valid (CPTP-generating) Lindbladians are representable, so operations that
+    could produce a non-CP generator — :meth:`__neg__`, :meth:`__sub__`, and multiplication by a
+    negative or complex scalar — are not supported.
+
+    Matrix shape: ``(*ensemble, d_out^2, d_in^2)`` (via :attr:`matrix`).
+    """
+
+    hamiltonian: Observable | None
+    """The coherent generator :math:`H` (Hermitian :class:`Observable`), or ``None`` for pure dissipation."""
+
+    jump_operators: Operator
+    """The jump operators, stacked along a leading ``n_ops`` axis; rates pre-absorbed as :math:`\\sqrt{\\gamma}\\,L`."""
+
+    # ``data`` and ``num_qubits`` from the base are redundant here — both are derived from
+    # ``jump_operators`` — so drop them as dataclass fields and provide them as properties.
+    data: ClassVar[Array]  # pyright: ignore[reportRedeclaration]
+    num_qubits: ClassVar[int]  # pyright: ignore[reportRedeclaration]
+
+    # ----- derived metadata (from the stored operators) -----
+
+    @property
+    def num_qubits(self) -> int:  # type: ignore[override]
+        """The number of qudits, taken from the jump operators."""
+        return self.jump_operators.num_qubits
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """Leading ensemble dimensions (the jump operators' ``n_ops`` axis is not one of them)."""
+        return self.jump_operators.num_ensemble_dims - 1
+
+    @property
+    def ensemble_size(self) -> Tuple[int, ...]:
+        """Shape of the ensemble (batch) dimensions, or ``()`` for a single generator."""
+        return self.jump_operators.ensemble_size[:-1]
+
+    @property
+    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+        """The (output, input) qudit dimensions, taken from the jump operators."""
+        return self.jump_operators.dims
+
+    @cached_property
+    def matrix(self) -> Array:
+        """The generator matrix ``(*ensemble, d_out^2, d_in^2)``, computed once and cached."""
+        from ._generators import gksl_generator
+
+        return gksl_generator(self.hamiltonian, self.jump_operators)
+
+    @property
+    def data(self) -> Array:  # type: ignore[override]
+        """Tensor form of the generator ``(*ensemble, out_bra…, out_ket…, in_bra…, in_ket…)``."""
+        dims_out, dims_in = self.dims
+        ensemble_shape = self.matrix.shape[:-2]
+        return self.matrix.reshape(ensemble_shape + dims_out + dims_out + dims_in + dims_in)
+
+    # ----- pytree -----
+
+    def tree_flatten(self):
+        return (self.hamiltonian, self.jump_operators), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        hamiltonian, jump_operators = children
+        return cls(hamiltonian=hamiltonian, jump_operators=jump_operators)
+
+    # ----- generator algebra -----
+
+    def __add__(self, other: "Lindbladian | Unitary") -> "Lindbladian":
+        """Combine with another generator, or fold in a gate — returns a :class:`Lindbladian`.
+
+        - ``Lindbladian + Lindbladian`` → combined generator (jump operators concatenated,
+          Hamiltonians summed); operands are promoted to common dims if they differ, so e.g. qutrit
+          leakage and qubit-subspace depolarizing can be combined.
+        - ``Lindbladian + Unitary`` → the gate is promoted to its Hamiltonian generator
+          ``H_U = unitary_to_hamiltonian(U)`` and added as a purely-coherent Lindbladian (folding
+          ``-i[H_U, ·]`` into the coherent term).  The generator is returned *un-exponentiated*
+          because the Lindbladian is on the left.
+        """
+        if isinstance(other, Lindbladian):
+            from ._add import add_lindbladian
+
+            return add_lindbladian(self, other)
+        if isinstance(other, Unitary):
+            from ._add import add_lindbladian
+
+            return add_lindbladian(self, self._unitary_as_generator(other))
+        return NotImplemented
+
+    def __radd__(self, other: "Lindbladian | Unitary") -> "Lindbladian | SuperOp":
+        """Right-hand add: a gate on the *left* yields the noisy-gate channel.
+
+        ``Unitary + Lindbladian`` reaches here (the gate's ``__add__`` returns ``NotImplemented``):
+        the gate is folded in as a coherent term and the combined generator is exponentiated
+        (``evolve(·, 1)``), returning a :class:`SuperOp` — "apply this noise to my gate".
+        """
+        if isinstance(other, Unitary):
+            from ._exponentiation import evolve
+
+            return evolve(self + other, 1.0)
+        if isinstance(other, Lindbladian):
+            from ._add import add_lindbladian
+
+            return add_lindbladian(other, self)
+        return NotImplemented
+
+    @staticmethod
+    def _unitary_as_generator(gate: Unitary) -> "Lindbladian":
+        """Represent a gate as a purely-coherent Lindbladian ``-i[H_U, ·]`` (no dissipation).
+
+        The gate's Hamiltonian generator ``H_U`` satisfies ``exp(-i H_U) = U``; the jump stack is a
+        single zero operator, so :func:`~quax.evolve` reproduces the gate's unitary channel.
+        """
+        from ._generators import unitary_to_hamiltonian
+
+        d = gate.matrix.shape[-1]
+        zero_jump = Operator.from_matrix(jnp.zeros((1, d, d), dtype=complex), gate.dims)
+        return Lindbladian(hamiltonian=unitary_to_hamiltonian(gate), jump_operators=zero_jump)
+
+    def __or__(self, other: Any) -> "Lindbladian":
+        """Tensor product of two Lindbladian generators (independent subsystems).
+
+        ``L_A | L_B`` gives the combined generator for the joint system A⊗B, built at the operator
+        level so that ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
+        """
+        if not isinstance(other, Lindbladian):
+            return NotImplemented
+        from ._tensor import tensor_lindbladian
+
+        return tensor_lindbladian(self, other)
+
+    def __sub__(self, other: "Lindbladian") -> "Lindbladian":
+        """Not supported: generator subtraction can yield a non-CP generator (see class docstring)."""
+        raise NotImplementedError(
+            "Lindbladian subtraction is not supported: the result can be a non-CP generator that "
+            "cannot be represented by jump operators. Work with evolve() + superoperator arithmetic "
+            "if you need general linear combinations."
+        )
+
+    def __neg__(self) -> "Lindbladian":
+        """Not supported: negating a generator yields a non-CP generator (see class docstring)."""
+        raise NotImplementedError(
+            "Negating a Lindbladian is not supported: -L is a non-CP generator that cannot be "
+            "represented by jump operators."
+        )
+
+    # ----- conjugation / indexing / display -----
+
+    def conj(self) -> "Lindbladian":
+        """Complex conjugate (conjugates the Hamiltonian and jump operators)."""
+        hamiltonian = self.hamiltonian.conj() if self.hamiltonian is not None else None
+        return Lindbladian(hamiltonian=hamiltonian, jump_operators=self.jump_operators.conj())
+
+    def __getitem__(self, key: Any) -> "Lindbladian":
+        if self.num_ensemble_dims == 0:
+            raise IndexError("This Lindbladian is not ensembled (no ensemble dimensions), so it cannot be indexed.")
+        hamiltonian = self.hamiltonian[key] if self.hamiltonian is not None else None
+        return Lindbladian(hamiltonian=hamiltonian, jump_operators=self.jump_operators[key])
+
+    def __str__(self) -> str:
+        n_ops = self.jump_operators.matrix.shape[-3]
+        if self.ensemble_size != ():
+            return f"Lindbladian(dims={self.dims}, ensemble_size={self.ensemble_size}, n_jump_operators={n_ops})"
+        return f"Lindbladian(dims={self.dims}, n_jump_operators={n_ops})"
+
+    def __eq__(self, other: Any) -> bool:
+        """Element-wise equality of the generators (gauge-invariant: compares ``matrix``)."""
+        if not isinstance(other, Lindbladian):
+            return NotImplemented
+        if self.dims != other.dims:
+            return False
+        return bool(jnp.allclose(self.matrix, other.matrix))
 
 
 # ======================================================================

@@ -370,7 +370,12 @@ The no-error branch preserves :math:`|2\rangle`, while the error branches
    import quax as qx
 
    p = 0.1
-   channel = qx.depolarizing_operators(p)    # qubit KrausMap (d = 2)
+   # Depolarizing channel as an explicit Kraus map (K0 is the no-error branch)
+   ks = jnp.stack([jnp.sqrt(1 - p) * qx.gates.I.matrix,
+                   jnp.sqrt(p / 3) * qx.gates.X.matrix,
+                   jnp.sqrt(p / 3) * qx.gates.Y.matrix,
+                   jnp.sqrt(p / 3) * qx.gates.Z.matrix])
+   channel = qx.KrausMap.from_matrix(ks, ((2,), (2,)))   # qubit KrausMap (d = 2)
    promoted = qx.promote(channel, (3,))      # coherent extension (default)
 
    # The no-error branch (K_0) maps |2> to |2> with amplitude 1.

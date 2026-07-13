@@ -28,6 +28,7 @@ from quax import (
     DensityMatrix,
     Involution,
     KrausMap,
+    Lindbladian,
     Observable,
     Operator,
     PauliLiouville,
@@ -630,6 +631,47 @@ def test_operator_algebra(qudit_dim):
     assert type(jnp.exp(1j * jnp.pi / 4) * observable) is Operator  # complex → Operator (Hermitian structure lost)
     assert type(jnp.exp(1j * jnp.pi / 4) * unitary) is Operator  # scalar mul never preserves Unitary
     assert type(jnp.exp(1j * jnp.pi / 4) * involution) is Operator  # complex scalar → Operator
+
+
+def test_lindbladian_unitary_algebra():
+    """Lindbladian ⊕ Unitary algebra: the return type follows the left operand; dims auto-promote.
+
+    | Left \\ Right | + Unitary   | + Lindbladian |
+    |---------------|-------------|---------------|
+    | Unitary       | (see above) | SuperOp       |  # noisy gate: gate folded in and exponentiated
+    | Lindbladian   | Lindbladian | Lindbladian   |  # gate folded in, left un-exponentiated
+    """
+    L = qx.lindbladians.dephasing(0.1)
+    U = qx.gates.X
+
+    # Return type is the left operand.
+    assert type(U + L) is SuperOp
+    assert type(L + U) is Lindbladian
+    assert type(L + L) is Lindbladian
+    assert type(L | L) is Lindbladian
+
+    # Unitary + Lindbladian is the exponentiated (CPTP) noisy gate, with unchanged dims, and
+    # equals evolving the Lindbladian-on-the-left generator for unit time.
+    channel = U + L
+    assert channel.dims == ((2,), (2,))
+    assert qx.is_cptp(channel)
+    assert jnp.allclose(channel.matrix, qx.evolve(L + U, 1.0).matrix, atol=1e-6)
+
+    # Auto-promotion: a qubit gate combines with qutrit (leakage) noise (gate promoted to (3,)).
+    promoted = qx.gates.X + qx.lindbladians.leakage(0.05)
+    assert type(promoted) is SuperOp
+    assert promoted.dims == ((3,), (3,))
+    assert qx.is_cptp(promoted)
+
+    # The subsystem counts must match — tensor the noise to match instead.
+    with pytest.raises(ValueError, match="subsystem counts differ"):
+        _ = qx.gates.CZ + qx.lindbladians.dephasing(0.1)
+
+    # Gradients flow through both the gate parameter and the noise rate.
+    grad_angle = jax.grad(lambda th: (qx.gates.RX(th) + qx.lindbladians.dephasing(0.1)).matrix.real.sum())(0.5)
+    grad_rate = jax.grad(lambda g: (qx.gates.RX(0.5) + qx.lindbladians.dephasing(g)).matrix.real.sum())(0.1)
+    assert jnp.isfinite(grad_angle)
+    assert jnp.isfinite(grad_rate)
 
 
 ## Mixed-dimension composition tests (auto-promotion)
