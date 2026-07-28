@@ -81,6 +81,11 @@ test-package:
   extends: .test
   tags:
     - flexible
+  # The unit-test suite is large (~6700 parametrised cases) and JAX/XLA compilation of the
+  # higher-dimensional cases (e.g. Pauli-Liouville transforms for d=6) is expensive, so a full run
+  # takes ~45 min on a fast runner and can approach the default 60-min job timeout under runner
+  # variance. Give it explicit headroom so a slow node doesn't cause spurious timeout failures.
+  timeout: 2h
   variables:
     KUBERNETES_CPU_REQUEST: 20
     KUBERNETES_MEMORY_LIMIT: 50Gi

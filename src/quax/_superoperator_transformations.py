@@ -18,6 +18,7 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
@@ -87,9 +88,16 @@ def _pauli2computational_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ..
     For general qudits this is the Hermitian-Weyl-to-computational transform.
 
     Returns a d^2 by d^2 matrix where column i is vec(B_i).
+
+    The change-of-basis matrix is a data-independent constant, so it is assembled with NumPy and
+    handed to JAX as a single constant.  Building it with a Python loop over ``jnp`` slices instead
+    produced a jaxpr with one operation per basis element (d^4 of them for a d-dim joint system,
+    e.g. 1296 for a tensored qubit-qutrit), whose XLA compilation was pathologically slow.
     """
-    basis_mats = n_qudit_herm_basis(dims[0]).matrix
-    return jnp.stack([op.T.ravel() for op in basis_mats], axis=1)
+    basis_mats = np.asarray(n_qudit_herm_basis(dims[0]).matrix)  # (d², d, d)
+    n = basis_mats.shape[0]
+    # Column i is vec(B_i) = B_i.T.ravel(); stack those columns -> (d², d²).
+    return jnp.asarray(basis_mats.transpose(0, 2, 1).reshape(n, -1).T)
 
 
 @lru_cache(maxsize=32)
@@ -100,8 +108,8 @@ def _computational2pauli_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ..
     This is (1/dim) * conjugate transpose of _pauli2computational_basis_matrix.
     """
     d = int(reduce(mul, dims[0]))
-    p2c = _pauli2computational_basis_matrix(dims)
-    return jnp.conj(p2c).T / d
+    p2c = np.asarray(_pauli2computational_basis_matrix(dims))
+    return jnp.asarray(np.conj(p2c).T / d)
 
 
 @jax.jit

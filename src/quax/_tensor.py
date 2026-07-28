@@ -197,31 +197,45 @@ def tensor_lindbladian(L1: Lindbladian, L2: Lindbladian) -> Lindbladian:
     ``H_A ⊗ I_B + I_A ⊗ H_B``, using quax's index-interleaving convention so that
     ``evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)``.
 
+    Supports ensemble broadcasting: an empty ensemble broadcasts with any ensemble, and matching
+    ensembles tensor element-wise (following the same convention as the other ``tensor_*``
+    functions). The leading ``n_ops`` axis of the jump operators is kept distinct from the ensemble
+    axes throughout.
+
     :param L1: Lindbladian generator for the first system.
     :param L2: Lindbladian generator for the second system.
     :return: Lindbladian generator for the tensor product system.
     """
-    if L1.num_ensemble_dims != 0 or L2.num_ensemble_dims != 0:
-        raise NotImplementedError("Tensor product is not yet implemented for ensemble Lindbladians.")
-
     dims_A, dims_B = L1.dims[0], L2.dims[0]
     dA = reduce(mul, dims_A, 1)
     dB = reduce(mul, dims_B, 1)
+    dAB = dA * dB
     I_A = Operator.from_matrix(jnp.eye(dA, dtype=complex), (dims_A, dims_A))
     I_B = Operator.from_matrix(jnp.eye(dB, dtype=complex), (dims_B, dims_B))
     joint_dims = (dims_A + dims_B, dims_A + dims_B)
 
-    # Jump operators embedded into the joint space, then stacked along the n_ops axis.
-    jumps_A = tensor_operator(L1.jump_operators, I_B)  # {L_k^A ⊗ I_B}
-    jumps_B = tensor_operator(I_A, L2.jump_operators)  # {I_A ⊗ L_j^B}
-    combined_jumps = Operator.from_matrix(jnp.concatenate([jumps_A.matrix, jumps_B.matrix], axis=-3), joint_dims)
+    # Common ensemble shape the two operands broadcast to (the jump operators' own ensemble axes,
+    # excluding the leading n_ops axis that tensor_operator otherwise folds into the batch).
+    ensemble = jnp.broadcast_shapes(L1.ensemble_size, L2.ensemble_size)
 
-    # Joint Hamiltonian H_A ⊗ I_B + I_A ⊗ H_B (skipping absent coherent terms).
+    # Jump operators embedded into the joint space, then stacked along the n_ops axis.  Each stack
+    # has shape (*ensemble_i, n_ops_i, dAB, dAB); broadcast the ensemble axes (leaving n_ops
+    # distinct) before concatenating, since jnp.concatenate does not broadcast its other axes.
+    jumps_A = tensor_operator(L1.jump_operators, I_B).matrix  # {L_k^A ⊗ I_B}
+    jumps_B = tensor_operator(I_A, L2.jump_operators).matrix  # {I_A ⊗ L_j^B}
+    n_ops_A = jumps_A.shape[-3]
+    n_ops_B = jumps_B.shape[-3]
+    jumps_A = jnp.broadcast_to(jumps_A, ensemble + (n_ops_A, dAB, dAB))
+    jumps_B = jnp.broadcast_to(jumps_B, ensemble + (n_ops_B, dAB, dAB))
+    combined_jumps = Operator.from_matrix(jnp.concatenate([jumps_A, jumps_B], axis=-3), joint_dims)
+
+    # Joint Hamiltonian H_A ⊗ I_B + I_A ⊗ H_B (skipping absent coherent terms), each broadcast to
+    # the common ensemble shape before summing.
     h_terms = []
     if L1.hamiltonian is not None:
-        h_terms.append(tensor_operator(L1.hamiltonian, I_B).matrix)
+        h_terms.append(jnp.broadcast_to(tensor_operator(L1.hamiltonian, I_B).matrix, ensemble + (dAB, dAB)))
     if L2.hamiltonian is not None:
-        h_terms.append(tensor_operator(I_A, L2.hamiltonian).matrix)
+        h_terms.append(jnp.broadcast_to(tensor_operator(I_A, L2.hamiltonian).matrix, ensemble + (dAB, dAB)))
     hamiltonian = Observable.from_matrix(reduce(jnp.add, h_terms), joint_dims) if h_terms else None
 
     return Lindbladian(hamiltonian=hamiltonian, jump_operators=combined_jumps)

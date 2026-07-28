@@ -280,25 +280,42 @@ def test_addition(dims, ensemble):
         assert qx.is_cptp(channel[idx])
 
 
-@_DIMS_PARAMS
-def test_tensor(dims):
-    """L_A | L_B is the Kronecker sum: evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t)."""
-    A = _lindbladian(dims, *_random_operators(dims, (), n_jumps=2, salt=0))
-    B = _lindbladian(dims, *_random_operators(dims, (), n_jumps=2, salt=1))
+# Ensemble broadcasting pairs: empty×empty, ensemble×scalar (broadcast), and ensemble×ensemble.
+_TENSOR_ENSEMBLE_PAIRS = [((), ()), ((3,), ()), ((3,), (3,))]
+# tensor_lindbladian's broadcasting is dims-agnostic, and ``evolve`` of large joint systems is
+# expensive to compile (e.g. (2,3)|(2,3) has d=36), so exercise the ensemble semantics on modest
+# dims to keep the suite fast; the mixed/qutrit dims are covered by the other (non-tensor) tests.
+_TENSOR_DIMS = [(2,), (3,), (2, 2)]
+
+
+@pytest.mark.parametrize("dims", _TENSOR_DIMS, ids=[_dims_id(d) for d in _TENSOR_DIMS])
+@pytest.mark.parametrize(
+    "size_a, size_b",
+    _TENSOR_ENSEMBLE_PAIRS,
+    ids=[f"{_ens_id(a)}x{_ens_id(b)}" for a, b in _TENSOR_ENSEMBLE_PAIRS],
+)
+def test_tensor(dims, size_a, size_b):
+    """L_A | L_B is the Kronecker sum: evolve(L_A | L_B, t) == evolve(L_A, t) | evolve(L_B, t).
+
+    Also exercises ensemble broadcasting between the two operands.
+    """
+    A = _lindbladian(dims, *_random_operators(dims, size_a, n_jumps=2, salt=0))
+    B = _lindbladian(dims, *_random_operators(dims, size_b, n_jumps=2, salt=1))
 
     AB = A | B
     assert isinstance(AB, qx.Lindbladian)
     assert AB.dims == (dims + dims, dims + dims)
+    assert AB.ensemble_size == jnp.broadcast_shapes(size_a, size_b)
 
     lhs = qx.evolve(AB, T)
     rhs = qx.evolve(A, T) | qx.evolve(B, T)  # tensor product of the single-system channels
     assert jnp.allclose(lhs.matrix, rhs.matrix, atol=1e-8)
-    assert qx.is_cptp(lhs)
 
-    # Tensor product of ensemble Lindbladians is not supported.
-    ens = _lindbladian(dims, *_random_operators(dims, (4,), n_jumps=2))
-    with pytest.raises(NotImplementedError):
-        _ = ens | ens
+    if AB.ensemble_size == ():
+        assert qx.is_cptp(lhs)
+    else:
+        for idx in np.ndindex(AB.ensemble_size):
+            assert qx.is_cptp(lhs[idx])
 
 
 def test_non_cp_operations_unsupported():
