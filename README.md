@@ -26,18 +26,34 @@ pip install rigetti-quax
 
 ```python
 import jax
+import jax.numpy as jnp
 import quax as qx
 
-# Create a quantum state
-state = qx.zero_state_vector(dims=(2,))
+# Create a 2-qubit state
+psi_0: qx.StateVector = qx.zero_state_vector(dims=(2, 2,))
 
-# Apply a unitary operation
-U = qx.random_unitary(dims=(2,), key=jax.random.key(0))
-final_state = U @ state
+# Apply gates to prepare a pure Bell state
+psi = (qx.gates.H | qx.gates.I) @ psi_0
+psi = qx.gates.CNOT @ psi
 
-# Convert between representations
-choi = qx.unitary_to_choi(U)
-pauli_liouville = qx.to_pauli_liouville(choi)
+# Generate an ensemble of Lindbladians with varying strenght
+L: qx.Lindbladian = qx.lindbladians.amplitude_damping(jnp.linspace(0.0, 0.1, 10))
+
+# Combine the Lindbladians with the CNOT unitary to create an ensemble of quantum channels
+# The unitary is automatically promoted to a superoperator to support the addition of the Lindbladian
+noisy_cnot: qx.SuperOp = qx.gates.CNOT + (L | L)
+
+# Apply the noise operation to create a noisy Bell states
+rho: qx.DensityMatrix = noisy_cnot @ (qx.gates.H | qx.gates.I) @ psi_0
+
+# Compute the fidelity between the noisy Bell state and the ideal Bell state
+fidelity: jax.Array = qx.fidelity(rho, psi)
+
+# Now let's apply a qutrit gate to the ensemble of noisy Bell states. 
+rho = (qx.gates.TRX12(jnp.pi) | qx.gates.I) @ rho
+
+# We can estimate the 𝜆8 observable
+obesrvables: jax.Array = qx.estimate(rho, observable=(qx.gates.GELLMANN8) | qx.gates.I)
 ```
 
 ## Acknowledgements
