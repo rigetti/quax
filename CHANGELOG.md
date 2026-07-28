@@ -14,6 +14,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [Unreleased]
+
+### Added
+
+- Cold-import benchmarks (`benchmarks/test_import.py`) measuring `import quax` against an `import jax` baseline.
+
+### Changed
+
+- Fixed constants in `gates`, `states`, and `ensembles` (e.g. `qx.gates.X`, `qx.states.KET0`) are now
+  built lazily on first access instead of at import time. They remain plain attributes (not functions)
+  but pick up the current JAX precision, so enabling `jax_enable_x64` after importing `quax` now yields
+  correctly-typed constants. This also keeps the heavier import-time construction (icosahedral group
+  generation, `expm`-based gates) off the `import quax` path until it is actually used.
+
 ## [0.7.0] - 2026-07-10
 
 ### Added

@@ -1,7 +1,14 @@
 # This file checks our gate definitions against pyquil
 import inspect
+import os
+import subprocess
+import sys
+import textwrap
+
+import jax
 import numpy as np
 import jax.numpy as jnp
+import pytest
 from pyquil.simulation import matrices
 import quax as qx
 from quax import is_unitary
@@ -388,3 +395,87 @@ def test_tensor_product_of_unitaries_is_unitary():
     phi, lam = 0.3, 0.7
     result = qx.gates.RY(phi) | qx.gates.RZ(lam)
     assert isinstance(result, qx.Unitary)
+
+
+# ---------------------------------------------------------------------------
+# Lazy, precision-aware constant gates
+# ---------------------------------------------------------------------------
+
+
+def test_constant_gates_are_attributes_not_functions():
+    """Fixed gates are accessed as attributes (not called) and return operator instances."""
+    assert isinstance(qx.gates.X, qx.Operator)
+    assert not callable(qx.gates.X)
+    assert isinstance(qx.gates.CNOT, qx.Operator)
+    assert isinstance(qx.gates.GELLMANN1, qx.Operator)
+
+
+def test_gates_dir_and_hasattr():
+    """__dir__/__getattr__ expose the lazy constants for discoverability."""
+    listing = dir(qx.gates)
+    for name in ["X", "H", "CNOT", "GELLMANN1", "WEYLS3", "QUANTUM_GATES"]:
+        assert name in listing
+        assert hasattr(qx.gates, name)
+    # Parametric gates remain ordinary module functions.
+    assert "RX" in listing
+    with pytest.raises(AttributeError):
+        _ = qx.gates.NOT_A_REAL_GATE
+
+
+def test_constant_gates_use_current_precision():
+    """Constant (and parametric) gates are built at the precision active when accessed.
+
+    Run under ``JAX_ENABLE_X64=1``, so the canonical complex dtype is ``complex128``.  This asserts
+    the lazy build honours the *current* precision without mutating the global config (toggling
+    ``jax_enable_x64`` mid-session clears JAX's compilation caches and slows the whole suite); the
+    change-of-precision behaviour is covered in isolation by
+    ``test_lazy_constants_track_precision_change``.
+    """
+    expected = jax.dtypes.canonicalize_dtype(jnp.complex128)
+    assert qx.gates.X.matrix.dtype == expected
+    assert qx.gates.H.matrix.dtype == expected
+    assert qx.gates.ECR.matrix.dtype == expected  # derived (uses evolve/@)
+    assert qx.gates.WEYLS3.matrix.dtype == expected  # stacked qutrit constant
+    assert qx.gates.RX(0.3).matrix.dtype == expected  # parametric
+
+
+def test_quantum_gates_registry_lazy():
+    """QUANTUM_GATES resolves constants to instances and parametric gates to callables."""
+    registry = qx.gates.QUANTUM_GATES
+    assert isinstance(registry["X"], qx.Operator)
+    assert callable(registry["RX"])
+    assert registry["X"].matrix.dtype == jax.dtypes.canonicalize_dtype(jnp.complex128)
+
+
+def test_lazy_constants_track_precision_change():
+    """The lazy constants pick up a precision change made *after* importing quax.
+
+    This is the core motivation for lazy construction: enabling x64 after import must yield
+    ``complex128`` constants.  It runs in a fresh subprocess started *without* x64 (so the default
+    is ``complex64``) to avoid mutating this session's global JAX config, which would clear
+    compilation caches and slow the rest of the suite.
+    """
+    code = textwrap.dedent(
+        """
+        import jax
+        import jax.numpy as jnp
+        import quax as qx
+
+        # Fresh interpreter with x64 disabled -> constants build as complex64 on first access.
+        assert qx.gates.X.matrix.dtype == jnp.complex64
+        assert qx.states.KET0.matrix.dtype == jnp.complex64
+        assert qx.ensembles.PAULI_ENSEMBLE.matrix.dtype == jnp.complex64
+
+        # Enabling x64 afterwards must be reflected the next time a constant is accessed.
+        jax.config.update("jax_enable_x64", True)
+        assert qx.gates.X.matrix.dtype == jnp.complex128
+        assert qx.gates.ECR.matrix.dtype == jnp.complex128
+        assert qx.states.KET0.matrix.dtype == jnp.complex128
+        assert qx.ensembles.PAULI_ENSEMBLE.matrix.dtype == jnp.complex128
+        print("OK")
+        """
+    )
+    env = {k: v for k, v in os.environ.items() if k != "JAX_ENABLE_X64"}
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().endswith("OK")

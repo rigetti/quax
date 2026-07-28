@@ -1,3 +1,4 @@
+import jax
 import pytest
 import quax as qx
 import jax.numpy as jnp
@@ -59,3 +60,25 @@ def test_is_two_design(ensemble):
     ensemble: numpy array of shape (N, 2, 2)
     """
     assert jnp.all(qx.is_two_design(ensemble, atol=1e-6))
+
+
+def test_ensembles_are_attributes_not_functions():
+    assert isinstance(qx.ensembles.PAULI_ENSEMBLE, qx.Unitary)
+    assert not callable(qx.ensembles.CLIFFORD_ENSEMBLE)
+    assert "ICOSAHEDRAL_GROUP" in dir(qx.ensembles)
+    with pytest.raises(AttributeError):
+        _ = qx.ensembles.NOT_A_REAL_ENSEMBLE
+
+
+def test_ensembles_use_current_precision():
+    """Lazily-built ensembles are constructed at the active precision (``complex128`` under x64).
+
+    Precision-*change* behaviour is covered in isolation by
+    ``test_gates.py::test_lazy_constants_track_precision_change`` (a subprocess test, to avoid
+    clearing JAX's compilation caches mid-suite).
+    """
+    expected = jax.dtypes.canonicalize_dtype(jnp.complex128)
+    assert qx.ensembles.PAULI_ENSEMBLE.matrix.dtype == expected
+    assert qx.ensembles.CLIFFORD_ENSEMBLE.matrix.dtype == expected
+    assert qx.ensembles.ICOSAHEDRAL_GROUP.matrix.dtype == expected
+    assert qx.ensembles.SIC_PREP.matrix.dtype == expected

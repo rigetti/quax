@@ -14,6 +14,12 @@
 
 r"""Standard gate set, as detailed in Quil whitepaper (arXiV:1608:03355v2).
 
+Fixed gates (``X``, ``H``, ``CNOT``, the qutrit gates, …) are **built lazily on first access** at
+the current JAX precision.  They remain plain attributes — ``qx.gates.X`` returns an operator, not a
+function — but constructing them on demand means enabling x64 *after* importing ``quax`` yields
+correctly-typed constants (see :mod:`quax._lazy`).  Parametric gates (``RX``, ``CAN``, …) are
+ordinary functions and already build at call time.
+
 Currently includes:
     I - identity :math:`\begin{pmatrix} 1 & 0 \\ 0 & 1 \end{pmatrix}`
 
@@ -117,35 +123,67 @@ Specialized gates / internal utility gates:
     :math:`\begin{pmatrix} 0 & 0 \\ 0 & 1 \end{pmatrix}`
 """  # noqa: E501
 
+from typing import Any, Callable
+
 import jax.numpy as jnp
-from ._quantum_objects import Involution, Observable, Operator, SuperOp, Unitary, QuantumInstrument
+
 from ._exponentiation import evolve
+from ._lazy import make_lazy_getter
+from ._quantum_objects import Involution, Observable, Operator, QuantumInstrument, SuperOp, Unitary
 
-I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
+# ``_get(name)`` returns the current-precision instance of a lazily-built constant.  It is bound at
+# the bottom of this module; builders and parametric gates below reference it at call time.
+_get: Callable[[str], Any]
 
-X = Involution.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
 
-Y = Involution.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)))
+# =============================================================================
+# Single-qubit constants
+# =============================================================================
 
-Z = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)))
 
-H = Involution.from_matrix((1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,)))
+def _make_I() -> Involution:
+    return Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))
 
-S = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2,), (2,)))
 
-T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0)]], dtype=complex), ((2,), (2,)))
+def _make_X() -> Involution:
+    return Involution.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
+
+
+def _make_Y() -> Involution:
+    return Involution.from_matrix(jnp.array([[0.0, 0.0 - 1.0j], [0.0 + 1.0j, 0.0]], dtype=complex), ((2,), (2,)))
+
+
+def _make_Z() -> Involution:
+    return Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, -1.0]], dtype=complex), ((2,), (2,)))
+
+
+def _make_H() -> Involution:
+    return Involution.from_matrix(
+        (1.0 / jnp.sqrt(2.0)) * jnp.array([[1.0, 1.0], [1.0, -1.0]], dtype=complex), ((2,), (2,))
+    )
+
+
+def _make_S() -> Unitary:
+    return Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2,), (2,)))
+
+
+def _make_T() -> Unitary:
+    return Unitary.from_matrix(
+        jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0)]], dtype=complex), ((2,), (2,))
+    )
 
 
 def PHASE(phi: float) -> Unitary:
+    I, Z = _get("I"), _get("Z")  # noqa: E741
     return evolve((I - Z) * (-0.5 * phi))
 
 
 def RX(phi) -> Unitary:
-    return evolve(X * (0.5 * phi))
+    return evolve(_get("X") * (0.5 * phi))
 
 
 def RY(phi: float) -> Unitary:
-    return evolve(Y * (0.5 * phi))
+    return evolve(_get("Y") * (0.5 * phi))
 
 
 def RZ(phi: float) -> Unitary:
@@ -163,79 +201,100 @@ def U(theta: float, phi: float, lam: float) -> Unitary:
     return Unitary(result.data, result.num_qubits)
 
 
-CZ = Involution.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]], dtype=complex), ((2, 2), (2, 2))
-)
+# =============================================================================
+# Two-qubit constants
+# =============================================================================
 
-CNOT = Involution.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex), ((2, 2), (2, 2))
-)
 
-CCNOT = Involution.from_matrix(
-    jnp.array(
-        [
-            [1, 0, 0, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0],
-            [0, 0, 0, 0, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 0, 1, 0],
-        ]
-    ),
-    ((2, 2, 2), (2, 2, 2)),
-)
+def _make_CZ() -> Involution:
+    return Involution.from_matrix(
+        jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]], dtype=complex), ((2, 2), (2, 2))
+    )
+
+
+def _make_CNOT() -> Involution:
+    return Involution.from_matrix(
+        jnp.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]], dtype=complex), ((2, 2), (2, 2))
+    )
+
+
+def _make_CCNOT() -> Involution:
+    return Involution.from_matrix(
+        jnp.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1],
+                [0, 0, 0, 0, 0, 0, 1, 0],
+            ]
+        ),
+        ((2, 2, 2), (2, 2, 2)),
+    )
 
 
 def CPHASE00(phi: float) -> Unitary:
+    I, Z = _get("I"), _get("Z")  # noqa: E741
     result = jnp.exp(0.5j * phi) * evolve((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (0.25 * phi))
     return Unitary(result.data, result.num_qubits)
 
 
 def CPHASE01(phi: float) -> Unitary:
+    I, Z = _get("I"), _get("Z")  # noqa: E741
     return evolve((((I | I) + (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi))
 
 
 def CPHASE10(phi: float) -> Unitary:
+    I, Z = _get("I"), _get("Z")  # noqa: E741
     return evolve((((I | I) - (Z | I) + (I | Z)) - (Z | Z)) * (-0.25 * phi))
 
 
 def CPHASE(phi: float) -> Unitary:
+    I, Z = _get("I"), _get("Z")  # noqa: E741
     return evolve((((I | I) - (Z | I) - (I | Z)) + (Z | Z)) * (-0.25 * phi))
 
 
-SWAP = Involution.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
-)
+def _make_SWAP() -> Involution:
+    return Involution.from_matrix(
+        jnp.array([[1, 0, 0, 0], [0, 0, 1, 0], [0, 1, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
+    )
 
-CSWAP = Involution.from_matrix(
-    jnp.array(
-        [
-            [1, 0, 0, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0],
-            [0, 0, 0, 0, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 1],
-        ],
-        dtype=complex,
-    ),
-    ((2, 2, 2), (2, 2, 2)),
-)
 
-ISWAP = Unitary.from_matrix(
-    jnp.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
-)
+def _make_CSWAP() -> Involution:
+    return Involution.from_matrix(
+        jnp.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1],
+            ],
+            dtype=complex,
+        ),
+        ((2, 2, 2), (2, 2, 2)),
+    )
+
+
+def _make_ISWAP() -> Unitary:
+    return Unitary.from_matrix(
+        jnp.array([[1, 0, 0, 0], [0, 0, 1j, 0], [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex), ((2, 2), (2, 2))
+    )
 
 
 def PSWAP(phi: float) -> Unitary:
+    I, X, Y, Z = _get("I"), _get("X"), _get("Y"), _get("Z")  # noqa: E741
     return evolve(((I | I) - (Z | Z)) * (-0.5 * (phi - jnp.pi / 2.0))) @ evolve(((X | X) + (Y | Y)) * (-jnp.pi / 4.0))
 
 
 def XY(phi: float) -> Unitary:
+    X, Y = _get("X"), _get("Y")
     return evolve(((X | X) + (Y | Y)) * (-phi / 4.0))
 
 
@@ -244,6 +303,7 @@ def FSIM(theta: float, phi: float) -> Unitary:
 
 
 def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) -> Unitary:
+    I, X, Y, Z = _get("I"), _get("X"), _get("Y"), _get("Z")  # noqa: E741
     diagonal_generator = (
         (I | I) * ((phi / 4.0) - gamma) + ((Z | I) + (I | Z)) * ((2.0 * gamma - phi) / 4.0) + (Z | Z) * (phi / 4.0)
     )
@@ -258,34 +318,42 @@ def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) 
 
 
 def RZZ(phi: float) -> Unitary:
+    Z = _get("Z")
     return evolve((Z | Z) * (0.5 * phi))
 
 
 def RXX(phi: float) -> Unitary:
+    X = _get("X")
     return evolve((X | X) * (0.5 * phi))
 
 
 def RYY(phi: float) -> Unitary:
+    Y = _get("Y")
     return evolve((Y | Y) * (0.5 * phi))
 
 
-SQISWAP = SQISW = Unitary.from_matrix(
-    jnp.array(
-        [
-            [1, 0, 0, 0],
-            [0, 1 / jnp.sqrt(2), 1j / jnp.sqrt(2), 0],
-            [0, 1j / jnp.sqrt(2), 1 / jnp.sqrt(2), 0],
-            [0, 0, 0, 1],
-        ],
-        dtype=complex,
-    ),
-    ((2, 2), (2, 2)),
-)
+def _make_SQISWAP() -> Unitary:
+    return Unitary.from_matrix(
+        jnp.array(
+            [
+                [1, 0, 0, 0],
+                [0, 1 / jnp.sqrt(2), 1j / jnp.sqrt(2), 0],
+                [0, 1j / jnp.sqrt(2), 1 / jnp.sqrt(2), 0],
+                [0, 0, 0, 1],
+            ],
+            dtype=complex,
+        ),
+        ((2, 2), (2, 2)),
+    )
+
 
 # Utility gates for internal QVM use
-P0 = Operator.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)))
+def _make_P0() -> Operator:
+    return Operator.from_matrix(jnp.array([[1, 0], [0, 0]], dtype=complex), ((2,), (2,)))
 
-P1 = Operator.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)))
+
+def _make_P1() -> Operator:
+    return Operator.from_matrix(jnp.array([[0, 0], [0, 1]], dtype=complex), ((2,), (2,)))
 
 
 # Specialized useful gates; not officially in standard gate set
@@ -322,21 +390,27 @@ def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
 
 def CAN(tx: float, ty: float, tz: float) -> Unitary:
     """Canonical gate."""
+    X, Y, Z = _get("X"), _get("Y"), _get("Z")
     return evolve((X | X) * (-0.5 * tx) + (Y | Y) * (-0.5 * ty) + (Z | Z) * (-0.5 * tz))
 
 
-B = CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
+def _make_B() -> Unitary:
+    return CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
 
 
-ECR = evolve((-jnp.pi / 4.0) * (Z | X)) @ (X | I)
+def _make_ECR() -> Unitary:
+    I, X, Z = _get("I"), _get("X"), _get("Z")  # noqa: E741
+    return evolve((-jnp.pi / 4.0) * (Z | X)) @ (X | I)
 
 
 def GIVENS(theta: float) -> Unitary:
     """Givens rotation on the subspace spanned by |01> and |10>."""
+    X, Y = _get("X"), _get("Y")
     return evolve(((Y | X) - (X | Y)) * (0.5 * theta))
 
 
-SYCAMORE = CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
+def _make_SYCAMORE() -> Unitary:
+    return CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
 
 
 # =============================================================================
@@ -352,73 +426,85 @@ SYCAMORE = CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
 #         https://arxiv.org/abs/1905.10481
 
 
-TX = Unitary.from_matrix(
-    jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Generalized qutrit X gate (cyclic shift) :cite:`ASYQT`."""
-
-TY = Unitary.from_matrix(
-    jnp.array([[0, -1j, 0], [0, 0, -1j], [1j, 0, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Generalized qutrit Y gate :cite:`ASYQT`."""
-
-TZ = Unitary.from_matrix(
-    jnp.array(
-        [[1, 0, 0], [0, jnp.exp(2j * jnp.pi / 3), 0], [0, 0, jnp.exp(4j * jnp.pi / 3)]],
-        dtype=complex,
-    ),
-    ((3,), (3,)),
-)
-"""Generalized qutrit Z gate (clock matrix) :cite:`ASYQT`."""
-
-TH = Unitary.from_matrix(
-    (1.0 / jnp.sqrt(3.0))
-    * jnp.array(
-        [
-            [1, 1, 1],
-            [1, jnp.exp(2j * jnp.pi / 3), jnp.exp(4j * jnp.pi / 3)],
-            [1, jnp.exp(4j * jnp.pi / 3), jnp.exp(2j * jnp.pi / 3)],
-        ],
-        dtype=complex,
-    ),
-    ((3,), (3,)),
-)
-"""Qutrit Hadamard (QFT on 3 levels)."""
+def _make_TX() -> Unitary:
+    """Generalized qutrit X gate (cyclic shift) :cite:`ASYQT`."""
+    return Unitary.from_matrix(
+        jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
 
 
-TSHIFT = TX
-"""Qutrit shift gate (alias for TX)."""
+def _make_TY() -> Unitary:
+    """Generalized qutrit Y gate :cite:`ASYQT`."""
+    return Unitary.from_matrix(
+        jnp.array([[0, -1j, 0], [0, 0, -1j], [1j, 0, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
 
-TSWAP = Involution.from_matrix(
-    jnp.array(
-        [
-            [1, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 1, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 1, 0],
-            [0, 0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 1],
-        ],
-        dtype=complex,
-    ),
-    ((3, 3), (3, 3)),
-)
-"""Qutrit SWAP gate."""
+
+def _make_TZ() -> Unitary:
+    """Generalized qutrit Z gate (clock matrix) :cite:`ASYQT`."""
+    return Unitary.from_matrix(
+        jnp.array(
+            [[1, 0, 0], [0, jnp.exp(2j * jnp.pi / 3), 0], [0, 0, jnp.exp(4j * jnp.pi / 3)]],
+            dtype=complex,
+        ),
+        ((3,), (3,)),
+    )
+
+
+def _make_TH() -> Unitary:
+    """Qutrit Hadamard (QFT on 3 levels)."""
+    return Unitary.from_matrix(
+        (1.0 / jnp.sqrt(3.0))
+        * jnp.array(
+            [
+                [1, 1, 1],
+                [1, jnp.exp(2j * jnp.pi / 3), jnp.exp(4j * jnp.pi / 3)],
+                [1, jnp.exp(4j * jnp.pi / 3), jnp.exp(2j * jnp.pi / 3)],
+            ],
+            dtype=complex,
+        ),
+        ((3,), (3,)),
+    )
+
+
+def _make_TSWAP() -> Involution:
+    """Qutrit SWAP gate."""
+    return Involution.from_matrix(
+        jnp.array(
+            [
+                [1, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 1, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 1, 0, 0],
+                [0, 1, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 1, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 1, 0],
+                [0, 0, 1, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 1, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 1],
+            ],
+            dtype=complex,
+        ),
+        ((3, 3), (3, 3)),
+    )
+
 
 # Qutrit level projectors
-TP0 = Observable.from_matrix(jnp.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
-"""Qutrit projector onto |0⟩."""
+def _make_TP0() -> Observable:
+    """Qutrit projector onto |0⟩."""
+    return Observable.from_matrix(jnp.array([[1, 0, 0], [0, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
 
-TP1 = Observable.from_matrix(jnp.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
-"""Qutrit projector onto |1⟩."""
 
-TP2 = Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, 0], [0, 0, 1]], dtype=complex), ((3,), (3,)))
-"""Qutrit projector onto |2⟩."""
+def _make_TP1() -> Observable:
+    """Qutrit projector onto |1⟩."""
+    return Observable.from_matrix(jnp.array([[0, 0, 0], [0, 1, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_TP2() -> Observable:
+    """Qutrit projector onto |2⟩."""
+    return Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, 0], [0, 0, 1]], dtype=complex), ((3,), (3,)))
+
 
 # =============================================================================
 # Gell-Mann observables (qutrit analogue of Pauli matrices)
@@ -429,33 +515,58 @@ TP2 = Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, 0], [0, 0, 1]], dtype=
 # They satisfy Tr(λ_i λ_j) = 2 δ_{ij}.
 # However, they are not unitary, as they must span a 8-dimension Lie algebra and
 # cannot square to the identity
-GELLMANN1 = Observable.from_matrix(jnp.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN2 = Observable.from_matrix(jnp.array([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN3 = Observable.from_matrix(jnp.array([[1, 0, 0], [0, -1, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN4 = Observable.from_matrix(jnp.array([[0, 0, 1], [0, 0, 0], [1, 0, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN5 = Observable.from_matrix(jnp.array([[0, 0, -1j], [0, 0, 0], [1j, 0, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN6 = Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, 1], [0, 1, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN7 = Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]], dtype=complex), ((3,), (3,)))
-GELLMANN8 = Observable.from_matrix(
-    (1 / jnp.sqrt(3)) * jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, -2]], dtype=complex),
-    ((3,), (3,)),
-)
+def _make_GELLMANN1() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
 
-GELLMANN_MATRICES = Observable.from_matrix(
-    jnp.stack(
-        [
-            GELLMANN1.matrix,
-            GELLMANN2.matrix,
-            GELLMANN3.matrix,
-            GELLMANN4.matrix,
-            GELLMANN5.matrix,
-            GELLMANN6.matrix,
-            GELLMANN7.matrix,
-            GELLMANN8.matrix,
-        ]
-    ),
-    ((3,), (3,)),
-)
+
+def _make_GELLMANN2() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN3() -> Observable:
+    return Observable.from_matrix(jnp.array([[1, 0, 0], [0, -1, 0], [0, 0, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN4() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, 0, 1], [0, 0, 0], [1, 0, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN5() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, 0, -1j], [0, 0, 0], [1j, 0, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN6() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, 1], [0, 1, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN7() -> Observable:
+    return Observable.from_matrix(jnp.array([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]], dtype=complex), ((3,), (3,)))
+
+
+def _make_GELLMANN8() -> Observable:
+    return Observable.from_matrix(
+        (1 / jnp.sqrt(3)) * jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, -2]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_GELLMANN_MATRICES() -> Observable:
+    return Observable.from_matrix(
+        jnp.stack(
+            [
+                _get("GELLMANN1").matrix,
+                _get("GELLMANN2").matrix,
+                _get("GELLMANN3").matrix,
+                _get("GELLMANN4").matrix,
+                _get("GELLMANN5").matrix,
+                _get("GELLMANN6").matrix,
+                _get("GELLMANN7").matrix,
+                _get("GELLMANN8").matrix,
+            ]
+        ),
+        ((3,), (3,)),
+    )
+
 
 # =============================================================================
 # Qutrit Weyl operators W_{x,z} = X^x Z^z  (indexed by shift x, clock z)
@@ -464,69 +575,107 @@ GELLMANN_MATRICES = Observable.from_matrix(
 #   Tr(W_{x,z}^† W_{x',z'}) = 3 δ_{xx'} δ_{zz'}
 # For d=3: ω = exp(2πi/3).  Each W_{x,z} is the matrix whose (i, (i−x) mod 3)
 # entry equals ω^(z·(i−x) mod 3), with all other entries zero.
-_omega3 = jnp.exp(2j * jnp.pi / 3)
+def _make__omega3():
+    return jnp.exp(2j * jnp.pi / 3)
 
-W00 = Unitary.from_matrix(
-    jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{0,0}: identity."""
 
-W01 = Unitary.from_matrix(
-    jnp.array([[1, 0, 0], [0, _omega3, 0], [0, 0, _omega3**2]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{0,1}: clock (Z) operator."""
+def _make_W00() -> Unitary:
+    """Qutrit Weyl W_{0,0}: identity."""
+    return Unitary.from_matrix(
+        jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=complex),
+        ((3,), (3,)),
+    )
 
-W02 = Unitary.from_matrix(
-    jnp.array([[1, 0, 0], [0, _omega3**2, 0], [0, 0, _omega3]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{0,2}: clock-squared (Z²) operator."""
 
-W10 = Unitary.from_matrix(
-    jnp.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{1,0}: shift (X) operator."""
+def _make_W01() -> Unitary:
+    """Qutrit Weyl W_{0,1}: clock (Z) operator."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[1, 0, 0], [0, w, 0], [0, 0, w**2]], dtype=complex),
+        ((3,), (3,)),
+    )
 
-W11 = Unitary.from_matrix(
-    jnp.array([[0, 0, _omega3**2], [1, 0, 0], [0, _omega3, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{1,1}: X·Z."""
 
-W12 = Unitary.from_matrix(
-    jnp.array([[0, 0, _omega3], [1, 0, 0], [0, _omega3**2, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{1,2}: X·Z²."""
+def _make_W02() -> Unitary:
+    """Qutrit Weyl W_{0,2}: clock-squared (Z²) operator."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[1, 0, 0], [0, w**2, 0], [0, 0, w]], dtype=complex),
+        ((3,), (3,)),
+    )
 
-W20 = Unitary.from_matrix(
-    jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{2,0}: shift-squared (X²) operator."""
 
-W21 = Unitary.from_matrix(
-    jnp.array([[0, _omega3, 0], [0, 0, _omega3**2], [1, 0, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{2,1}: X²·Z."""
+def _make_W10() -> Unitary:
+    """Qutrit Weyl W_{1,0}: shift (X) operator."""
+    return Unitary.from_matrix(
+        jnp.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
 
-W22 = Unitary.from_matrix(
-    jnp.array([[0, _omega3**2, 0], [0, 0, _omega3], [1, 0, 0]], dtype=complex),
-    ((3,), (3,)),
-)
-"""Qutrit Weyl W_{2,2}: X²·Z²."""
 
-WEYLS3 = Unitary.from_matrix(
-    jnp.stack(
-        [W00.matrix, W01.matrix, W02.matrix, W10.matrix, W11.matrix, W12.matrix, W20.matrix, W21.matrix, W22.matrix]
-    ),
-    ((3,), (3,)),
-)
-"""All nine qutrit Weyl operators as an ensemble, ordered (0,0), (0,1), …, (2,2)."""
+def _make_W11() -> Unitary:
+    """Qutrit Weyl W_{1,1}: X·Z."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[0, 0, w**2], [1, 0, 0], [0, w, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_W12() -> Unitary:
+    """Qutrit Weyl W_{1,2}: X·Z²."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[0, 0, w], [1, 0, 0], [0, w**2, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_W20() -> Unitary:
+    """Qutrit Weyl W_{2,0}: shift-squared (X²) operator."""
+    return Unitary.from_matrix(
+        jnp.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_W21() -> Unitary:
+    """Qutrit Weyl W_{2,1}: X²·Z."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[0, w, 0], [0, 0, w**2], [1, 0, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_W22() -> Unitary:
+    """Qutrit Weyl W_{2,2}: X²·Z²."""
+    w = _get("_omega3")
+    return Unitary.from_matrix(
+        jnp.array([[0, w**2, 0], [0, 0, w], [1, 0, 0]], dtype=complex),
+        ((3,), (3,)),
+    )
+
+
+def _make_WEYLS3() -> Unitary:
+    """All nine qutrit Weyl operators as an ensemble, ordered (0,0), (0,1), …, (2,2)."""
+    return Unitary.from_matrix(
+        jnp.stack(
+            [
+                _get("W00").matrix,
+                _get("W01").matrix,
+                _get("W02").matrix,
+                _get("W10").matrix,
+                _get("W11").matrix,
+                _get("W12").matrix,
+                _get("W20").matrix,
+                _get("W21").matrix,
+                _get("W22").matrix,
+            ]
+        ),
+        ((3,), (3,)),
+    )
+
 
 # =============================================================================
 # Qutrit rotation gates (built from Gell-Mann generators)
@@ -536,53 +685,57 @@ WEYLS3 = Unitary.from_matrix(
 # λ₃ and λ₈:
 #   Z₀₂ = diag(1,0,−1) = ½λ₃ + (√3/2)λ₈
 #   Z₁₂ = diag(0,1,−1) = (√3/2)λ₈ − ½λ₃
-_Z02 = GELLMANN3 * 0.5 + GELLMANN8 * (jnp.sqrt(3.0) * 0.5)
-_Z12 = GELLMANN8 * (jnp.sqrt(3.0) * 0.5) - GELLMANN3 * 0.5
+def _make__Z02() -> Observable:
+    return _get("GELLMANN3") * 0.5 + _get("GELLMANN8") * (jnp.sqrt(3.0) * 0.5)
+
+
+def _make__Z12() -> Observable:
+    return _get("GELLMANN8") * (jnp.sqrt(3.0) * 0.5) - _get("GELLMANN3") * 0.5
 
 
 def TRX01(phi) -> Unitary:
     """Qutrit X-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN1 * (0.5 * phi))
+    return evolve(_get("GELLMANN1") * (0.5 * phi))
 
 
 def TRY01(phi) -> Unitary:
     """Qutrit Y-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN2 * (0.5 * phi))
+    return evolve(_get("GELLMANN2") * (0.5 * phi))
 
 
 def TRZ01(phi) -> Unitary:
     """Qutrit Z-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN3 * (0.5 * phi))
+    return evolve(_get("GELLMANN3") * (0.5 * phi))
 
 
 def TRX02(phi) -> Unitary:
     """Qutrit X-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(GELLMANN4 * (0.5 * phi))
+    return evolve(_get("GELLMANN4") * (0.5 * phi))
 
 
 def TRY02(phi) -> Unitary:
     """Qutrit Y-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(GELLMANN5 * (0.5 * phi))
+    return evolve(_get("GELLMANN5") * (0.5 * phi))
 
 
 def TRZ02(phi) -> Unitary:
     """Qutrit Z-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(_Z02 * (0.5 * phi))
+    return evolve(_get("_Z02") * (0.5 * phi))
 
 
 def TRX12(phi) -> Unitary:
     """Qutrit X-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(GELLMANN6 * (0.5 * phi))
+    return evolve(_get("GELLMANN6") * (0.5 * phi))
 
 
 def TRY12(phi) -> Unitary:
     """Qutrit Y-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(GELLMANN7 * (0.5 * phi))
+    return evolve(_get("GELLMANN7") * (0.5 * phi))
 
 
 def TRZ12(phi) -> Unitary:
     """Qutrit Z-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(_Z12 * (0.5 * phi))
+    return evolve(_get("_Z12") * (0.5 * phi))
 
 
 # Convenience aliases
@@ -640,73 +793,154 @@ def RESET(dim: int = 2) -> SuperOp:
     return SuperOp.from_matrix(S, ((dim,), (dim,)))
 
 
-QUANTUM_GATES = {
-    "RZ": RZ,
-    "RX": RX,
-    "RY": RY,
-    "CZ": CZ,
-    "XY": XY,
-    "CPHASE": CPHASE,
-    "I": I,
-    "X": X,
-    "Y": Y,
-    "Z": Z,
-    "H": H,
-    "S": S,
-    "T": T,
-    "PHASE": PHASE,
-    "CNOT": CNOT,
-    "CCNOT": CCNOT,
-    "CPHASE00": CPHASE00,
-    "CPHASE01": CPHASE01,
-    "CPHASE10": CPHASE10,
-    "SWAP": SWAP,
-    "CSWAP": CSWAP,
-    "ISWAP": ISWAP,
-    "PSWAP": PSWAP,
-    "BARENCO": BARENCO,
-    "FSIM": FSIM,
-    "PHASEDFSIM": PHASEDFSIM,
-    "RXX": RXX,
-    "RYY": RYY,
-    "RZZ": RZZ,
-    "U": U,
-    "PHASEDRX": PHASEDRX,
-    "CAN": CAN,
-    "B": B,
-    "ECR": ECR,
-    "GIVENS": GIVENS,
-    "SYCAMORE": SYCAMORE,
+def _make_QUANTUM_GATES() -> dict[str, Any]:
+    """Registry of gates by name.
+
+    Constant gates resolve to their current-precision instance; parametric gates map to the
+    factory function.  Built lazily so the constant instances respect the active precision.
+    """
+    return {
+        "RZ": RZ,
+        "RX": RX,
+        "RY": RY,
+        "CZ": _get("CZ"),
+        "XY": XY,
+        "CPHASE": CPHASE,
+        "I": _get("I"),
+        "X": _get("X"),
+        "Y": _get("Y"),
+        "Z": _get("Z"),
+        "H": _get("H"),
+        "S": _get("S"),
+        "T": _get("T"),
+        "PHASE": PHASE,
+        "CNOT": _get("CNOT"),
+        "CCNOT": _get("CCNOT"),
+        "CPHASE00": CPHASE00,
+        "CPHASE01": CPHASE01,
+        "CPHASE10": CPHASE10,
+        "SWAP": _get("SWAP"),
+        "CSWAP": _get("CSWAP"),
+        "ISWAP": _get("ISWAP"),
+        "PSWAP": PSWAP,
+        "BARENCO": BARENCO,
+        "FSIM": FSIM,
+        "PHASEDFSIM": PHASEDFSIM,
+        "RXX": RXX,
+        "RYY": RYY,
+        "RZZ": RZZ,
+        "U": U,
+        "PHASEDRX": PHASEDRX,
+        "CAN": CAN,
+        "B": _get("B"),
+        "ECR": _get("ECR"),
+        "GIVENS": GIVENS,
+        "SYCAMORE": _get("SYCAMORE"),
+        # Qutrit gates
+        "TX": _get("TX"),
+        "TY": _get("TY"),
+        "TZ": _get("TZ"),
+        "TH": _get("TH"),
+        "TSHIFT": _get("TSHIFT"),
+        "TSWAP": _get("TSWAP"),
+        "TP0": _get("TP0"),
+        "TP1": _get("TP1"),
+        "TP2": _get("TP2"),
+        "TRX01": TRX01,
+        "TRY01": TRY01,
+        "TRZ01": TRZ01,
+        "TRX02": TRX02,
+        "TRY02": TRY02,
+        "TRZ02": TRZ02,
+        "TRX12": TRX12,
+        "TRY12": TRY12,
+        "TRZ12": TRZ12,
+        # Qutrit Weyl operators W_{x,z}
+        "W00": _get("W00"),
+        "W01": _get("W01"),
+        "W02": _get("W02"),
+        "W10": _get("W10"),
+        "W11": _get("W11"),
+        "W12": _get("W12"),
+        "W20": _get("W20"),
+        "W21": _get("W21"),
+        "W22": _get("W22"),
+        # MEASURE and RESET
+        "MEASURE": MEASURE,
+        "RESET": RESET,
+    }
+
+
+# Registry of lazily-built constant gates: name -> zero-argument builder.  Aliases (e.g. TSHIFT/TX)
+# share a builder.  Accessing ``qx.gates.<NAME>`` builds the object at the current precision.
+_BUILDERS: dict[str, Callable[[], Any]] = {
+    "I": _make_I,
+    "X": _make_X,
+    "Y": _make_Y,
+    "Z": _make_Z,
+    "H": _make_H,
+    "S": _make_S,
+    "T": _make_T,
+    "CZ": _make_CZ,
+    "CNOT": _make_CNOT,
+    "CCNOT": _make_CCNOT,
+    "SWAP": _make_SWAP,
+    "CSWAP": _make_CSWAP,
+    "ISWAP": _make_ISWAP,
+    "SQISWAP": _make_SQISWAP,
+    "SQISW": _make_SQISWAP,
+    "P0": _make_P0,
+    "P1": _make_P1,
+    "B": _make_B,
+    "ECR": _make_ECR,
+    "SYCAMORE": _make_SYCAMORE,
     # Qutrit gates
-    "TX": TX,
-    "TY": TY,
-    "TZ": TZ,
-    "TH": TH,
-    "TSHIFT": TSHIFT,
-    "TSWAP": TSWAP,
-    "TP0": TP0,
-    "TP1": TP1,
-    "TP2": TP2,
-    "TRX01": TRX01,
-    "TRY01": TRY01,
-    "TRZ01": TRZ01,
-    "TRX02": TRX02,
-    "TRY02": TRY02,
-    "TRZ02": TRZ02,
-    "TRX12": TRX12,
-    "TRY12": TRY12,
-    "TRZ12": TRZ12,
-    # Qutrit Weyl operators W_{x,z}
-    "W00": W00,
-    "W01": W01,
-    "W02": W02,
-    "W10": W10,
-    "W11": W11,
-    "W12": W12,
-    "W20": W20,
-    "W21": W21,
-    "W22": W22,
-    # MEASURE and RESET
-    "MEASURE": MEASURE,
-    "RESET": RESET,
+    "TX": _make_TX,
+    "TY": _make_TY,
+    "TZ": _make_TZ,
+    "TH": _make_TH,
+    "TSHIFT": _make_TX,  # alias for TX
+    "TSWAP": _make_TSWAP,
+    "TP0": _make_TP0,
+    "TP1": _make_TP1,
+    "TP2": _make_TP2,
+    # Gell-Mann observables
+    "GELLMANN1": _make_GELLMANN1,
+    "GELLMANN2": _make_GELLMANN2,
+    "GELLMANN3": _make_GELLMANN3,
+    "GELLMANN4": _make_GELLMANN4,
+    "GELLMANN5": _make_GELLMANN5,
+    "GELLMANN6": _make_GELLMANN6,
+    "GELLMANN7": _make_GELLMANN7,
+    "GELLMANN8": _make_GELLMANN8,
+    "GELLMANN_MATRICES": _make_GELLMANN_MATRICES,
+    # Qutrit Weyl operators
+    "_omega3": _make__omega3,
+    "W00": _make_W00,
+    "W01": _make_W01,
+    "W02": _make_W02,
+    "W10": _make_W10,
+    "W11": _make_W11,
+    "W12": _make_W12,
+    "W20": _make_W20,
+    "W21": _make_W21,
+    "W22": _make_W22,
+    "WEYLS3": _make_WEYLS3,
+    # Qutrit Z generators for rotation gates
+    "_Z02": _make__Z02,
+    "_Z12": _make__Z12,
+    # Gate registry
+    "QUANTUM_GATES": _make_QUANTUM_GATES,
 }
+
+_get = make_lazy_getter(_BUILDERS)
+
+
+def __getattr__(name: str) -> Any:
+    if name in _BUILDERS:
+        return _get(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | _BUILDERS.keys())

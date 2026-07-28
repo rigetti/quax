@@ -42,19 +42,29 @@ from typing import Tuple
 import jax.numpy as jnp
 from jax import Array
 
+from . import gates
 from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Lindbladian, Operator
-from .gates import GELLMANN6, GELLMANN7, X, Y, Z
 
-# Qubit lowering/raising operators |0⟩⟨1| = (X + iY)/2 and |1⟩⟨0| = (X − iY)/2.
-_SIGMA_MINUS = Operator.from_matrix((X.matrix + 1j * Y.matrix) / 2, ((2,), (2,)))
-_SIGMA_PLUS = Operator.from_matrix((X.matrix - 1j * Y.matrix) / 2, ((2,), (2,)))
 
-# Qutrit transition operators from the Gell-Mann generators:
-#   |2⟩⟨1| = (λ₆ − iλ₇)/2  (leakage out of the computational subspace),
-#   |1⟩⟨2| = (λ₆ + iλ₇)/2  (seepage back into it).
-_SIGMA_12 = Operator.from_matrix((GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
-_SIGMA_21 = Operator.from_matrix((GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
+def _sigma_minus() -> Operator:
+    """Qubit lowering operator |0⟩⟨1| = (X + iY)/2, at the current precision."""
+    return Operator.from_matrix((gates.X.matrix + 1j * gates.Y.matrix) / 2, ((2,), (2,)))
+
+
+def _sigma_plus() -> Operator:
+    """Qubit raising operator |1⟩⟨0| = (X − iY)/2, at the current precision."""
+    return Operator.from_matrix((gates.X.matrix - 1j * gates.Y.matrix) / 2, ((2,), (2,)))
+
+
+def _sigma_12() -> Operator:
+    """Qutrit leakage operator |2⟩⟨1| = (λ₆ − iλ₇)/2, at the current precision."""
+    return Operator.from_matrix((gates.GELLMANN6.matrix - 1j * gates.GELLMANN7.matrix) / 2, ((3,), (3,)))
+
+
+def _sigma_21() -> Operator:
+    """Qutrit seepage operator |1⟩⟨2| = (λ₆ + iλ₇)/2, at the current precision."""
+    return Operator.from_matrix((gates.GELLMANN6.matrix + 1j * gates.GELLMANN7.matrix) / 2, ((3,), (3,)))
 
 
 def amplitude_damping(gamma: float | Array, dims: Tuple[int, ...] = (2,)) -> Lindbladian:
@@ -98,7 +108,7 @@ def dephasing(gamma: float | Array) -> Lindbladian:
     :return: Lindbladian generator for the dephasing channel.
     """
     scale = jnp.sqrt(gamma / 2.0)
-    L = scale[..., None, None, None] * Z.matrix
+    L = scale[..., None, None, None] * gates.Z.matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
@@ -164,9 +174,9 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array
     scale_tphi = (jnp.sqrt(1.0 / tphi) / jnp.sqrt(2.0))[..., None, None]
     L_stack = jnp.stack(
         [
-            scale_down * _SIGMA_MINUS.matrix,
-            scale_up * _SIGMA_PLUS.matrix,
-            scale_tphi * Z.matrix,
+            scale_down * _sigma_minus().matrix,
+            scale_up * _sigma_plus().matrix,
+            scale_tphi * gates.Z.matrix,
         ],
         axis=-3,
     )
@@ -182,7 +192,7 @@ def bit_flip(gamma: float | Array) -> Lindbladian:
     :return: Lindbladian generator for the bit-flip channel.
     """
     scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * X.matrix
+    L = scale[..., None, None, None] * gates.X.matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
@@ -195,7 +205,7 @@ def phase_flip(gamma: float | Array) -> Lindbladian:
     :return: Lindbladian generator for the phase-flip channel.
     """
     scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * Z.matrix
+    L = scale[..., None, None, None] * gates.Z.matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
@@ -210,7 +220,7 @@ def leakage(gamma: float | Array) -> Lindbladian:
     :return: Lindbladian generator for the leakage channel (qutrit space).
     """
     scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * _SIGMA_12.matrix
+    L = scale[..., None, None, None] * _sigma_12().matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
 
 
@@ -225,5 +235,5 @@ def seepage(gamma: float | Array) -> Lindbladian:
     :return: Lindbladian generator for the seepage channel (qutrit space).
     """
     scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * _SIGMA_21.matrix
+    L = scale[..., None, None, None] * _sigma_21().matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))

@@ -37,8 +37,7 @@ from ._quantum_objects import (
 )
 from ._quantum_objects import QuantumInstrument
 from ._superoperator_transformations import to_choi
-from .ensembles import PAULI_ENSEMBLE
-from .gates import SWAP
+from . import ensembles, gates
 
 
 @singledispatch
@@ -288,7 +287,9 @@ def is_one_design(ensemble: Unitary, atol: float = 1e-2) -> jax.Array:
     # U: (n,a,b), P: (p,b,c), U†: (n,c,d) -> out: (n,p,a,d)
     unitaries_dag = jnp.conj(jnp.swapaxes(unitaries, -1, -2))
     # Only use X, Y, Z Paulis (ignore I)
-    twirled = jnp.einsum("nab,pbc,ncd->npad", unitaries, PAULI_ENSEMBLE.matrix[1:], unitaries_dag)  # (n,3,2,2)
+    twirled = jnp.einsum(
+        "nab,pbc,ncd->npad", unitaries, ensembles.PAULI_ENSEMBLE.matrix[1:], unitaries_dag
+    )  # (n,3,2,2)
 
     # Average over ensemble: (3,2,2)
     avg = jnp.mean(twirled, axis=0)
@@ -319,7 +320,7 @@ def is_two_design(ensemble: "Unitary", atol: float = 1e-2) -> jax.Array:
 
     # ----- Analytic Haar second moment M_haar -----
     I4 = jnp.eye(4, dtype=complex)
-    S = SWAP.matrix
+    S = gates.SWAP.matrix
 
     P_sym = 0.5 * (I4 + S)
     P_asym = 0.5 * (I4 - S)
