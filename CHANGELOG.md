@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.1] - 2026-07-21
+
+### Added
+
+- `tensor_lindbladian` (and the `|` operator on `Lindbladian`) now supports ensembles and broadcasting.
+
+### Changed
+
+- Minimum jax version is now (correctly) 0.10.2.
+
 ## [0.7.0] - 2026-07-10
 
 ### Added
