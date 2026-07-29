@@ -16,11 +16,12 @@
 # Different test files cover implementations of the various types and transformations.
 # Here, we only test that outputs are the expected shape and types
 
+from itertools import product
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from itertools import product
 
 import quax as qx
 from quax import (
@@ -43,6 +44,7 @@ from quax import (
     random_state_vector,
     random_unitary,
 )
+
 from .instrument_helpers import (
     basis_dm,
     basis_dm_multi,
@@ -454,9 +456,9 @@ def test_equality(num_qubits, ensemble_size, object_1, object_2, qudit_dim):
     random_object_1 = _generate_random_object(object_1, key_1, ensemble_size_1, dims, rank)
     random_object_2 = _generate_random_object(object_2, key_2, ensemble_size_2, dims, rank)
 
-    assert random_object_1 == random_object_1
+    assert random_object_1 == random_object_1  # noqa: PLR0124 (checking __eq__ reflexivity)
     assert random_object_1 != random_object_2
-    assert random_object_2 == random_object_2
+    assert random_object_2 == random_object_2  # noqa: PLR0124 (checking __eq__ reflexivity)
 
 
 @pytest.mark.parametrize("qudit_dim", [2, 3])
@@ -976,7 +978,7 @@ class TestProperties:
     def test_outcome_superop(self):
         qi = qx.gates.MEASURE()
         c0, coeff0 = qi.outcome_superop(0)
-        c1, coeff1 = qi.outcome_superop(1)
+        _c1, coeff1 = qi.outcome_superop(1)
         assert isinstance(c0, SuperOp)
         assert c0.dims == ((2,), (2,))
         np.testing.assert_allclose(coeff0, 0.5, atol=1e-10)

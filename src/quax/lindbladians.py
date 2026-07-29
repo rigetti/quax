@@ -37,7 +37,6 @@ Example::
 
 from functools import reduce
 from operator import mul
-from typing import Tuple
 
 import jax.numpy as jnp
 from jax import Array
@@ -57,7 +56,7 @@ _SIGMA_12 = Operator.from_matrix((GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2,
 _SIGMA_21 = Operator.from_matrix((GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
 
 
-def amplitude_damping(gamma: float | Array, dims: Tuple[int, ...] = (2,)) -> Lindbladian:
+def amplitude_damping(gamma: float | Array, dims: tuple[int, ...] = (2,)) -> Lindbladian:
     """Lindbladian generator for amplitude damping (T1 relaxation) of a qudit.
 
     Single jump operator :math:`L = \\sqrt{\\gamma}\\,a`, where ``a`` is the harmonic-oscillator
@@ -102,7 +101,7 @@ def dephasing(gamma: float | Array) -> Lindbladian:
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
-def depolarizing(gamma: float | Array, dims: Tuple[int, ...] = (2,)) -> Lindbladian:
+def depolarizing(gamma: float | Array, dims: tuple[int, ...] = (2,)) -> Lindbladian:
     """Lindbladian generator for the (uniform, global) depolarizing channel on ``dims``.
 
     The jump operators are the ``D²−1`` traceless Hermitian basis operators of the ``D``-dimensional

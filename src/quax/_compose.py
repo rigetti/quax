@@ -17,8 +17,8 @@
 import jax
 import jax.numpy as jnp
 
-from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary, Operator, QuantumInstrument
 from ._promotion import promote_hilbert_space
+from ._quantum_objects import Choi, KrausMap, Operator, PauliLiouville, QuantumInstrument, SuperOp, Unitary
 from ._superoperator_transformations import (
     choi_to_superop,
     superop_to_choi,

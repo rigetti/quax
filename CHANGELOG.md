@@ -14,6 +14,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.2] - 2026-07-29
+
+### Fixed
+
+- The leakage randomized benchmarking notebook is updated to reflect the Lindbladian leakage channel.
+
+### Changed
+
+- Ruff is updated to 0.16.0 and new formatting rules applied.
+
 ## [0.7.1] - 2026-07-21
 
 ### Added

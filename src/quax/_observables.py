@@ -1,8 +1,10 @@
-from ._quantum_objects import StateVector, DensityMatrix, State
-from jax import Array
+from functools import singledispatch
+
 import jax
 import jax.numpy as jnp
-from functools import singledispatch
+from jax import Array
+
+from ._quantum_objects import DensityMatrix, State, StateVector
 
 
 @singledispatch

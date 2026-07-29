@@ -23,18 +23,18 @@ from jax import Array
 from jax.typing import ArrayLike
 
 from ._apply import apply_superop_to_density_matrix
+from ._promotion import promote_hilbert_space
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
-    SuperOperator,
     QuantumInstrument,
     State,
     StateVector,
+    SuperOperator,
     Unitary,
     _extract_measured_index,
 )
 from ._superoperator_transformations import to_choi, to_pauli_liouville, to_superop
-from ._promotion import promote_hilbert_space
 
 
 @jax.jit

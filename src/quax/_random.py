@@ -14,17 +14,16 @@
 
 from functools import partial, reduce
 from operator import mul
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Choi, DensityMatrix, StateVector, Unitary, Operator, Observable
+from ._quantum_objects import Choi, DensityMatrix, Observable, Operator, StateVector, Unitary
 
 
 @partial(jax.jit, static_argnames=("dim", "k", "size"))
-def ginibre_matrix_complex(dim: int, k: int, key: Array, size: Tuple[int, ...] = ()) -> Array:
+def ginibre_matrix_complex(dim: int, k: int, key: Array, size: tuple[int, ...] = ()) -> Array:
     r"""
     Given a scalars dim and k, returns a dim by k matrix, drawn from the complex Ginibre
     ensemble :cite:`IM`.
@@ -47,7 +46,7 @@ def ginibre_matrix_complex(dim: int, k: int, key: Array, size: Tuple[int, ...] =
 
 
 @partial(jax.jit, static_argnames=("dims", "rank", "size"))
-def random_density_matrix(rank: int, dims: Tuple[int, ...], key: Array, size: Tuple[int, ...] = ()) -> DensityMatrix:
+def random_density_matrix(rank: int, dims: tuple[int, ...], key: Array, size: tuple[int, ...] = ()) -> DensityMatrix:
     dim = reduce(mul, dims, 1)
     if rank > dim:
         raise ValueError("The rank of the state matrix cannot exceed the dimension.")
@@ -63,7 +62,7 @@ def random_density_matrix(rank: int, dims: Tuple[int, ...], key: Array, size: Tu
 
 
 @jax.jit(static_argnames=("dims", "size"))
-def random_operator(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()) -> Operator:
+def random_operator(dims: tuple[tuple[int, ...], tuple[int, ...]], key: Array, size: tuple[int, ...] = ()) -> Operator:
     """Given input and output Hilbert space dimensions, returns a random operator drawn from the Ginibre ensemble."""
     d_out = reduce(mul, dims[0], 1)
     d_in = reduce(mul, dims[1], 1)
@@ -75,7 +74,7 @@ def random_operator(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, s
 
 @jax.jit(static_argnames=("dims", "size"))
 def random_observable(
-    dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()
+    dims: tuple[tuple[int, ...], tuple[int, ...]], key: Array, size: tuple[int, ...] = ()
 ) -> Observable:
     """Given input and output Hilbert space dimensions, returns a random Hermitian operator drawn from the Ginibre ensemble."""
     d_out = reduce(mul, dims[0], 1)
@@ -86,7 +85,7 @@ def random_observable(
 
 
 @jax.jit(static_argnames=("dims", "size"))
-def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, size: Tuple[int, ...] = ()) -> Unitary:
+def random_unitary(dims: tuple[tuple[int, ...], tuple[int, ...]], key: Array, size: tuple[int, ...] = ()) -> Unitary:
     """
     Given a Hilbert space dimension dim this function returns a unitary operator
     U ∈ C^(dim by dim) drawn from the Haar measure :cite:`MEZ`.
@@ -111,7 +110,7 @@ def random_unitary(dims: Tuple[Tuple[int, ...], Tuple[int, ...]], key: Array, si
 
 
 @jax.jit(static_argnames=("dims", "size"))
-def random_state_vector(dims: Tuple[int, ...], key: Array, size: Tuple[int, ...] = ()) -> "StateVector":
+def random_state_vector(dims: tuple[int, ...], key: Array, size: tuple[int, ...] = ()) -> "StateVector":
     r"""
     Given a Hilbert space dimension dim, returns a state vector \|ψ⟩ ∈ C^dim
     drawn uniformly from the unit sphere in C^dim.
@@ -137,7 +136,7 @@ def random_state_vector(dims: Tuple[int, ...], key: Array, size: Tuple[int, ...]
 
 @jax.jit(static_argnames=("dims", "rank", "size"))
 def random_choi(
-    dims: Tuple[Tuple[int, ...], Tuple[int, ...]], rank: int, key: Array, size: Tuple[int, ...] = ()
+    dims: tuple[tuple[int, ...], tuple[int, ...]], rank: int, key: Array, size: tuple[int, ...] = ()
 ) -> Choi:
     """
     Given a Hilbert space dimension dim and a Kraus rank K, returns a (d², d²) Choi

@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import itertools
+from functools import reduce
+from operator import mul
 
 import jax
 import jax.numpy as jnp
-from functools import reduce
 from jax import Array
-from operator import mul
-from typing import Optional, Tuple
+
 from ._quantum_objects import DensityMatrix, StateVector
 
 
-def _format_state_vector_str(vec: Array, dims: Tuple[int, ...], decimals: int, atol: float) -> str:
+def _format_state_vector_str(vec: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
     """Format a single (non-ensembled) state vector as a Unicode Dirac-notation string."""
 
     def _fmt(x: float) -> str:
@@ -70,7 +70,7 @@ def _format_state_vector_str(vec: Array, dims: Tuple[int, ...], decimals: int, a
     return "".join(parts)
 
 
-def _format_density_matrix_str(mat: Array, dims: Tuple[int, ...], decimals: int, atol: float) -> str:
+def _format_density_matrix_str(mat: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
     """Format a single (non-ensembled) density matrix as a Unicode ``|i⟩⟨j|`` string."""
 
     def _fmt(x: float) -> str:
@@ -126,8 +126,8 @@ def _format_density_matrix_str(mat: Array, dims: Tuple[int, ...], decimals: int,
 @jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
 def zero_state_vector(
     n_qubits: int = 0,
-    ensemble_size: Tuple[int, ...] = (),
-    dims: Optional[Tuple[int, ...]] = None,
+    ensemble_size: tuple[int, ...] = (),
+    dims: tuple[int, ...] | None = None,
 ) -> StateVector:
     """
     Construct a vector corresponding to ``|0>``.
@@ -149,8 +149,8 @@ def zero_state_vector(
 @jax.jit(static_argnames=("n_qubits", "dims", "ensemble_size"))
 def zero_state_matrix(
     n_qubits: int = 0,
-    ensemble_size: Tuple[int, ...] = (),
-    dims: Optional[Tuple[int, ...]] = None,
+    ensemble_size: tuple[int, ...] = (),
+    dims: tuple[int, ...] | None = None,
 ) -> DensityMatrix:
     """
     Construct a matrix corresponding to ``|0><0|``.
@@ -172,7 +172,7 @@ def zero_state_matrix(
 @jax.jit(static_argnames=("n_qubits", "dims"))
 def mixed_state_matrix(
     n_qubits: int = 0,
-    dims: Optional[Tuple[int, ...]] = None,
+    dims: tuple[int, ...] | None = None,
 ) -> DensityMatrix:
     """
     Construct a matrix corresponding to the maximally mixed state.

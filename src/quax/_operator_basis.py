@@ -25,7 +25,6 @@ which is the standard normalization used for the Pauli-Liouville
 """
 
 from functools import lru_cache
-from typing import List, Tuple
 
 import numpy as np
 from jax import Array
@@ -62,7 +61,7 @@ def _batched_kron(a: Array, b: Array) -> Array:
 
 
 @lru_cache(maxsize=32)
-def _xz_pairs(d: int) -> List[Tuple[int, int]]:
+def _xz_pairs(d: int) -> list[tuple[int, int]]:
     """
     Return the (x, z) ordering for single-qudit Weyl operators.
 
@@ -73,7 +72,7 @@ def _xz_pairs(d: int) -> List[Tuple[int, int]]:
     if d == 2:
         return [(0, 0), (1, 0), (1, 1), (0, 1)]
 
-    pairs: List[Tuple[int, int]] = [(0, 0)]
+    pairs: list[tuple[int, int]] = [(0, 0)]
     for i in range(1, d // 2 + 1):
         j = d - i
         if i == j:
@@ -88,7 +87,7 @@ def _xz_pairs(d: int) -> List[Tuple[int, int]]:
 
 
 @lru_cache(maxsize=32)
-def weyl_basis_labels(qudit_dim: int) -> List[str]:
+def weyl_basis_labels(qudit_dim: int) -> list[str]:
     """
     Return labels for the Weyl-Heisenberg operator basis of a single qudit.
 
@@ -137,7 +136,7 @@ def weyl_basis(qudit_dim: int) -> Unitary:
     return Unitary.from_matrix(weyl_ops, ((qudit_dim,), (qudit_dim,)))
 
 
-def hermitian_weyl_basis_labels(qudit_dim: int) -> List[str]:
+def hermitian_weyl_basis_labels(qudit_dim: int) -> list[str]:
     """
     Return labels for the Hermitian Weyl-Heisenberg operator basis of a
     single qudit.
@@ -195,7 +194,7 @@ def hermitian_weyl_basis(qudit_dim: int) -> Observable:
 
 
 @lru_cache(maxsize=32)
-def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
+def n_qudit_herm_basis(dims: tuple[int, ...]) -> Observable:
     """
     Construct the tensor product Hermitian operator basis for a composite
     qudit system.
@@ -217,7 +216,7 @@ def n_qudit_herm_basis(dims: Tuple[int, ...]) -> Observable:
 
 
 @lru_cache(maxsize=32)
-def n_qudit_basis(dims: Tuple[int, ...]) -> Unitary:
+def n_qudit_basis(dims: tuple[int, ...]) -> Unitary:
     """
     Construct the tensor product operator basis for a composite system of
     qudits with the given dimensions.

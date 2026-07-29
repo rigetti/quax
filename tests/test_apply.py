@@ -21,8 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import qutip as qt
+
 import quax as qx
-from quax import n_qudit_herm_basis, DensityMatrix, StateVector
+from quax import DensityMatrix, StateVector, n_qudit_herm_basis
 
 from .instrument_helpers import basis_dm_multi
 
@@ -863,7 +864,7 @@ def test_targeted_apply_superop_ensemble(seed, ensemble_size):
 def test_targeted_apply_superop_ensemble_general(seed, dims, ensemble_size):
     """Test targeted_apply_superop with ensembles for general qudit systems."""
     key = jax.random.key(seed)
-    key, subkey = jax.random.split(key)
+    key, _subkey = jax.random.split(key)
     ens_op, ens_rho = ensemble_size
 
     d_total = int(np.prod(dims))
@@ -971,7 +972,7 @@ def test_targeted_apply_kraus_map_ensemble(seed, ensemble_size):
 def test_targeted_apply_kraus_map_ensemble_general(seed, dims, ensemble_size):
     """Test targeted_apply_kraus_map with ensembles for general qudit systems."""
     key = jax.random.key(seed)
-    key, subkey = jax.random.split(key)
+    key, _subkey = jax.random.split(key)
     ens_op, ens_rho = ensemble_size
 
     d_total = int(np.prod(dims))
@@ -1029,7 +1030,7 @@ def test_targeted_apply_kraus_map_ensemble_general(seed, dims, ensemble_size):
 def test_targeted_apply_unitary_ensemble(seed, ensemble_size):
     """Test that targeted_apply_unitary works correctly with ensembles."""
     key = jax.random.key(seed)
-    key, subkey = jax.random.split(key)
+    key, _subkey = jax.random.split(key)
     ens_op, ens_psi = ensemble_size
 
     initial_state = qx.random_state_vector((2, 2, 2), key, size=ens_psi)
@@ -1443,7 +1444,7 @@ def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
 
     try:
         broadcast_ens = jnp.broadcast_shapes(ens_k, ens_psi, ens_key)
-    except Exception:
+    except ValueError:
         pytest.skip("incompatible broadcast shapes")
 
     # Build ensembled Kraus map by stacking
@@ -1534,7 +1535,7 @@ class TestInstrumentTargetedApply:
         rho = basis_dm_multi((0, 1), (2, 2))
         key = jax.random.key(42)
         rho_outs, probs = qx.targeted_apply_instrument_to_density_matrix(qi, rho, subsystem=(1,))
-        rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
+        _rho_out, outcome = qx.select_outcome(rho_outs, probs, key)
         assert int(outcome) == 1
 
     def test_state_vector_measure_second_qubit_of_two(self):
@@ -1672,7 +1673,7 @@ class TestInstrumentEnsembleApplication:
 
         keys = jax.random.split(jax.random.key(99), 3)
         rho_outs, probs = qx.apply_instrument_to_density_matrix(qi_batch, rho)
-        rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
+        _rho_out, outcomes = qx.select_outcome(rho_outs, probs, keys)
 
         assert outcomes.shape == (3,)
         assert int(outcomes[0]) == 0

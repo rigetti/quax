@@ -54,7 +54,6 @@ and therefore **cannot be jitted**.
 """
 
 from functools import singledispatch
-from typing import List
 
 import jax.numpy as jnp
 import numpy as np
@@ -114,21 +113,21 @@ def _significant_keep(per_level: np.ndarray, tol: float, floor: int = 2) -> int:
     return min(len(per_level), max(raw, floor))
 
 
-def _slice_subsystems(data, n: int, group_starts, keep: List[int]):
+def _slice_subsystems(data, n: int, group_starts, keep: list[int]):
     """Slice every per-subsystem axis group to ``keep`` dims.
 
     ``group_starts`` lists the first axis of each qudit-dimension group (e.g. the
     output and input groups of a density matrix); within a group, subsystem ``i``
     is at ``start + i``.
     """
-    slc: List[object] = [slice(None)] * data.ndim
+    slc: list[object] = [slice(None)] * data.ndim
     for start in group_starts:
         for i in range(n):
             slc[start + i] = slice(0, keep[i])
     return data[tuple(slc)]
 
 
-def _keep_from_populations(probs, ne: int, n: int, dims, tol: float) -> List[int]:
+def _keep_from_populations(probs, ne: int, n: int, dims, tol: float) -> list[int]:
     """Per-subsystem keep-dims from a joint-population tensor.
 
     ``probs`` has shape ``(*ensemble, *dims)`` and holds the joint level

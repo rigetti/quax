@@ -20,7 +20,6 @@ import pytest
 
 import quax as qx
 
-
 # ---------- Unitary Tests ----------
 
 

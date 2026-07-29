@@ -115,13 +115,14 @@ Specialized gates / internal utility gates:
 
     P1 - project-onto-one
     :math:`\begin{pmatrix} 0 & 0 \\ 0 & 1 \end{pmatrix}`
-"""  # noqa: E501
+"""
 
 import jax.numpy as jnp
-from ._quantum_objects import Involution, Observable, Operator, SuperOp, Unitary, QuantumInstrument
-from ._exponentiation import evolve
 
-I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))  # noqa: E741
+from ._exponentiation import evolve
+from ._quantum_objects import Involution, Observable, Operator, QuantumInstrument, SuperOp, Unitary
+
+I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))
 
 X = Involution.from_matrix(jnp.array([[0.0, 1.0], [1.0, 0.0]], dtype=complex), ((2,), (2,)))
 

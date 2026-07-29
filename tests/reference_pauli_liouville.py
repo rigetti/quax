@@ -13,14 +13,15 @@
 # limitations under the License.
 
 # Copied from forest-benchmarking as a reference implementation of superop2pauli_liouville and choi2pauli_liouville
-import numpy as np
-from numpy.typing import NDArray
-from typing import Sequence, Union
 import itertools
 from collections import OrderedDict
+from collections.abc import Sequence
+
+import numpy as np
+from numpy.typing import NDArray
 
 
-class OperatorBasis(object):
+class OperatorBasis:
     def __init__(self, labels_ops):
         self.ops_by_label = OrderedDict(labels_ops)
         self.labels = list(self.ops_by_label.keys())
@@ -39,8 +40,7 @@ class OperatorBasis(object):
         return OperatorBasis(labels_ops)
 
     def __iter__(self):
-        for labels, op in zip(self.labels, self.ops):
-            yield labels, op
+        yield from zip(self.labels, self.ops)
 
     def __pow__(self, n):
         if not isinstance(n, int):
@@ -150,10 +150,9 @@ def kraus2pauli_liouville(kraus_ops: Sequence[np.ndarray]) -> np.ndarray:
     return superop2pauli_liouville(kraus2superop(kraus_ops))
 
 
-def kraus2superop(kraus_ops: Union[Sequence[NDArray[np.complex128]], NDArray[np.complex128]]) -> np.ndarray:
-    if isinstance(kraus_ops, np.ndarray):  # handle input of single kraus op
-        if len(kraus_ops[0].shape) < 2:
-            kraus_ops = [kraus_ops]
+def kraus2superop(kraus_ops: Sequence[NDArray[np.complex128]] | NDArray[np.complex128]) -> np.ndarray:
+    if isinstance(kraus_ops, np.ndarray) and len(kraus_ops[0].shape) < 2:  # handle input of single kraus op
+        kraus_ops = [kraus_ops]
 
     rows, cols = np.asarray(kraus_ops[0]).shape
 
