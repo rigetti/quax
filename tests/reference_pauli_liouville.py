@@ -151,9 +151,8 @@ def kraus2pauli_liouville(kraus_ops: Sequence[np.ndarray]) -> np.ndarray:
 
 
 def kraus2superop(kraus_ops: Sequence[NDArray[np.complex128]] | NDArray[np.complex128]) -> np.ndarray:
-    if isinstance(kraus_ops, np.ndarray):  # handle input of single kraus op
-        if len(kraus_ops[0].shape) < 2:
-            kraus_ops = [kraus_ops]
+    if isinstance(kraus_ops, np.ndarray) and len(kraus_ops[0].shape) < 2:  # handle input of single kraus op
+        kraus_ops = [kraus_ops]
 
     rows, cols = np.asarray(kraus_ops[0]).shape
 

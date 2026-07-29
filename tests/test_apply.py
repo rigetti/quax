@@ -1444,7 +1444,7 @@ def test_trajectory_ensembled_kraus_shape(ens_k, ens_psi, ens_key):
 
     try:
         broadcast_ens = jnp.broadcast_shapes(ens_k, ens_psi, ens_key)
-    except Exception:
+    except ValueError:
         pytest.skip("incompatible broadcast shapes")
 
     # Build ensembled Kraus map by stacking

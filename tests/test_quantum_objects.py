@@ -456,9 +456,9 @@ def test_equality(num_qubits, ensemble_size, object_1, object_2, qudit_dim):
     random_object_1 = _generate_random_object(object_1, key_1, ensemble_size_1, dims, rank)
     random_object_2 = _generate_random_object(object_2, key_2, ensemble_size_2, dims, rank)
 
-    assert random_object_1 == random_object_1
+    assert random_object_1 == random_object_1  # noqa: PLR0124 (checking __eq__ reflexivity)
     assert random_object_1 != random_object_2
-    assert random_object_2 == random_object_2
+    assert random_object_2 == random_object_2  # noqa: PLR0124 (checking __eq__ reflexivity)
 
 
 @pytest.mark.parametrize("qudit_dim", [2, 3])
