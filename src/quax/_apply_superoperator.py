@@ -25,7 +25,6 @@ Further references include :cite:`GRAPTN`, :cite:`MATQO`, and :cite:`DUAL`.
 """
 
 import string
-from typing import Tuple
 
 import jax.numpy as jnp
 from jax import Array
@@ -35,7 +34,7 @@ from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_
 
 
 # @jax.jit(static_argnames=("indices",))
-def partial_trace(rho: DensityMatrix, indices: Tuple[int, ...]):
+def partial_trace(rho: DensityMatrix, indices: tuple[int, ...]):
     r"""
     Calculate the partial trace.
 
@@ -53,7 +52,7 @@ def partial_trace(rho: DensityMatrix, indices: Tuple[int, ...]):
     :return: ρ_a, the traced DensityMatrix
     """
     # Dimension handling and validation
-    dims: Tuple[int, ...] = rho.dims  # e.g. (2, 2, 4)
+    dims: tuple[int, ...] = rho.dims  # e.g. (2, 2, 4)
     n = len(dims)
 
     if len(indices) != len(set(indices)):

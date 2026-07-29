@@ -19,8 +19,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import qutip
-import quax as qx
 
+import quax as qx
 
 # ============================================================================
 # Tests for qx.fidelity

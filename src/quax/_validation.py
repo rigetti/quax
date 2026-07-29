@@ -21,21 +21,21 @@ from jax import Array
 
 from ._apply import partial_trace
 from ._quantum_objects import (
+    Choi,
+    DensityMatrix,
+    Involution,
+    KrausMap,
+    Observable,
+    Operator,
+    PauliLiouville,
+    QuantumInstrument,
     QuantumObject,
     State,
     StateVector,
-    DensityMatrix,
-    Operator,
-    Observable,
-    Unitary,
-    Involution,
-    SuperOperator,
     SuperOp,
-    PauliLiouville,
-    KrausMap,
-    Choi,
+    SuperOperator,
+    Unitary,
 )
-from ._quantum_objects import QuantumInstrument
 from ._superoperator_transformations import to_choi
 from .ensembles import PAULI_ENSEMBLE
 from .gates import SWAP

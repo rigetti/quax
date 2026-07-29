@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import singledispatch
 from itertools import product
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
@@ -38,7 +38,7 @@ def _require_plotly() -> None:
         raise ImportError("plotly is required for visualization. Install it with: pip install rigetti-quax[plot]")
 
 
-def _computational_basis_labels(dims: Tuple[int, ...]) -> List[str]:
+def _computational_basis_labels(dims: tuple[int, ...]) -> list[str]:
     """Generate computational basis labels for a multi-qudit system.
 
     :param dims: Per-qudit dimensions, e.g. ``(2, 2)`` for two qubits.
@@ -48,7 +48,7 @@ def _computational_basis_labels(dims: Tuple[int, ...]) -> List[str]:
     return ["|" + "".join(str(i) for i in idx) + "⟩" for idx in indices]
 
 
-def _weyl_labels(dims: Tuple[int, ...]) -> List[str]:
+def _weyl_labels(dims: tuple[int, ...]) -> list[str]:
     """Generate axis labels for a multi-qudit Weyl-Liouville matrix.
 
     For d=2 subsystems, uses Pauli names (I, X, Y, Z).
@@ -91,7 +91,7 @@ _CYCLIC_COLORSCALE = [
 ]
 
 
-def _superoperator_computational_labels(dims: Tuple[int, ...]) -> List[str]:
+def _superoperator_computational_labels(dims: tuple[int, ...]) -> list[str]:
     """Generate ``|i⟩⟨j|`` labels for the vectorised operator basis.
 
     :param dims: Per-qudit dimensions (output or input).
@@ -104,10 +104,10 @@ def _superoperator_computational_labels(dims: Tuple[int, ...]) -> List[str]:
 def _add_complex_heatmap(
     fig: Figure,
     matrix: jnp.ndarray,
-    labels: List[str],
+    labels: list[str],
     row: int,
     col: int,
-    abs_max: Optional[float] = None,
+    abs_max: float | None = None,
     show_text: bool = True,
 ) -> None:
     """
@@ -202,7 +202,7 @@ def _add_complex_heatmap(
 
 def _plot_pauli_transfer_matrix(
     pauli_liouville: PauliLiouville,
-    range_color: Optional[Tuple[float, float]] = None,
+    range_color: tuple[float, float] | None = None,
 ) -> Figure:
     """
     Plot a Pauli-Liouville (d=2) or Weyl-Liouville (d>2) transfer matrix.
@@ -446,7 +446,7 @@ def _plot_state_vector(
 @plot.register(DensityMatrix)
 def _plot_density_matrix(
     density_matrix: DensityMatrix,
-    range_color: Optional[Tuple[float, float]] = None,
+    range_color: tuple[float, float] | None = None,
 ) -> Figure:
     """Heatmap of a density matrix where colour encodes phase and opacity encodes magnitude.
 
@@ -579,7 +579,7 @@ def _plot_density_matrix(
 @plot.register(Operator)
 def _plot_operator(
     operator: Operator,
-    range_color: Optional[Tuple[float, float]] = None,
+    range_color: tuple[float, float] | None = None,
 ) -> Figure:
     """
     Plot an operator as its Pauli transfer matrix.
@@ -655,7 +655,7 @@ def _plot_superoperator_in_computational_basis(superoperator: SuperOperator) -> 
 @plot.register(SuperOperator)
 def _plot_superoperator(
     superoperator: SuperOperator,
-    range_color: Optional[Tuple[float, float]] = None,
+    range_color: tuple[float, float] | None = None,
 ) -> Figure:
     """Plot a superoperator as its Weyl-Liouville transfer matrix.
 

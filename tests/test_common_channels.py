@@ -16,6 +16,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+
 import quax as qx
 from quax import DensityMatrix
 

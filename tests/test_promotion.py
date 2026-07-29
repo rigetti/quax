@@ -16,7 +16,6 @@
 
 from functools import reduce
 from operator import mul
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -29,7 +28,7 @@ import quax as qx
 # ---------- helpers ----------
 
 
-def _qt_embed_state(qt_psi: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ...]) -> qt.Qobj:
+def _qt_embed_state(qt_psi: qt.Qobj, d_in: tuple[int, ...], d_target: tuple[int, ...]) -> qt.Qobj:
     """
     Embed a QuTiP state in a larger space.
 
@@ -53,7 +52,7 @@ def _qt_embed_state(qt_psi: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int,
     return E @ qt_psi
 
 
-def _qt_embed_dm(qt_rho: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ...]) -> qt.Qobj:
+def _qt_embed_dm(qt_rho: qt.Qobj, d_in: tuple[int, ...], d_target: tuple[int, ...]) -> qt.Qobj:
     """
     Embed a QuTiP density matrix in a larger space.
 
@@ -77,7 +76,7 @@ def _qt_embed_dm(qt_rho: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ..
     return E @ qt_rho @ E.dag()
 
 
-def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ...]) -> qt.Qobj:
+def _qt_embed_operator(qt_op: qt.Qobj, d_in: tuple[int, ...], d_target: tuple[int, ...]) -> qt.Qobj:
     """
     Embed a QuTiP operator in a larger space.
 
@@ -108,7 +107,7 @@ def _qt_embed_operator(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[in
     return E @ qt_op @ E.dag() + (I - P)
 
 
-def _qt_embed_operator_zero(qt_op: qt.Qobj, d_in: Tuple[int, ...], d_target: Tuple[int, ...]) -> qt.Qobj:
+def _qt_embed_operator_zero(qt_op: qt.Qobj, d_in: tuple[int, ...], d_target: tuple[int, ...]) -> qt.Qobj:
     """Zero-pad a QuTiP operator into a larger space: E @ op @ E†.
 
     Unlike :func:`_qt_embed_operator`, no identity is added on the complement

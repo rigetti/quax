@@ -19,8 +19,7 @@ import jax.numpy as jnp
 from jax.numpy import arccos, pi, sqrt
 
 from ._quantum_objects import Unitary
-from .gates import RX, RZ, I, RY, X, Y, Z
-
+from .gates import RX, RY, RZ, I, X, Y, Z
 
 SIC_PREP = Unitary.from_matrix(
     jnp.array(

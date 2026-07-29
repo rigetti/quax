@@ -16,7 +16,7 @@
 
 from functools import reduce, singledispatch
 from operator import mul
-from typing import Tuple, TypeVar, cast
+from typing import TypeVar, cast
 
 import jax
 import jax.numpy as jnp
@@ -31,8 +31,8 @@ from ._quantum_objects import (
     QuantumInstrument,
     StateVector,
     SuperOp,
-    Unitary,
     SuperOperator,
+    Unitary,
 )
 from ._state import zero_state_matrix, zero_state_vector
 from ._superoperator_transformations import (
@@ -90,7 +90,7 @@ def _validate_promote_dims(current_dims, target_dims):
 
 
 @singledispatch
-def promote(obj, dims: Tuple[int, ...]):
+def promote(obj, dims: tuple[int, ...]):
     """Promote each qudit of a quantum object to a larger dimension.
 
     The number of subsystems must match, and each target dimension must
@@ -118,7 +118,7 @@ def promote(obj, dims: Tuple[int, ...]):
 
 @promote.register(StateVector)
 @jax.jit(static_argnames=("dims",))
-def _promote_state_vector(state: StateVector, dims: Tuple[int, ...]) -> StateVector:
+def _promote_state_vector(state: StateVector, dims: tuple[int, ...]) -> StateVector:
     """Embed a state vector in a larger Hilbert space (zero-padded)."""
     current_dims = state.dims
     _validate_promote_dims(current_dims, dims)
@@ -131,7 +131,7 @@ def _promote_state_vector(state: StateVector, dims: Tuple[int, ...]) -> StateVec
 
 @promote.register(DensityMatrix)
 @jax.jit(static_argnames=("dims",))
-def _promote_density_matrix(dm: DensityMatrix, dims: Tuple[int, ...]) -> DensityMatrix:
+def _promote_density_matrix(dm: DensityMatrix, dims: tuple[int, ...]) -> DensityMatrix:
     """Embed a density matrix in a larger Hilbert space (zero-padded)."""
     current_dims = dm.dims
     _validate_promote_dims(current_dims, dims)
@@ -143,7 +143,7 @@ def _promote_density_matrix(dm: DensityMatrix, dims: Tuple[int, ...]) -> Density
     return DensityMatrix(promoted, num_qubits=len(dims))
 
 
-def _promote_unitary_like(obj, dims: Tuple[int, ...]):
+def _promote_unitary_like(obj, dims: tuple[int, ...]):
     """Embed a unitary-like object in a larger Hilbert space (identity on higher states)."""
     current_dims = obj.dims[0]
     _validate_promote_dims(current_dims, dims)
@@ -158,14 +158,14 @@ def _promote_unitary_like(obj, dims: Tuple[int, ...]):
 
 @promote.register(Unitary)
 @jax.jit(static_argnames=("dims",))
-def _promote_unitary(unitary: Unitary, dims: Tuple[int, ...]) -> Unitary:
+def _promote_unitary(unitary: Unitary, dims: tuple[int, ...]) -> Unitary:
     """Embed a unitary in a larger Hilbert space (identity on higher states)."""
     return _promote_unitary_like(unitary, dims)
 
 
 @promote.register(Operator)
 @jax.jit(static_argnames=("dims",))
-def _promote_operator(op: Operator, dims: Tuple[int, ...]) -> Operator:
+def _promote_operator(op: Operator, dims: tuple[int, ...]) -> Operator:
     """Embed an operator in a larger Hilbert space (zero-padded)."""
     current_dims = op.dims[0]
     _validate_promote_dims(current_dims, dims)
@@ -183,21 +183,21 @@ def _promote_via_kraus(obj, dims, to_kraus, from_kraus):
 
 @promote.register(SuperOp)
 @jax.jit(static_argnames=("dims",))
-def _promote_superop(superop: SuperOp, dims: Tuple[int, ...]) -> SuperOp:
+def _promote_superop(superop: SuperOp, dims: tuple[int, ...]) -> SuperOp:
     """Embed a superoperator via the coherent Kraus extension."""
     return _promote_via_kraus(superop, dims, superop_to_kraus, kraus_to_superop)
 
 
 @promote.register(Choi)
 @jax.jit(static_argnames=("dims",))
-def _promote_choi(choi: Choi, dims: Tuple[int, ...]) -> Choi:
+def _promote_choi(choi: Choi, dims: tuple[int, ...]) -> Choi:
     """Embed a Choi matrix via the coherent Kraus extension."""
     return _promote_via_kraus(choi, dims, choi_to_kraus, kraus_to_choi)
 
 
 @promote.register(KrausMap)
 @jax.jit(static_argnames=("dims",))
-def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
+def _promote_kraus_map(kraus: KrausMap, dims: tuple[int, ...]) -> KrausMap:
     """Embed Kraus operators in a larger Hilbert space via coherent extension.
 
     Each Kraus operator K_i is zero-padded in the larger tensor space.
@@ -245,7 +245,7 @@ def _promote_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
 
 @promote.register(Lindbladian)
 @jax.jit(static_argnames=("dims",))
-def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindbladian:
+def _promote_lindbladian(generator: Lindbladian, dims: tuple[int, ...]) -> Lindbladian:
     """Embed a Lindbladian generator in a larger Hilbert space at the *operator* level.
 
     The stored Hamiltonian and jump operators are each zero-padded into the larger space (the
@@ -266,14 +266,14 @@ def _promote_lindbladian(generator: Lindbladian, dims: Tuple[int, ...]) -> Lindb
 
 @promote.register(PauliLiouville)
 @jax.jit(static_argnames=("dims",))
-def _promote_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...]) -> PauliLiouville:
+def _promote_pauli_liouville(pl: PauliLiouville, dims: tuple[int, ...]) -> PauliLiouville:
     """Embed a Pauli-Liouville matrix via the coherent Kraus extension."""
     return _promote_via_kraus(pl, dims, pauli_liouville_to_kraus, kraus_to_pauli_liouville)
 
 
 @promote.register(QuantumInstrument)
 @jax.jit(static_argnames=("dims",))
-def _promote_quantum_instrument(inst: QuantumInstrument, dims: Tuple[int, ...]) -> QuantumInstrument:
+def _promote_quantum_instrument(inst: QuantumInstrument, dims: tuple[int, ...]) -> QuantumInstrument:
     """Embed a quantum instrument in a larger Hilbert space via incoherent Kraus extension.
 
     Each outcome's CP map is zero-padded into the larger space.  The
@@ -318,7 +318,7 @@ def _promote_quantum_instrument(inst: QuantumInstrument, dims: Tuple[int, ...]) 
     return QuantumInstrument.from_matrix(result_mat, (dims, dims), inst.measured_qudits)
 
 
-def _zero_pad_kraus(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
+def _zero_pad_kraus(kraus: KrausMap, dims: tuple[int, ...]) -> KrausMap:
     """Zero-pad Kraus operators to target dims without adding complement projector."""
     current_dims = kraus.dims[0]
     n_ensemble = len(kraus.ensemble_size)
@@ -332,7 +332,7 @@ def _zero_pad_kraus(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
 
 
 @singledispatch
-def promote_incoherent(obj, dims: Tuple[int, ...]):
+def promote_incoherent(obj, dims: tuple[int, ...]):
     """Promote a superoperator to a larger Hilbert space via incoherent extension.
 
     Unlike :func:`promote`, which uses the coherent Kraus extension that
@@ -359,7 +359,7 @@ def promote_incoherent(obj, dims: Tuple[int, ...]):
 
 @promote_incoherent.register(SuperOp)
 @jax.jit(static_argnames=("dims",))
-def _promote_incoherent_superop(superop: SuperOp, dims: Tuple[int, ...]) -> SuperOp:
+def _promote_incoherent_superop(superop: SuperOp, dims: tuple[int, ...]) -> SuperOp:
     """Incoherent extension of a superoperator: ``E S E† + P_⊥ ⊗ P_⊥*``."""
     current_dims = superop.dims[0]
     _validate_promote_dims(current_dims, dims)
@@ -380,7 +380,7 @@ def _promote_incoherent_superop(superop: SuperOp, dims: Tuple[int, ...]) -> Supe
 
 @promote_incoherent.register(KrausMap)
 @jax.jit(static_argnames=("dims",))
-def _promote_incoherent_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> KrausMap:
+def _promote_incoherent_kraus_map(kraus: KrausMap, dims: tuple[int, ...]) -> KrausMap:
     """Incoherent extension of Kraus operators: zero-pad + P_⊥ as separate operator."""
     current_dims = kraus.dims[0]
     _validate_promote_dims(current_dims, dims)
@@ -406,7 +406,7 @@ def _promote_incoherent_kraus_map(kraus: KrausMap, dims: Tuple[int, ...]) -> Kra
 
 @promote_incoherent.register(Choi)
 @jax.jit(static_argnames=("dims",))
-def _promote_incoherent_choi(choi: Choi, dims: Tuple[int, ...]) -> Choi:
+def _promote_incoherent_choi(choi: Choi, dims: tuple[int, ...]) -> Choi:
     """Incoherent extension of a Choi matrix (via SuperOp round-trip)."""
     _validate_promote_dims(choi.dims[0], dims)
     superop = choi_to_superop(choi)
@@ -416,7 +416,7 @@ def _promote_incoherent_choi(choi: Choi, dims: Tuple[int, ...]) -> Choi:
 
 @promote_incoherent.register(PauliLiouville)
 @jax.jit(static_argnames=("dims",))
-def _promote_incoherent_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...]) -> PauliLiouville:
+def _promote_incoherent_pauli_liouville(pl: PauliLiouville, dims: tuple[int, ...]) -> PauliLiouville:
     """Incoherent extension of a Pauli-Liouville matrix (via SuperOp round-trip)."""
     _validate_promote_dims(pl.dims[0], dims)
     superop = pauli_liouville_to_superop(pl)
@@ -429,7 +429,7 @@ def _promote_incoherent_pauli_liouville(pl: PauliLiouville, dims: Tuple[int, ...
 # ---------------------------------------------------------------------------
 
 
-def _validate_embed(current_dims: Tuple[int, ...], target_dims: Tuple[int, ...], positions: Tuple[int, ...]):
+def _validate_embed(current_dims: tuple[int, ...], target_dims: tuple[int, ...], positions: tuple[int, ...]):
     """Validate arguments for positional embedding.
 
     :param current_dims: Per-subsystem dims of the object being embedded.
@@ -458,7 +458,7 @@ def _validate_embed(current_dims: Tuple[int, ...], target_dims: Tuple[int, ...],
 
 
 @singledispatch
-def permute(obj, perm: Tuple[int, ...]):
+def permute(obj, perm: tuple[int, ...]):
     """Permute the qudit ordering of a quantum object.
 
     ``perm[i] = j`` means "qudit currently at position *i* moves to
@@ -473,7 +473,7 @@ def permute(obj, perm: Tuple[int, ...]):
     raise TypeError(f"permute is not implemented for {type(obj).__name__}.")
 
 
-def _inverse_perm(perm: Tuple[int, ...]) -> Tuple[int, ...]:
+def _inverse_perm(perm: tuple[int, ...]) -> tuple[int, ...]:
     """Compute the inverse of a permutation."""
     inv = [0] * len(perm)
     for i, p in enumerate(perm):
@@ -483,7 +483,7 @@ def _inverse_perm(perm: Tuple[int, ...]) -> Tuple[int, ...]:
 
 @permute.register(StateVector)
 @jax.jit(static_argnames=("perm",))
-def _permute_state_vector(state: StateVector, perm: Tuple[int, ...]) -> StateVector:
+def _permute_state_vector(state: StateVector, perm: tuple[int, ...]) -> StateVector:
     n_ens = len(state.ensemble_size)
     inv = _inverse_perm(perm)
     axes = tuple(range(n_ens)) + tuple(n_ens + inv[i] for i in range(len(perm)))
@@ -493,11 +493,11 @@ def _permute_state_vector(state: StateVector, perm: Tuple[int, ...]) -> StateVec
 
 @permute.register(DensityMatrix)
 @jax.jit(static_argnames=("perm",))
-def _permute_density_matrix(dm: DensityMatrix, perm: Tuple[int, ...]) -> DensityMatrix:
+def _permute_density_matrix(dm: DensityMatrix, perm: tuple[int, ...]) -> DensityMatrix:
     return _permute_operator_like(dm, perm)
 
 
-def _permute_operator_like(obj, perm: Tuple[int, ...]):
+def _permute_operator_like(obj, perm: tuple[int, ...]):
     """Shared implementation for Operator-like types (2 groups of qudit axes)."""
     n = len(perm)
     n_ens = len(obj.ensemble_size)
@@ -509,17 +509,17 @@ def _permute_operator_like(obj, perm: Tuple[int, ...]):
 
 @permute.register(Unitary)
 @jax.jit(static_argnames=("perm",))
-def _permute_unitary(u: Unitary, perm: Tuple[int, ...]) -> Unitary:
+def _permute_unitary(u: Unitary, perm: tuple[int, ...]) -> Unitary:
     return _permute_operator_like(u, perm)
 
 
 @permute.register(Operator)
 @jax.jit(static_argnames=("perm",))
-def _permute_op(op: Operator, perm: Tuple[int, ...]) -> Operator:
+def _permute_op(op: Operator, perm: tuple[int, ...]) -> Operator:
     return _permute_operator_like(op, perm)
 
 
-def _permute_superop_like(obj, perm: Tuple[int, ...]):
+def _permute_superop_like(obj, perm: tuple[int, ...]):
     """Shared implementation for SuperOperator-like types (4 groups of qudit axes)."""
     n = len(perm)
     n_ens = len(obj.ensemble_size)
@@ -537,19 +537,19 @@ def _permute_superop_like(obj, perm: Tuple[int, ...]):
 
 @permute.register(SuperOp)
 @jax.jit(static_argnames=("perm",))
-def _permute_superop(s: SuperOp, perm: Tuple[int, ...]) -> SuperOp:
+def _permute_superop(s: SuperOp, perm: tuple[int, ...]) -> SuperOp:
     return _permute_superop_like(s, perm)
 
 
 @permute.register(Choi)
 @jax.jit(static_argnames=("perm",))
-def _permute_choi(c: Choi, perm: Tuple[int, ...]) -> Choi:
+def _permute_choi(c: Choi, perm: tuple[int, ...]) -> Choi:
     return _permute_superop_like(c, perm)
 
 
 @permute.register(PauliLiouville)
 @jax.jit(static_argnames=("perm",))
-def _permute_pauli_liouville(pl: PauliLiouville, perm: Tuple[int, ...]) -> PauliLiouville:
+def _permute_pauli_liouville(pl: PauliLiouville, perm: tuple[int, ...]) -> PauliLiouville:
     # PauliLiouville data lives in the generalized Pauli basis, so a simple
     # tensor transpose does NOT correctly permute qudits.  Round-trip through
     # the computational-basis SuperOp representation where transposition is valid.
@@ -558,7 +558,7 @@ def _permute_pauli_liouville(pl: PauliLiouville, perm: Tuple[int, ...]) -> Pauli
 
 @permute.register(KrausMap)
 @jax.jit(static_argnames=("perm",))
-def _permute_kraus(k: KrausMap, perm: Tuple[int, ...]) -> KrausMap:
+def _permute_kraus(k: KrausMap, perm: tuple[int, ...]) -> KrausMap:
     n = len(perm)
     n_ens = len(k.ensemble_size)
     inv = _inverse_perm(perm)
@@ -575,7 +575,7 @@ def _permute_kraus(k: KrausMap, perm: Tuple[int, ...]) -> KrausMap:
 
 @permute.register(QuantumInstrument)
 @jax.jit(static_argnames=("perm",))
-def _permute_instrument(inst: QuantumInstrument, perm: Tuple[int, ...]) -> QuantumInstrument:
+def _permute_instrument(inst: QuantumInstrument, perm: tuple[int, ...]) -> QuantumInstrument:
     n = len(perm)
     n_ens = len(inst.ensemble_size)
     inv = _inverse_perm(perm)
@@ -598,7 +598,7 @@ def _permute_instrument(inst: QuantumInstrument, perm: Tuple[int, ...]) -> Quant
 
 
 @jax.jit(static_argnames=("target_dims", "positions"))
-def embed(obj, target_dims: Tuple[int, ...], positions: Tuple[int, ...]):
+def embed(obj, target_dims: tuple[int, ...], positions: tuple[int, ...]):
     """Embed a quantum object into a larger Hilbert space at specified positions.
 
     The object's qudits are placed at the target positions given by
@@ -716,7 +716,7 @@ _T1 = TypeVar("_T1")
 _T2 = TypeVar("_T2")
 
 
-def promote_hilbert_space(obj1: _T1, obj2: _T2) -> Tuple[_T1, _T2]:
+def promote_hilbert_space(obj1: _T1, obj2: _T2) -> tuple[_T1, _T2]:
     """
     Promote two quantum objects to compatible per-subsystem dimensions.
 

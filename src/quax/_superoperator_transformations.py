@@ -14,7 +14,6 @@
 
 from functools import lru_cache, reduce, singledispatch
 from operator import mul
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
@@ -80,7 +79,7 @@ def superop_to_choi(superop: SuperOp) -> Choi:
 
 
 @lru_cache(maxsize=32)
-def _pauli2computational_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
+def _pauli2computational_basis_matrix(dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Array:
     """
     Produce basis transform matrix from Hermitian operator basis to computational basis.
 
@@ -101,7 +100,7 @@ def _pauli2computational_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ..
 
 
 @lru_cache(maxsize=32)
-def _computational2pauli_basis_matrix(dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Array:
+def _computational2pauli_basis_matrix(dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Array:
     """
     Produce basis transform matrix from computational basis to Hermitian operator basis.
 

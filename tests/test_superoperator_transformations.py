@@ -45,8 +45,8 @@ against some known values.
 
 import jax
 import jax.numpy as jnp
-import quax as qx
 
+import quax as qx
 
 # ============================================================================
 # Test Choi -> Superoperator, KrausMap and Pauli-Liouville

@@ -14,6 +14,8 @@
 
 """JAX-based quantum operator transformations."""
 
+# Import gates, states, ensembles and lindbladians as submodules
+from . import channels, ensembles, gates, lindbladians, states
 from ._apply import (
     apply_choi_to_density_matrix,
     apply_instrument_to_density_matrix,
@@ -40,19 +42,26 @@ from ._apply import (
     targeted_apply_unitary,
     targeted_apply_unitary_to_density_matrix,
 )
-from .channels import (
-    instrument_from_axis,
-    instrument_from_confusion_and_transition,
-)
 from ._compose import (
     compose_choi,
     compose_instrument,
     compose_kraus_map,
+    compose_operator,
     compose_pauli_liouville,
     compose_superop,
     compose_unitary,
-    compose_operator,
 )
+from ._exponentiation import (
+    cis,
+    evolve,
+    exp,
+    power_choi,
+    power_kraus,
+    power_pauli_liouville,
+    power_superop,
+    power_unitary,
+)
+from ._generators import unitary_to_hamiltonian
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -70,6 +79,7 @@ from ._metrics import (
     unitarity_to_stochastic_infidelity,
     unitary_entanglement_fidelity,
 )
+from ._observables import bitstring_probability, probabilities
 from ._operator_basis import (
     hermitian_weyl_basis,
     hermitian_weyl_basis_labels,
@@ -78,28 +88,14 @@ from ._operator_basis import (
     weyl_basis,
     weyl_basis_labels,
 )
-from ._observables import bitstring_probability, probabilities
-from ._exponentiation import (
-    power_choi,
-    power_kraus,
-    power_pauli_liouville,
-    power_superop,
-    power_unitary,
-    exp,
-    cis,
-    evolve,
-)
-from ._generators import unitary_to_hamiltonian
 from ._promotion import (
     embed,
     permute,
     promote,
+    promote_hilbert_space,
     promote_incoherent,
     promote_state_vector_to_density_matrix,
-    promote_hilbert_space,
 )
-from ._squeeze import squeeze
-from ._quantum_objects import QuantumInstrument
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -109,6 +105,7 @@ from ._quantum_objects import (
     Observable,
     Operator,
     PauliLiouville,
+    QuantumInstrument,
     QuantumObject,
     State,
     StateVector,
@@ -120,11 +117,12 @@ from ._random import (
     ginibre_matrix_complex,
     random_choi,
     random_density_matrix,
+    random_observable,
+    random_operator,
     random_state_vector,
     random_unitary,
-    random_operator,
-    random_observable,
 )
+from ._squeeze import squeeze
 from ._state import (
     mixed_state_matrix,
     tensor_density_matrices,
@@ -162,33 +160,30 @@ from ._tensor import (
     tensor_involution,
     tensor_kraus,
     tensor_observable,
+    tensor_operator,
     tensor_pauli_liouville,
     tensor_state_vector,
     tensor_superop,
     tensor_unitary,
-    tensor_operator,
 )
 from ._validation import (
-    validate,
     is_completely_positive,
     is_cptp,
-    is_hermitian,
     is_hermicity_preserving,
+    is_hermitian,
     is_identity_matrix,
     is_one_design,
     is_positive_semidefinite_matrix,
     is_trace_preserving,
     is_two_design,
     is_unitary,
+    validate,
 )
 from ._visualization import plot
-
-# Import gates, states, ensembles and lindbladians as submodules
-from . import gates
-from . import states
-from . import ensembles
-from . import lindbladians
-from . import channels
+from .channels import (
+    instrument_from_axis,
+    instrument_from_confusion_and_transition,
+)
 
 __all__ = [
     # Apply superoperator functions

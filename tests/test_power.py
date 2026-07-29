@@ -26,13 +26,12 @@ For non-divisible channels, fractional powers may not remain CPTP.
 
 from functools import reduce
 from operator import mul
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from scipy.linalg import fractional_matrix_power, expm
+from scipy.linalg import expm, fractional_matrix_power
 
 import quax as qx
 
@@ -41,11 +40,11 @@ import quax as qx
 # making fractional powers invalid. Instead, we generate
 # random CPTP maps via Lindbladian exponentiation, which guarantees infinite divisibility.
 def _random_lindbladian(
-    dims: Tuple[int, ...],
+    dims: tuple[int, ...],
     n_jumps: int = 2,
     h_scale: float = 1.0,
     gamma_scale: float = 1.0,
-    size: Tuple[int, ...] = (),
+    size: tuple[int, ...] = (),
 ):
     """Generate a random CPTP superoperator via Lindbladian exponentiation (native quax)."""
     rng = np.random.default_rng(seed=42)
@@ -209,14 +208,14 @@ def test_cis(theta):
 
     # 1Q operator
     expected_value = expm(1j * theta * X)
-    computed_value = qx.cis((theta * qx.gates.X)).matrix
+    computed_value = qx.cis(theta * qx.gates.X).matrix
     assert jnp.allclose(computed_value, expected_value, atol=1e-6)
-    computed_value = qx.exp((1j * theta * qx.gates.X)).matrix
+    computed_value = qx.exp(1j * theta * qx.gates.X).matrix
     assert jnp.allclose(computed_value, expected_value, atol=1e-6)
 
     # 2Q operator
     expected_value_XX = expm(1j * theta * XX)
-    computed_value_XX = qx.cis((theta * (qx.gates.X | qx.gates.X))).matrix
+    computed_value_XX = qx.cis(theta * (qx.gates.X | qx.gates.X)).matrix
     assert jnp.allclose(computed_value_XX, expected_value_XX, atol=1e-6)
     computed_value_XX = qx.exp(1j * (theta * (qx.gates.X | qx.gates.X))).matrix
     assert jnp.allclose(computed_value_XX, expected_value_XX, atol=1e-6)
@@ -225,7 +224,7 @@ def test_cis(theta):
     # Make a 2D array of thetas
     thetas = jnp.linspace(0, jnp.pi / 2, 12).reshape((3, 4))
     expected_values = jnp.asarray([expm(1j * t * (XX + YY)) for t in thetas.flatten()]).reshape((3, 4, 4, 4))
-    computed_values = qx.cis((thetas * ((qx.gates.X | qx.gates.X) + (qx.gates.Y | qx.gates.Y)))).matrix
+    computed_values = qx.cis(thetas * ((qx.gates.X | qx.gates.X) + (qx.gates.Y | qx.gates.Y))).matrix
     assert jnp.allclose(computed_values, expected_values, atol=1e-6)
 
 

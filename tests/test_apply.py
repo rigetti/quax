@@ -21,8 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import qutip as qt
+
 import quax as qx
-from quax import n_qudit_herm_basis, DensityMatrix, StateVector
+from quax import DensityMatrix, StateVector, n_qudit_herm_basis
 
 from .instrument_helpers import basis_dm_multi
 

@@ -16,11 +16,12 @@
 # Different test files cover implementations of the various types and transformations.
 # Here, we only test that outputs are the expected shape and types
 
+from itertools import product
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from itertools import product
 
 import quax as qx
 from quax import (
@@ -43,6 +44,7 @@ from quax import (
     random_state_vector,
     random_unitary,
 )
+
 from .instrument_helpers import (
     basis_dm,
     basis_dm_multi,

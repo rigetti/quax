@@ -34,7 +34,6 @@ from __future__ import annotations
 
 from functools import reduce
 from operator import mul
-from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -45,12 +44,12 @@ from ._exponentiation import evolve
 from ._quantum_objects import QuantumInstrument, SuperOp, _extract_measured_index
 
 
-def depolarizing(rate: float | Array, dims: Tuple[int, ...] = (2,), t: float = 1.0) -> SuperOp:
+def depolarizing(rate: float | Array, dims: tuple[int, ...] = (2,), t: float = 1.0) -> SuperOp:
     """Depolarizing channel on ``dims`` (default a single qubit). See :func:`quax.lindbladians.depolarizing`."""
     return evolve(lindbladians.depolarizing(rate, dims), t)
 
 
-def amplitude_damping(rate: float | Array, dims: Tuple[int, ...] = (2,), t: float = 1.0) -> SuperOp:
+def amplitude_damping(rate: float | Array, dims: tuple[int, ...] = (2,), t: float = 1.0) -> SuperOp:
     """Amplitude-damping (T1) channel on a qudit. See :func:`quax.lindbladians.amplitude_damping`."""
     return evolve(lindbladians.amplitude_damping(rate, dims), t)
 
@@ -97,8 +96,8 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array
 def instrument_from_confusion_and_transition(
     confusion_matrix: Array,
     transition_matrix: Array,
-    dims: Tuple[int, ...],
-    measured_qudits: Optional[Tuple[int, ...]] = None,
+    dims: tuple[int, ...],
+    measured_qudits: tuple[int, ...] | None = None,
 ) -> QuantumInstrument:
     r"""Construct a quantum instrument from a confusion matrix and a transition matrix.
 
