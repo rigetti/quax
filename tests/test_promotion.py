@@ -933,7 +933,7 @@ def test_promote_hilbert_space_auto_converts_unitary_with_channel(seed, current_
     u = qx.random_unitary(dims=channel_dims, key=jax.random.key(seed + 100))
 
     # promote_hilbert_space(big_channel, small_unitary) should auto-convert Unitary
-    result_channel, result_u = qx.promote_hilbert_space(promoted_superop, u)
+    _result_channel, result_u = qx.promote_hilbert_space(promoted_superop, u)
 
     # Both results should be SuperOp (Unitary was auto-converted)
     assert isinstance(result_u, qx.SuperOp), f"Expected SuperOp after auto-conversion, got {type(result_u).__name__}"

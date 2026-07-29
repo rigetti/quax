@@ -40,8 +40,7 @@ class OperatorBasis:
         return OperatorBasis(labels_ops)
 
     def __iter__(self):
-        for labels, op in zip(self.labels, self.ops):
-            yield labels, op
+        yield from zip(self.labels, self.ops)
 
     def __pow__(self, n):
         if not isinstance(n, int):

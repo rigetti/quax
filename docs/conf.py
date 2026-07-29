@@ -39,8 +39,10 @@ nbsphinx_execute = "auto"
 nbsphinx_allow_errors = False
 nbsphinx_kernel_name = "python3"
 nbsphinx_execute_arguments = [
-    "--InteractiveShellApp.exec_lines="
-    """['import plotly.io as pio', 'pio.renderers.default = "sphinx_gallery"']""",
+    (
+        "--InteractiveShellApp.exec_lines="
+        """['import plotly.io as pio', 'pio.renderers.default = "sphinx_gallery"']"""
+    ),
 ]
 
 # -- Options for HTML output -------------------------------------------------

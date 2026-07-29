@@ -38,7 +38,6 @@ from .conftest import (
     make_unitary,
 )
 
-
 # ---------------------------------------------------------------------------
 # System configurations
 # ---------------------------------------------------------------------------
@@ -160,12 +159,15 @@ def test_targeted_apply_superop(benchmark, dims, ensemble_size, gate_dims, subsy
     "dims,ensemble_size,source_label,truncated,gate_dims,subsystem",
     [
         pytest.param(
-            dims, ens, src, trunc, gdims, sub,
+            dims,
+            ens,
+            src,
+            trunc,
+            gdims,
+            sub,
             id=f"{lbl}-ens{ens}-{src}-{'trunc' if trunc else 'full'}-{slbl}",
         )
-        for (lbl, dims), ens, src, trunc in product(
-            SV_SYSTEMS, ENSEMBLE_SIZES, KRAUS_SOURCES.keys(), [False, True]
-        )
+        for (lbl, dims), ens, src, trunc in product(SV_SYSTEMS, ENSEMBLE_SIZES, KRAUS_SOURCES.keys(), [False, True])
         for slbl, gdims, sub in _subsystem_patterns(dims)
     ],
 )
@@ -237,7 +239,7 @@ def test_instrument_sv(benchmark, dims, ensemble_size, inst_type):
     subsystem = (0,)
 
     # JIT warmup
-    psi_out, outcome = qx.targeted_apply_instrument_to_state_vector(inst, psi, key, subsystem)
+    psi_out, _outcome = qx.targeted_apply_instrument_to_state_vector(inst, psi, key, subsystem)
     psi_out.data.block_until_ready()
 
     def fn():

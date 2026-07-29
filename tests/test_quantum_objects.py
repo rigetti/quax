@@ -978,7 +978,7 @@ class TestProperties:
     def test_outcome_superop(self):
         qi = qx.gates.MEASURE()
         c0, coeff0 = qi.outcome_superop(0)
-        c1, coeff1 = qi.outcome_superop(1)
+        _c1, coeff1 = qi.outcome_superop(1)
         assert isinstance(c0, SuperOp)
         assert c0.dims == ((2,), (2,))
         np.testing.assert_allclose(coeff0, 0.5, atol=1e-10)

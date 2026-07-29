@@ -158,16 +158,16 @@ def _add_complex_heatmap(
                 text = "<br>".join(filter(None, [re_str, im_str]))
                 if text:
                     fig.add_annotation(
-                        dict(
-                            x=j,
-                            y=i,
-                            text=text,
-                            showarrow=False,
-                            font=dict(
-                                size=8,
-                                color="#f8f8f8" if float(brightness[i, j]) < 0.5 else "#0d0d36",
-                            ),
-                        ),
+                        {
+                            "x": j,
+                            "y": i,
+                            "text": text,
+                            "showarrow": False,
+                            "font": {
+                                "size": 8,
+                                "color": "#f8f8f8" if float(brightness[i, j]) < 0.5 else "#0d0d36",
+                            },
+                        },
                         row=row,
                         col=col,
                     )
@@ -178,7 +178,7 @@ def _add_complex_heatmap(
         range=[-0.5, n - 0.5],
         ticks="inside",
         tickson="boundaries",
-        tickfont=dict(size=10),
+        tickfont={"size": 10},
         row=row,
         col=col,
     )
@@ -189,7 +189,7 @@ def _add_complex_heatmap(
         ticks="inside",
         tickson="boundaries",
         autorange="reversed",
-        tickfont=dict(size=10),
+        tickfont={"size": 10},
         row=row,
         col=col,
     )
@@ -232,7 +232,7 @@ def _plot_pauli_transfer_matrix(
         plot_data,
         x=labels,
         y=labels,
-        labels=dict(x="Input Operator", y="Output Operator"),
+        labels={"x": "Input Operator", "y": "Output Operator"},
         color_continuous_scale=_COLORSCALE,
         width=575,
         height=575,
@@ -242,22 +242,22 @@ def _plot_pauli_transfer_matrix(
     fig.update_traces(text=text, texttemplate="%{text}")
 
     fig.update_layout(
-        coloraxis=dict(
-            showscale=True,
-            colorbar=dict(thickness=10, len=0.5, ypad=0),
-        ),
-        font=dict(
-            size=12,
-        ),
-        xaxis=dict(
-            ticks="inside",
-            tickson="boundaries",
-        ),
-        yaxis=dict(
-            ticks="inside",
-            tickson="boundaries",
-            autorange="reversed",
-        ),
+        coloraxis={
+            "showscale": True,
+            "colorbar": {"thickness": 10, "len": 0.5, "ypad": 0},
+        },
+        font={
+            "size": 12,
+        },
+        xaxis={
+            "ticks": "inside",
+            "tickson": "boundaries",
+        },
+        yaxis={
+            "ticks": "inside",
+            "tickson": "boundaries",
+            "autorange": "reversed",
+        },
     )
 
     return fig
@@ -365,35 +365,35 @@ def _plot_state_vector(
         r=[None],
         theta=[None],
         mode="markers",
-        marker=dict(symbol="square", size=12, color="#d0d0d0", line=dict(color="#0d0d36", width=1)),
+        marker={"symbol": "square", "size": 12, "color": "#d0d0d0", "line": {"color": "#0d0d36", "width": 1}},
         name="Re ≥ 0 (solid)",
     )
     legend_negative = go.Scatterpolar(
         r=[None],
         theta=[None],
         mode="markers",
-        marker=dict(symbol="square", size=12, color="#d0d0d0", line=dict(color="#0d0d36", width=1.5)),
+        marker={"symbol": "square", "size": 12, "color": "#d0d0d0", "line": {"color": "#0d0d36", "width": 1.5}},
         name="Re < 0 (hatched)",
     )
     legend_im_pos = go.Scatterpolar(
         r=[None],
         theta=[None],
         mode="markers",
-        marker=dict(symbol="square", size=12, color="#00b5ad", line=dict(color="#0d0d36", width=1)),
+        marker={"symbol": "square", "size": 12, "color": "#00b5ad", "line": {"color": "#0d0d36", "width": 1}},
         name="Im > 0",
     )
     legend_im_neg = go.Scatterpolar(
         r=[None],
         theta=[None],
         mode="markers",
-        marker=dict(symbol="square", size=12, color="#ef476f", line=dict(color="#0d0d36", width=1)),
+        marker={"symbol": "square", "size": 12, "color": "#ef476f", "line": {"color": "#0d0d36", "width": 1}},
         name="Im < 0",
     )
     legend_im_zero = go.Scatterpolar(
         r=[None],
         theta=[None],
         mode="markers",
-        marker=dict(symbol="square", size=12, color="#f8f8f8", line=dict(color="#0d0d36", width=1)),
+        marker={"symbol": "square", "size": 12, "color": "#f8f8f8", "line": {"color": "#0d0d36", "width": 1}},
         name="Im ≈ 0",
     )
 
@@ -404,11 +404,11 @@ def _plot_state_vector(
                 theta=thetas,
                 width=[width] * n,
                 base=[hole] * n,
-                marker=dict(
-                    color=colors,
-                    pattern=dict(shape=patterns, fgcolor="#0d0d36", size=6),
-                    line=dict(color="#0d0d36", width=line_widths),
-                ),
+                marker={
+                    "color": colors,
+                    "pattern": {"shape": patterns, "fgcolor": "#0d0d36", "size": 6},
+                    "line": {"color": "#0d0d36", "width": line_widths},
+                },
                 hovertext=hover_text,
                 hoverinfo="text",
                 showlegend=False,
@@ -424,19 +424,19 @@ def _plot_state_vector(
     fig.update_layout(
         template="plotly_white",
         showlegend=True,
-        legend=dict(x=0.0, y=-0.05, orientation="h", font=dict(size=11)),
-        polar=dict(
-            angularaxis=dict(
-                tickvals=thetas,
-                ticktext=labels,
-                direction="clockwise",
-            ),
-            radialaxis=dict(
-                range=[0, r_max],
-                visible=False,
-            ),
-            hole=hole / r_max,
-        ),
+        legend={"x": 0.0, "y": -0.05, "orientation": "h", "font": {"size": 11}},
+        polar={
+            "angularaxis": {
+                "tickvals": thetas,
+                "ticktext": labels,
+                "direction": "clockwise",
+            },
+            "radialaxis": {
+                "range": [0, r_max],
+                "visible": False,
+            },
+            "hole": hole / r_max,
+        },
         width=575,
         height=575,
     )
@@ -491,16 +491,16 @@ def _plot_density_matrix(
 
     # Build shapes (cell rectangles) and annotations (text labels)
     shapes = [
-        dict(
-            type="rect",
-            x0=j - 0.5,
-            y0=i - 0.5,
-            x1=j + 0.5,
-            y1=i + 0.5,
-            fillcolor=f"rgba({int(rgb_array[i, j, 0])}, {int(rgb_array[i, j, 1])}, "
+        {
+            "type": "rect",
+            "x0": j - 0.5,
+            "y0": i - 0.5,
+            "x1": j + 0.5,
+            "y1": i + 0.5,
+            "fillcolor": f"rgba({int(rgb_array[i, j, 0])}, {int(rgb_array[i, j, 1])}, "
             f"{int(rgb_array[i, j, 2])}, {float(alphas[i, j]):.3f})",
-            line=dict(width=0.5, color="#f8f8f8"),
-        )
+            "line": {"width": 0.5, "color": "#f8f8f8"},
+        }
         for i in range(n)
         for j in range(n)
     ]
@@ -516,15 +516,15 @@ def _plot_density_matrix(
             text = "<br>".join(filter(None, [re_str, im_str]))
             if text:
                 annotations.append(
-                    dict(
-                        x=j,
-                        y=i,
-                        text=text,
-                        showarrow=False,
-                        xref="x",
-                        yref="y",
-                        font=dict(size=10, color="#f8f8f8" if float(brightness[i, j]) < 0.5 else "#0d0d36"),
-                    )
+                    {
+                        "x": j,
+                        "y": i,
+                        "text": text,
+                        "showarrow": False,
+                        "xref": "x",
+                        "yref": "y",
+                        "font": {"size": 10, "color": "#f8f8f8" if float(brightness[i, j]) < 0.5 else "#0d0d36"},
+                    }
                 )
 
     # Invisible scatter for the phase colourbar
@@ -532,21 +532,21 @@ def _plot_density_matrix(
         x=[None],
         y=[None],
         mode="markers",
-        marker=dict(
-            colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
-            showscale=True,
-            cmin=0,
-            cmax=2 * jnp.pi,
-            color=[0],
-            colorbar=dict(
-                title="Phase (rad)",
-                thickness=10,
-                len=0.5,
-                ypad=0,
-                tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
-                ticktext=["0", "π/2", "π", "3π/2", "2π"],
-            ),
-        ),
+        marker={
+            "colorscale": [[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
+            "showscale": True,
+            "cmin": 0,
+            "cmax": 2 * jnp.pi,
+            "color": [0],
+            "colorbar": {
+                "title": "Phase (rad)",
+                "thickness": 10,
+                "len": 0.5,
+                "ypad": 0,
+                "tickvals": [0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                "ticktext": ["0", "π/2", "π", "3π/2", "2π"],
+            },
+        },
         hoverinfo="none",
         showlegend=False,
     )
@@ -554,22 +554,22 @@ def _plot_density_matrix(
     fig = go.Figure(data=[phase_colorbar_trace])
     fig.update_layout(
         template="plotly_white",
-        font=dict(size=12),
+        font={"size": 12},
         shapes=shapes,
         annotations=annotations,
-        xaxis=dict(
-            tickvals=list(range(n)),
-            ticktext=labels,
-            range=[-0.5, n - 0.5],
-            constrain="domain",
-        ),
-        yaxis=dict(
-            tickvals=list(range(n)),
-            ticktext=labels,
-            range=[n - 0.5, -0.5],
-            constrain="domain",
-            scaleanchor="x",
-        ),
+        xaxis={
+            "tickvals": list(range(n)),
+            "ticktext": labels,
+            "range": [-0.5, n - 0.5],
+            "constrain": "domain",
+        },
+        yaxis={
+            "tickvals": list(range(n)),
+            "ticktext": labels,
+            "range": [n - 0.5, -0.5],
+            "constrain": "domain",
+            "scaleanchor": "x",
+        },
         width=575,
         height=575,
     )
@@ -622,21 +622,21 @@ def _plot_superoperator_in_computational_basis(superoperator: SuperOperator) -> 
             x=[None],
             y=[None],
             mode="markers",
-            marker=dict(
-                colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
-                showscale=True,
-                cmin=0,
-                cmax=2 * jnp.pi,
-                color=[0],
-                colorbar=dict(
-                    title="Phase (rad)",
-                    thickness=10,
-                    len=0.5,
-                    ypad=0,
-                    tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
-                    ticktext=["0", "π/2", "π", "3π/2", "2π"],
-                ),
-            ),
+            marker={
+                "colorscale": [[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
+                "showscale": True,
+                "cmin": 0,
+                "cmax": 2 * jnp.pi,
+                "color": [0],
+                "colorbar": {
+                    "title": "Phase (rad)",
+                    "thickness": 10,
+                    "len": 0.5,
+                    "ypad": 0,
+                    "tickvals": [0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                    "ticktext": ["0", "π/2", "π", "3π/2", "2π"],
+                },
+            },
             hoverinfo="none",
             showlegend=False,
         ),
@@ -645,7 +645,7 @@ def _plot_superoperator_in_computational_basis(superoperator: SuperOperator) -> 
     )
 
     fig.update_layout(
-        margin=dict(l=20, r=20, t=40, b=20),
+        margin={"l": 20, "r": 20, "t": 40, "b": 20},
         width=size + 80,
         height=size,
     )
@@ -739,7 +739,7 @@ def _plot_quantum_instrument(
             xanchor="right",
             yanchor="top",
             showarrow=False,
-            font=dict(size=18),
+            font={"size": 18},
         )
 
     # Phase colorbar
@@ -748,21 +748,21 @@ def _plot_quantum_instrument(
             x=[None],
             y=[None],
             mode="markers",
-            marker=dict(
-                colorscale=[[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
-                showscale=True,
-                cmin=0,
-                cmax=2 * jnp.pi,
-                color=[0],
-                colorbar=dict(
-                    title="Phase",
-                    thickness=10,
-                    len=0.5,
-                    ypad=0,
-                    tickvals=[0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
-                    ticktext=["0", "π/2", "π", "3π/2", "2π"],
-                ),
-            ),
+            marker={
+                "colorscale": [[i / (len(_CYCLIC_COLORSCALE) - 1), c] for i, c in enumerate(_CYCLIC_COLORSCALE)],
+                "showscale": True,
+                "cmin": 0,
+                "cmax": 2 * jnp.pi,
+                "color": [0],
+                "colorbar": {
+                    "title": "Phase",
+                    "thickness": 10,
+                    "len": 0.5,
+                    "ypad": 0,
+                    "tickvals": [0, jnp.pi / 2, jnp.pi, 3 * jnp.pi / 2, 2 * jnp.pi],
+                    "ticktext": ["0", "π/2", "π", "3π/2", "2π"],
+                },
+            },
             hoverinfo="none",
             showlegend=False,
         ),
@@ -772,7 +772,7 @@ def _plot_quantum_instrument(
 
     fig.update_layout(
         # font=dict(size=12),
-        margin=dict(l=20, r=20, t=40, b=20),
+        margin={"l": 20, "r": 20, "t": 40, "b": 20},
         width=cell_size * (n + right_col),
         height=cell_size * n,
     )

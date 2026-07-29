@@ -79,10 +79,7 @@ class QuantumObject:
             return False
         if self.dims != other.dims:
             return False
-        elif jnp.allclose(self.data, other.data):
-            return True
-        else:
-            return False
+        return bool(jnp.allclose(self.data, other.data))
 
     # ----- ensemble indexing -----
 

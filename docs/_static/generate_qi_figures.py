@@ -8,12 +8,9 @@ import sys
 
 sys.path.insert(0, "../../src")
 
-import jax
 import jax.numpy as jnp
-import numpy as np
 
 import quax as qx
-
 
 # ======================================================================
 # Figure 1: Qutrit instrument with confusion
@@ -148,7 +145,6 @@ def generate_correlated_2qubit():
 
 def generate_spectator_figure():
     """Show a 2-qubit instrument measuring qubit 0 with X backaction on qubit 1."""
-    dims = (2, 2)
     X = jnp.array([[0, 1], [1, 0]], dtype=complex)
     action = jnp.kron(jnp.eye(2, dtype=complex), X)
 
