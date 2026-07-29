@@ -71,7 +71,7 @@ def test_compose_superoperators(seed, num_qudits, qudit_dim, size_a, size_b):
         out_shape = A.shape
 
         mats = [
-            qt.to_choi((qt.to_super(x) @ qt.to_super(y))).full() for x, y in zip(A.ravel(), B.ravel())
+            qt.to_choi(qt.to_super(x) @ qt.to_super(y)).full() for x, y in zip(A.ravel(), B.ravel())
         ]  # each is (d,d) ndarray
         dense = np.stack(mats, axis=0)
         dense = dense.reshape(out_shape + dense.shape[1:])  # out_shape + (d,d)

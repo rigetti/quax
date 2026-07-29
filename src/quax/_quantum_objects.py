@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from functools import cached_property, reduce
 from operator import mul
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, Self, Sequence, Tuple, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Self, overload
 
 import jax
 import jax.numpy as jnp
@@ -72,16 +73,13 @@ class QuantumObject:
             )
         return f"{type(self).__name__}(dims={self.dims}, shape={self.data.shape})"
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Element-wise equality check (overridden by subclasses that use fidelity)."""
         if not isinstance(other, type(self)):
             return False
         if self.dims != other.dims:
             return False
-        elif jnp.allclose(self.data, other.data):
-            return True
-        else:
-            return False
+        return bool(jnp.allclose(self.data, other.data))
 
     # ----- ensemble indexing -----
 
@@ -130,7 +128,7 @@ class QuantumObject:
         raise NotImplementedError("Subclasses must implement num_ensemble_dims property.")
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         """Shape of the ensemble (batch) dimensions, or ``()`` for a single object."""
         return self.data.shape[: self.num_ensemble_dims]
 
@@ -219,7 +217,7 @@ class Operator(QuantumObject):
             return Operator(other.data - self.data, self.num_qubits)
         return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Element-wise equality check with numerical tolerance."""
         if not isinstance(other, Operator):
             return NotImplemented
@@ -300,7 +298,7 @@ class Operator(QuantumObject):
                 return NotImplemented
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         return (qudit_shape[: self.num_qubits], qudit_shape[self.num_qubits :])
@@ -319,11 +317,11 @@ class Operator(QuantumObject):
         return type(self).from_matrix(matrix_h, (self.dims[1], self.dims[0]))
 
     @property
-    def d(self) -> Tuple[int, ...]:
+    def d(self) -> tuple[int, ...]:
         return tuple(reduce(mul, dim) for dim in self.dims)
 
     @property
-    def d2(self) -> Tuple[int, int]:
+    def d2(self) -> tuple[int, int]:
         return self.d[0] ** 2, self.d[1] ** 2
 
     @property
@@ -342,7 +340,7 @@ class Operator(QuantumObject):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
+    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, d_out, d_in)``
@@ -400,7 +398,7 @@ class SuperOperator(QuantumObject):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> Self:
+    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, d_out^2, d_in^2)``
@@ -415,7 +413,7 @@ class SuperOperator(QuantumObject):
         return cls(data=tensor, num_qubits=num_qubits)
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) qudit dimensions, inferred from data shape.
 
         Returns the qudit dimensions, not the doubled superoperator dimensions.
@@ -427,11 +425,11 @@ class SuperOperator(QuantumObject):
         return (dims_out, dims_in)
 
     @property
-    def d(self) -> Tuple[int, ...]:
+    def d(self) -> tuple[int, ...]:
         return tuple(reduce(mul, dim) for dim in self.dims)
 
     @property
-    def d2(self) -> Tuple[int, int]:
+    def d2(self) -> tuple[int, int]:
         return self.d[0] ** 2, self.d[1] ** 2
 
     @property
@@ -473,12 +471,12 @@ class StateVector(State):
         return self.data.ndim - self.num_qubits
 
     @property
-    def dims(self) -> Tuple[int, ...]:
+    def dims(self) -> tuple[int, ...]:
         """The dimensions of each qudit, inferred from data shape."""
         return self.data.shape[-self.num_qubits :] if self.num_qubits > 0 else ()
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
         return self.data.shape[: self.num_ensemble_dims]
 
@@ -491,7 +489,7 @@ class StateVector(State):
         return self.data.reshape(ensemble_shape + (d,))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "StateVector":
+    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> "StateVector":
         """Construct from vector representation.
 
         :param matrix: Array with shape ``(*ensemble, d)`` where d = prod(dims)
@@ -552,7 +550,7 @@ class StateVector(State):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using quantum state fidelity."""
         match other:
             case StateVector():
@@ -589,8 +587,9 @@ class StateVector(State):
             >>> sv.pretty_print()
             '1|1\u27e9'
         """
-        from ._state import _format_state_vector_str
         import itertools
+
+        from ._state import _format_state_vector_str
 
         matrix = self.matrix
         dims = self.dims
@@ -644,7 +643,7 @@ class DensityMatrix(State):
         return self.data.ndim - 2 * self.num_qubits
 
     @property
-    def dims(self) -> Tuple[int, ...]:
+    def dims(self) -> tuple[int, ...]:
         """The dimensions of each qudit, inferred from data shape.
 
         For DensityMatrix, dims returns just the qudit dimensions (same for in/out).
@@ -654,7 +653,7 @@ class DensityMatrix(State):
         return qudit_shape[:n_qudits]
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         """Returns the size of the ensemble if the state represents an ensemble of states."""
         return self.data.shape[: self.num_ensemble_dims]
 
@@ -669,7 +668,7 @@ class DensityMatrix(State):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[int, ...]) -> "DensityMatrix":
+    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> "DensityMatrix":
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, d, d)`` where d = prod(dims)
@@ -738,7 +737,7 @@ class DensityMatrix(State):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using quantum state fidelity."""
         match other:
             case StateVector():
@@ -775,8 +774,9 @@ class DensityMatrix(State):
             >>> rho.pretty_print()
             '0.5|0⟩⟨0| + 0.5|0⟩⟨1| + 0.5|1⟩⟨0| + 0.5|1⟩⟨1|'
         """
-        from ._state import _format_density_matrix_str
         import itertools
+
+        from ._state import _format_density_matrix_str
 
         matrix = self.matrix
         dims = self.dims
@@ -825,7 +825,7 @@ class Unitary(Operator):
     or ``(*ensemble, d, d)`` in matrix form."""
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 2
@@ -967,7 +967,7 @@ class Unitary(Operator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using unitary entanglement fidelity."""
         match other:
             case Unitary():
@@ -1007,7 +1007,7 @@ class Observable(Operator):
     """
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape.
 
         For an Observable the output and input spaces are identical (it is a square matrix
@@ -1036,7 +1036,7 @@ class Observable(Operator):
     @overload
     def __mul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+    def __mul__(self, scalar: complex | Array) -> "Observable | Operator":
         """Scalar multiplication with ensemble broadcasting.
 
         - Real scalar: result is Hermitian → returns ``Observable``.
@@ -1055,7 +1055,7 @@ class Observable(Operator):
     @overload
     def __rmul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __rmul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+    def __rmul__(self, scalar: complex | Array) -> "Observable | Operator":
         """Scalar multiplication (scalar on the left)."""
         return self * scalar
 
@@ -1202,7 +1202,7 @@ class Involution(Observable, Unitary):
     @overload
     def __mul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __mul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+    def __mul__(self, scalar: complex | Array) -> "Observable | Operator":
         """Scalar multiplication with ensemble broadcasting.
 
         - Real scalar/dtype: Hermitian is preserved → ``Observable``.
@@ -1221,7 +1221,7 @@ class Involution(Observable, Unitary):
     @overload
     def __rmul__(self, scalar: Array) -> "Observable | Operator": ...
 
-    def __rmul__(self, scalar: float | complex | Array) -> "Observable | Operator":
+    def __rmul__(self, scalar: complex | Array) -> "Observable | Operator":
         """Scalar multiplication (scalar on the left)."""
         return self * scalar
 
@@ -1288,7 +1288,7 @@ class SuperOp(SuperOperator):
     """
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape.
 
         Returns the qudit dimensions, not the doubled superoperator dimensions.
@@ -1421,7 +1421,7 @@ class SuperOp(SuperOperator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using process fidelity."""
         match other:
             case SuperOp():
@@ -1463,7 +1463,7 @@ class KrausMap(SuperOperator):
         return self.data.ndim - 2 * self.num_qubits - 1
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         # After ensemble dims, first is n_kraus, then qudit dims
         qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
@@ -1471,7 +1471,7 @@ class KrausMap(SuperOperator):
         return (qudit_shape[:n_qudits], qudit_shape[n_qudits:])
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         """Returns the size of the ensemble if the operator represents an ensemble of operators."""
         return self.data.shape[: self.num_ensemble_dims]
 
@@ -1487,7 +1487,7 @@ class KrausMap(SuperOperator):
         return self.data.reshape(ensemble_shape + (n_kraus, d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> "KrausMap":
+    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> "KrausMap":
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, n_kraus, d_out, d_in)``
@@ -1602,7 +1602,7 @@ class KrausMap(SuperOperator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using process fidelity."""
         match other:
             case KrausMap():
@@ -1639,7 +1639,7 @@ class Choi(SuperOperator):
     """
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 4
@@ -1767,7 +1767,7 @@ class Choi(SuperOperator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using process fidelity."""
         match other:
             case Choi():
@@ -1804,7 +1804,7 @@ class Chi(SuperOperator):
     """
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 4
@@ -1888,7 +1888,7 @@ class Chi(SuperOperator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality for Chi matrices."""
         # Since Chi transformations are not implemented, we can only compare Chi with Chi
         match other:
@@ -1918,7 +1918,7 @@ class PauliLiouville(SuperOperator):
     """
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) dimensions of each qudit, inferred from data shape."""
         qudit_shape = self.data.shape[self.num_ensemble_dims :]
         n_qudits = len(qudit_shape) // 4
@@ -2024,7 +2024,7 @@ class PauliLiouville(SuperOperator):
             case _:
                 return NotImplemented
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Check equality using process fidelity."""
         match other:
             case PauliLiouville():
@@ -2099,12 +2099,12 @@ class Lindbladian(QuantumObject):
         return self.jump_operators.num_ensemble_dims - 1
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         """Shape of the ensemble (batch) dimensions, or ``()`` for a single generator."""
         return self.jump_operators.ensemble_size[:-1]
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         """The (output, input) qudit dimensions, taken from the jump operators."""
         return self.jump_operators.dims
 
@@ -2231,7 +2231,7 @@ class Lindbladian(QuantumObject):
             return f"Lindbladian(dims={self.dims}, ensemble_size={self.ensemble_size}, n_jump_operators={n_ops})"
         return f"Lindbladian(dims={self.dims}, n_jump_operators={n_ops})"
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: object) -> bool:
         """Element-wise equality of the generators (gauge-invariant: compares ``matrix``)."""
         if not isinstance(other, Lindbladian):
             return NotImplemented
@@ -2261,7 +2261,7 @@ class QuantumInstrument(QuantumObject):
     The first qudit axis after ``num_outcomes`` is the outcome axis.
     """
 
-    measured_qudits: Tuple[int, ...]
+    measured_qudits: tuple[int, ...]
     """Indices of the qudits that produce a classical outcome."""
 
     # ---- pytree support ----
@@ -2290,11 +2290,11 @@ class QuantumInstrument(QuantumObject):
         return self.data.ndim - 1 - qudit_dims  # subtract 1 for outcome axis
 
     @property
-    def ensemble_size(self) -> Tuple[int, ...]:
+    def ensemble_size(self) -> tuple[int, ...]:
         return self.data.shape[: self.num_ensemble_dims]
 
     @property
-    def dims(self) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
         qudit_shape = self.data.shape[self.num_ensemble_dims + 1 :]
         n = len(qudit_shape) // 4
         dims_out = qudit_shape[:n]
@@ -2302,7 +2302,7 @@ class QuantumInstrument(QuantumObject):
         return (dims_out, dims_in)
 
     @property
-    def measured_dims(self) -> Tuple[int, ...]:
+    def measured_dims(self) -> tuple[int, ...]:
         """Per-qudit dimensions of the measured subsystems."""
         return tuple(self.dims[0][i] for i in self.measured_qudits)
 
@@ -2312,12 +2312,12 @@ class QuantumInstrument(QuantumObject):
         return reduce(mul, self.measured_dims, 1)
 
     @property
-    def d(self) -> Tuple[int, int]:
+    def d(self) -> tuple[int, int]:
         """Total (output, input) Hilbert-space dimensions."""
         return tuple(reduce(mul, dim) for dim in self.dims)  # type: ignore[return-value]
 
     @property
-    def d2(self) -> Tuple[int, int]:
+    def d2(self) -> tuple[int, int]:
         """Squared (output, input) dimensions."""
         return self.d[0] ** 2, self.d[1] ** 2
 
@@ -2340,8 +2340,8 @@ class QuantumInstrument(QuantumObject):
     def from_matrix(
         cls,
         matrix: Array,
-        dims: Tuple[Tuple[int, ...], Tuple[int, ...]],
-        measured_qudits: Tuple[int, ...],
+        dims: tuple[tuple[int, ...], tuple[int, ...]],
+        measured_qudits: tuple[int, ...],
     ) -> "QuantumInstrument":
         """Construct from flattened superoperator matrices.
 
@@ -2360,7 +2360,7 @@ class QuantumInstrument(QuantumObject):
     # Indexing helpers
     # ------------------------------------------------------------------
 
-    def outcome_superop(self, i: int) -> Tuple["SuperOp", Array]:
+    def outcome_superop(self, i: int) -> tuple["SuperOp", Array]:
         """Return the superoperator for outcome *i* and its normalization coefficient.
 
         Per-outcome maps are CP but *not* TP, so the trace of
@@ -2403,7 +2403,7 @@ class QuantumInstrument(QuantumObject):
     def from_superop(
         cls,
         superop_matrices: Sequence["SuperOp"],
-        measured_qudits: Tuple[int, ...],
+        measured_qudits: tuple[int, ...],
     ) -> "QuantumInstrument":
         """Construct from a sequence of superoperator matrices (one per outcome).
 
@@ -2549,7 +2549,7 @@ class QuantumInstrument(QuantumObject):
 # ======================================================================
 
 
-def _decode_index(flat: int, shape: Tuple[int, ...]) -> Tuple[int, ...]:
+def _decode_index(flat: int, shape: tuple[int, ...]) -> tuple[int, ...]:
     """Decode a flat index into a multi-dimensional index (row-major)."""
     indices: list[int] = []
     for s in reversed(shape):
@@ -2558,7 +2558,7 @@ def _decode_index(flat: int, shape: Tuple[int, ...]) -> Tuple[int, ...]:
     return tuple(reversed(indices))
 
 
-def _encode_index(indices: Tuple[int, ...], shape: Tuple[int, ...]) -> int:
+def _encode_index(indices: tuple[int, ...], shape: tuple[int, ...]) -> int:
     """Encode a multi-dimensional index into a flat index (row-major)."""
     flat = 0
     for idx, s in zip(indices, shape):
@@ -2567,9 +2567,9 @@ def _encode_index(indices: Tuple[int, ...], shape: Tuple[int, ...]) -> int:
 
 
 def _build_partial_projector(
-    dims: Tuple[int, ...],
-    measured_qudits: Tuple[int, ...],
-    measured_values: Tuple[int, ...],
+    dims: tuple[int, ...],
+    measured_qudits: tuple[int, ...],
+    measured_values: tuple[int, ...],
 ) -> Array:
     """Build a projector that fixes measured qudits to given values and acts
     as identity on unmeasured qudits.
@@ -2586,8 +2586,8 @@ def _build_partial_projector(
 
 def _extract_measured_index(
     full_index: int,
-    dims: Tuple[int, ...],
-    measured_qudits: Tuple[int, ...],
+    dims: tuple[int, ...],
+    measured_qudits: tuple[int, ...],
 ) -> int:
     """Given a full computational-basis index, extract the measured subsystem index."""
     qudit_indices = _decode_index(full_index, dims)
@@ -2598,8 +2598,8 @@ def _extract_measured_index(
 
 def _count_full_states_per_measured(
     j_meas: int,
-    dims: Tuple[int, ...],
-    measured_qudits: Tuple[int, ...],
+    dims: tuple[int, ...],
+    measured_qudits: tuple[int, ...],
 ) -> int:
     """Count how many full-space basis states map to a given measured-subsystem index."""
     d_total = reduce(mul, dims, 1)

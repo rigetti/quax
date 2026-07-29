@@ -16,7 +16,6 @@
 
 from functools import reduce
 from operator import mul
-from typing import List
 
 import jax
 import jax.numpy as jnp
@@ -30,10 +29,10 @@ from ._quantum_objects import (
     Observable,
     Operator,
     PauliLiouville,
+    QuantumInstrument,
     StateVector,
     SuperOp,
     Unitary,
-    QuantumInstrument,
 )
 from ._superoperator_transformations import (
     choi_to_pauli_liouville,
@@ -85,7 +84,7 @@ def tensor_choi(choi_0: Choi, choi_1: Choi) -> Choi:
     return Choi.from_matrix(data, new_dims)
 
 
-def tensor_channel_kraus(k1: List[Operator], k2: List[Operator]) -> List[Operator]:
+def tensor_channel_kraus(k1: list[Operator], k2: list[Operator]) -> list[Operator]:
     r"""
     Given the Kraus representation for two channels, :math:`\mathcal E_1` and :math:`\mathcal E_2`,
     acting on different systems this function returns the Kraus operators representing the

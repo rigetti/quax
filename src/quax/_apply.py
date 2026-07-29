@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import reduce, singledispatch, lru_cache
+from functools import lru_cache, reduce, singledispatch
 from operator import mul
-from typing import Tuple
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
+from ._promotion import promote, promote_hilbert_space
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -34,7 +34,6 @@ from ._quantum_objects import (
     Unitary,
 )
 from ._superoperator_transformations import choi_to_superop, pauli_liouville_to_superop, superop_to_kraus
-from ._promotion import promote, promote_hilbert_space
 
 CHARS = "ijklmnopqrstuvwxyzabcdefghIJKLMNOPQRSTUVWXYZABCDEFGH123456789"
 
@@ -191,12 +190,12 @@ def apply_kraus_to_state_vector(kraus_map: Operator, state: StateVector) -> Dens
 
 
 @singledispatch
-def partial_trace(rho, indices: Tuple[int, ...]) -> DensityMatrix:
+def partial_trace(rho, indices: tuple[int, ...]) -> DensityMatrix:
     raise TypeError("rho must be a DensityMatrix or Choi.")
 
 
 @partial_trace.register
-def _(rho: DensityMatrix, indices: Tuple[int, ...]) -> DensityMatrix:
+def _(rho: DensityMatrix, indices: tuple[int, ...]) -> DensityMatrix:
     dims = tuple(rho.dims)  # e.g. (2,2)
     keep = tuple(indices)
 
@@ -206,7 +205,7 @@ def _(rho: DensityMatrix, indices: Tuple[int, ...]) -> DensityMatrix:
 
 
 @partial_trace.register
-def _(rho: Choi, indices: Tuple[int, ...]) -> DensityMatrix:
+def _(rho: Choi, indices: tuple[int, ...]) -> DensityMatrix:
     dims_out, dims_in = rho.dims  # e.g. ((2,2),(2,2))
     dims_all = tuple(dims_out) + tuple(dims_in)  # e.g. (2,2,2,2)
     keep = tuple(indices)
@@ -220,7 +219,7 @@ def _(rho: Choi, indices: Tuple[int, ...]) -> DensityMatrix:
 
 
 @jax.jit(static_argnames=("dims", "keep"))
-def _partial_trace_data(data: Array, dims: Tuple[int, ...], keep: Tuple[int, ...]) -> Array:
+def _partial_trace_data(data: Array, dims: tuple[int, ...], keep: tuple[int, ...]) -> Array:
     """
     Batched partial trace of a matrix.
 
@@ -451,7 +450,7 @@ def _estimate_density_matrix(state: DensityMatrix, observable: "Observable") -> 
 
 
 @lru_cache(maxsize=1000)
-def _generate_superop_contraction(qubits: Tuple[int, ...], n: int) -> str:
+def _generate_superop_contraction(qubits: tuple[int, ...], n: int) -> str:
     """
     Generate the einsum string for operating on a density matrix which performs
     Sρ where S is a superoperator.
@@ -486,7 +485,7 @@ def _generate_superop_contraction(qubits: Tuple[int, ...], n: int) -> str:
 
 
 @jax.jit(static_argnames=("subsystem",))
-def targeted_apply_superop(superoperator: SuperOp, rho: DensityMatrix, subsystem: Tuple[int, ...]) -> DensityMatrix:
+def targeted_apply_superop(superoperator: SuperOp, rho: DensityMatrix, subsystem: tuple[int, ...]) -> DensityMatrix:
     """
     Apply a superoperator to a density matrix. Sρ
 
@@ -511,7 +510,7 @@ def targeted_apply_superop(superoperator: SuperOp, rho: DensityMatrix, subsystem
 
 
 @jax.jit(static_argnames=("subsystem",))
-def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem: Tuple[int, ...]) -> DensityMatrix:
+def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem: tuple[int, ...]) -> DensityMatrix:
     """
     Apply a Kraus map to a density matrix. ∑_i K_i ρ K_i†
 
@@ -537,7 +536,7 @@ def targeted_apply_kraus_map(kraus_map: KrausMap, rho: DensityMatrix, subsystem:
 
 
 @jax.jit(static_argnames=("subsystem",))
-def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: Tuple[int, ...]) -> StateVector:
+def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: tuple[int, ...]) -> StateVector:
     """
     Apply a unitary to state vector. U|𝜓⟩
 
@@ -562,7 +561,7 @@ def targeted_apply_unitary(unitary: Unitary, psi: StateVector, subsystem: Tuple[
 
 @jax.jit(static_argnames=("subsystem",))
 def targeted_apply_unitary_to_density_matrix(
-    unitary: Unitary, rho: DensityMatrix, subsystem: Tuple[int, ...]
+    unitary: Unitary, rho: DensityMatrix, subsystem: tuple[int, ...]
 ) -> DensityMatrix:
     r"""Apply a unitary to a density matrix on a subsystem. :math:`U \rho U^\dagger`
 
@@ -621,12 +620,12 @@ def _batched_categorical(key: Array, logits: Array) -> Array:
     flat_keys = key.reshape(flat_size)
     flat_logits = logits.reshape(flat_size, logits.shape[-1])
 
-    flat_samples = jax.vmap(lambda k, l: jax.random.categorical(k, l, axis=-1))(flat_keys, flat_logits)  # noqa: E741
+    flat_samples = jax.vmap(lambda k, l: jax.random.categorical(k, l, axis=-1))(flat_keys, flat_logits)
     return flat_samples.reshape(broadcast_ens)
 
 
 @jax.jit(static_argnames=("subsystem",))
-def state_vector_reduced_density_matrix(psi: StateVector, subsystem: Tuple[int, ...]) -> DensityMatrix:
+def state_vector_reduced_density_matrix(psi: StateVector, subsystem: tuple[int, ...]) -> DensityMatrix:
     r"""Compute the reduced density matrix of a state vector on a subsystem.
 
     Computes :math:`\rho_\text{sub} = \text{Tr}_\text{comp}(|\psi\rangle\langle\psi|)`
@@ -666,7 +665,7 @@ def state_vector_reduced_density_matrix(psi: StateVector, subsystem: Tuple[int, 
 
 @jax.jit(static_argnames=("subsystem",))
 def _sample_kraus_map_trajectory(
-    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: tuple[int, ...]
 ) -> tuple[StateVector, Array]:
     """
     Sample and apply one Kraus operator to a state vector trajectory.
@@ -785,7 +784,7 @@ def _sample_kraus_map_trajectory(
 
 @jax.jit(static_argnames=("subsystem",))
 def targeted_apply_kraus_map_trajectory(
-    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: Tuple[int, ...]
+    kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: tuple[int, ...]
 ) -> StateVector:
     """
     Apply a Kraus map to a state vector probabilistically (Monte Carlo trajectory).
@@ -804,7 +803,7 @@ def targeted_apply_kraus_map_trajectory(
 
 
 @lru_cache(maxsize=1000)
-def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
+def _generate_kraus_map_contraction(qubits: tuple[int], n: int) -> str:
     """
     Generate the einsum string for operating on a density matrix.
 
@@ -842,7 +841,7 @@ def _generate_kraus_map_contraction(qubits: Tuple[int], n: int) -> str:
 
 
 @lru_cache(maxsize=1000)
-def _generate_unitary_contraction(qubits: Tuple[int], n: int) -> str:
+def _generate_unitary_contraction(qubits: tuple[int], n: int) -> str:
     """
     Generate the einsum string for operating on a state tensor.
 
@@ -865,7 +864,7 @@ def _generate_unitary_contraction(qubits: Tuple[int], n: int) -> str:
 
 
 @lru_cache(maxsize=1000)
-def _generate_unitary_density_matrix_contraction(qubits: Tuple[int, ...], n: int) -> str:
+def _generate_unitary_density_matrix_contraction(qubits: tuple[int, ...], n: int) -> str:
     r"""Generate the einsum string for :math:`U \rho U^\dagger` on a density tensor.
 
     The density tensor has ``2*n`` qudit axes (bra then ket).  The unitary acts on
@@ -912,7 +911,7 @@ def _generate_unitary_density_matrix_contraction(qubits: Tuple[int, ...], n: int
 
 
 @lru_cache(maxsize=1000)
-def _generate_kraus_trajectory_contraction(qubits: Tuple[int, ...], n: int) -> str:
+def _generate_kraus_trajectory_contraction(qubits: tuple[int, ...], n: int) -> str:
     """
     Generate the einsum string for applying Kraus operators to a state tensor,
     preserving the Kraus index in the output.
@@ -997,7 +996,7 @@ def apply_instrument_to_state_vector(
 def targeted_apply_instrument_to_density_matrix(
     instrument: QuantumInstrument,
     rho: DensityMatrix,
-    subsystem: Tuple[int, ...],
+    subsystem: tuple[int, ...],
 ) -> tuple[DensityMatrix, Array]:
     """Apply a quantum instrument to specific qudits of a density matrix.
 
@@ -1077,7 +1076,7 @@ def targeted_apply_instrument_to_state_vector(
     instrument: QuantumInstrument,
     psi: StateVector,
     key: Array,
-    subsystem: Tuple[int, ...],
+    subsystem: tuple[int, ...],
 ) -> tuple[StateVector, Array]:
     """Apply a quantum instrument to specific qudits of a state vector (trajectory).
 

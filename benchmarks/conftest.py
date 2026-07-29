@@ -22,7 +22,6 @@ import jax.numpy as jnp
 
 import quax as qx
 
-
 SEED = 42
 
 

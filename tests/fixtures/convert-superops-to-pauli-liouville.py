@@ -21,12 +21,12 @@ python convert-superops-to-pauli-liouville.py quax/tests/fixtures/superops
 
 import argparse
 import logging
-from pathlib import Path
-import trueq as tq  # type: ignore[import-untyped]
 from functools import reduce
 from operator import mul
-import numpy as np
+from pathlib import Path
 
+import numpy as np
+import trueq as tq  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -158,19 +158,19 @@ def main() -> None:
             logger.warning("Skipping %s: %s", file.name, e)
             continue
 
-        weyl_data = dict(
-            data=weyl_liouvilles,
-            seed=data["seed"],
-            dims=data["dims"],
-            ensemble_size=data["ensemble_size"],
-        )
+        weyl_data = {
+            "data": weyl_liouvilles,
+            "seed": data["seed"],
+            "dims": data["dims"],
+            "ensemble_size": data["ensemble_size"],
+        }
 
-        herm_weyl_data = dict(
-            data=herm_weyl_liouvilles,
-            seed=data["seed"],
-            dims=data["dims"],
-            ensemble_size=data["ensemble_size"],
-        )
+        herm_weyl_data = {
+            "data": herm_weyl_liouvilles,
+            "seed": data["seed"],
+            "dims": data["dims"],
+            "ensemble_size": data["ensemble_size"],
+        }
 
         weyl_output = weyl_dir / file.name.replace("superop_", "pauli-liouville_")
         herm_output = herm_dir / file.name.replace("superop_", "pauli-liouville_")

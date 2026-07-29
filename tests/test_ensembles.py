@@ -1,13 +1,14 @@
-import pytest
-import quax as qx
 import jax.numpy as jnp
+import pytest
+
+import quax as qx
 from quax.ensembles import (
-    ICOSAHEDRAL_ENSEMBLE,
-    TETRAHEDRAL_ENSEMBLE,
-    CLIFFORD_ENSEMBLE,
-    SIC_PREP,
-    PAULIS,
     BINARY_ICOSAHEDRAL_ENSEMBLE,
+    CLIFFORD_ENSEMBLE,
+    ICOSAHEDRAL_ENSEMBLE,
+    PAULIS,
+    SIC_PREP,
+    TETRAHEDRAL_ENSEMBLE,
 )
 
 

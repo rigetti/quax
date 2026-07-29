@@ -45,9 +45,9 @@ def _band_trace(
         x=[x0, x1, x1, x0, x0],
         y=[y0, y0, y1, y1, y0],
         fill="toself",
-        fillpattern=dict(shape=hatch, fgcolor="rgba(0,0,0,0.30)", size=6),
+        fillpattern={"shape": hatch, "fgcolor": "rgba(0,0,0,0.30)", "size": 6},
         fillcolor="rgba(0,0,0,0)",
-        line=dict(width=0),
+        line={"width": 0},
         mode="lines",
         legendgroup=group,
         name=name,
@@ -108,8 +108,8 @@ def _apply_subspace_hatching(
         paper_bgcolor="white",
         plot_bgcolor="white",
         showlegend=True,
-        legend=dict(orientation="h", x=0.0, y=-0.12, xanchor="left", yanchor="top", font=dict(size=11)),
-        margin=dict(b=70),
+        legend={"orientation": "h", "x": 0.0, "y": -0.12, "xanchor": "left", "yanchor": "top", "font": {"size": 11}},
+        margin={"b": 70},
     )
 
 
@@ -155,13 +155,13 @@ def _make_weyl_figures(p: float = 0.1) -> None:
 
     fig_c = qx.plot(promoted_coherent, range_color=range_color)
     _add_weyl_subspace_labels(fig_c, d_comp=2, D=D)
-    fig_c.update_layout(title=dict(text=f"Coherent extension (p={p})", x=0.5))
+    fig_c.update_layout(title={"text": f"Coherent extension (p={p})", "x": 0.5})
     fig_c.write_image("promotion-weyl-coherent.png", scale=3)
     print("Generated: promotion-weyl-coherent.png")
 
     fig_i = qx.plot(promoted_incoherent, range_color=range_color)
     _add_weyl_subspace_labels(fig_i, d_comp=2, D=D)
-    fig_i.update_layout(title=dict(text=f"Incoherent extension (p={p})", x=0.5))
+    fig_i.update_layout(title={"text": f"Incoherent extension (p={p})", "x": 0.5})
     fig_i.write_image("promotion-weyl-incoherent.png", scale=3)
     print("Generated: promotion-weyl-incoherent.png")
 
@@ -176,13 +176,13 @@ def _make_block_figures(p: float = 0.1) -> None:
 
     fig_c = qx.plot(superop_c)
     _add_subspace_labels(fig_c, d_comp=2, D=D)
-    fig_c.update_layout(title=dict(text=f"Coherent extension — computational basis (p={p})", x=0.5))
+    fig_c.update_layout(title={"text": f"Coherent extension — computational basis (p={p})", "x": 0.5})
     fig_c.write_image("promotion-block-coherent.png", scale=3)
     print("Generated: promotion-block-coherent.png")
 
     fig_i = qx.plot(superop_i)
     _add_subspace_labels(fig_i, d_comp=2, D=D)
-    fig_i.update_layout(title=dict(text=f"Incoherent extension — computational basis (p={p})", x=0.5))
+    fig_i.update_layout(title={"text": f"Incoherent extension — computational basis (p={p})", "x": 0.5})
     fig_i.write_image("promotion-block-incoherent.png", scale=3)
     print("Generated: promotion-block-incoherent.png")
 

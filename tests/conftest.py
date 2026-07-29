@@ -14,16 +14,17 @@
 
 """Test fixtures for JAX operator tools tests."""
 
-import numpy as np
 from pathlib import Path
+
 import jax
+import numpy as np
 
 jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp  # noqa: E402
-import pytest  # noqa: E402
-import qutip as qt  # noqa: E402
+import jax.numpy as jnp
+import pytest
+import qutip as qt
 
-from quax import (  # noqa: E402
+from quax import (
     Choi,
     KrausMap,
     PauliLiouville,
@@ -33,7 +34,7 @@ from quax import (  # noqa: E402
     random_unitary,
 )
 
-from .reference_pauli_liouville import kraus2pauli_liouville  # noqa: E402
+from .reference_pauli_liouville import kraus2pauli_liouville
 
 
 @pytest.fixture(scope="session", params=[58, 3854])

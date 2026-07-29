@@ -1,8 +1,10 @@
 # This file checks our gate definitions against pyquil
 import inspect
-import numpy as np
+
 import jax.numpy as jnp
+import numpy as np
 from pyquil.simulation import matrices
+
 import quax as qx
 from quax import is_unitary
 

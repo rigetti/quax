@@ -30,7 +30,7 @@ import os
 import platform
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -44,9 +44,7 @@ rigetti_template = go.layout.Template()
 rigetti_template.layout = go.Layout(
     colorway=["#00b5ad", "#ef476f", "#ffc504", "#3c47d9", "#8a8b92", "#0d0d36"],
 )
-rigetti_template.data.scatter = [
-    go.Scatter(marker=dict(size=10, line=dict(width=2, color="DarkSlateGrey")))
-]
+rigetti_template.data.scatter = [go.Scatter(marker={"size": 10, "line": {"width": 2, "color": "DarkSlateGrey"}})]
 pio.templates["rigetti"] = rigetti_template
 pio.templates.default = "ggplot2+rigetti"
 
@@ -153,7 +151,7 @@ def _load_results(paths: list[str]) -> list[dict]:
 def _hardware_summary() -> str:
     """Return a short markdown block describing the machine."""
     lines = []
-    lines.append(f"- **Date**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
+    lines.append(f"- **Date**: {datetime.now(UTC).strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append(f"- **OS**: {platform.system()} {platform.release()}")
     lines.append(f"- **CPU**: {platform.processor() or platform.machine()}")
     cpu_count = os.cpu_count()
@@ -171,6 +169,7 @@ def _hardware_summary() -> str:
     lines.append(f"- **Python**: {platform.python_version()}")
     try:
         import jax
+
         lines.append(f"- **JAX**: {jax.__version__}")
         lines.append(f"- **JAX platforms**: {', '.join(str(d) for d in jax.devices())}")
     except ImportError:
@@ -196,15 +195,15 @@ def _op_color(sub: str) -> str:
 
 
 def _base_layout(title: str, yaxis_title: str = "Mean time (ms)") -> dict:
-    return dict(
-        title=title,
-        xaxis_title="Number of qubits",
-        yaxis_title=yaxis_title,
-        yaxis_type="log",
-        width=_WIDTH,
-        height=_HEIGHT,
-        legend=dict(font=dict(size=10)),
-    )
+    return {
+        "title": title,
+        "xaxis_title": "Number of qubits",
+        "yaxis_title": yaxis_title,
+        "yaxis_type": "log",
+        "width": _WIDTH,
+        "height": _HEIGHT,
+        "legend": {"font": {"size": 10}},
+    }
 
 
 def _add_line(
@@ -223,10 +222,10 @@ def _add_line(
         go.Scatter(
             x=[r["num_qubits"] for r in recs],
             y=[r["mean_ms"] for r in recs],
-            error_y=dict(type="data", array=[r["stddev_ms"] for r in recs], visible=True),
+            error_y={"type": "data", "array": [r["stddev_ms"] for r in recs], "visible": True},
             mode="markers+lines",
-            marker=dict(color=color, symbol=symbol),
-            line=dict(color=color, dash=dash, width=2),
+            marker={"color": color, "symbol": symbol},
+            line={"color": color, "dash": dash, "width": 2},
             name=label,
         )
     )
@@ -242,7 +241,10 @@ def _save(fig: go.Figure, path: Path) -> None:
 
 
 def _plot_apply_by_ensemble(
-    records: list[dict], category: str, ensemble: str, title: str,
+    records: list[dict],
+    category: str,
+    ensemble: str,
+    title: str,
 ) -> go.Figure:
     """One line per op size for a fixed ensemble.  Color = op size."""
     fig = go.Figure()
@@ -260,7 +262,9 @@ def _plot_apply_by_ensemble(
 
 
 def _plot_kraus_by_ensemble(
-    records: list[dict], ensemble: str, title: str,
+    records: list[dict],
+    ensemble: str,
+    title: str,
 ) -> go.Figure:
     """One line per (op_size, source, trunc) for a fixed ensemble.  Color = op size."""
     fig = go.Figure()
@@ -270,10 +274,7 @@ def _plot_kraus_by_ensemble(
 
     combos = sorted({(r["subsystem"], r["source"], r["truncated"]) for r in cat_recs})
     for sub, src, trunc in combos:
-        subset = [
-            r for r in cat_recs
-            if r["subsystem"] == sub and r["source"] == src and r["truncated"] == trunc
-        ]
+        subset = [r for r in cat_recs if r["subsystem"] == sub and r["source"] == src and r["truncated"] == trunc]
         dash = "dash" if trunc == "trunc" else "solid"
         label = f"{sub} {src} ({trunc})"
         _add_line(fig, subset, label, _op_color(sub), dash=dash)
@@ -313,8 +314,8 @@ def _plot_kraus_ensemble_scaling(records: list[dict], title: str) -> go.Figure:
                 x=x_vals,
                 y=y_vals,
                 mode="markers+lines",
-                marker=dict(color=_op_color(sub)),
-                line=dict(color=_op_color(sub), width=2),
+                marker={"color": _op_color(sub)},
+                line={"color": _op_color(sub), "width": 2},
                 name=sub,
             )
         )
@@ -327,7 +328,7 @@ def _plot_kraus_ensemble_scaling(records: list[dict], title: str) -> go.Figure:
         xaxis_type="log",
         width=_WIDTH,
         height=_HEIGHT,
-        legend=dict(font=dict(size=10)),
+        legend={"font": {"size": 10}},
     )
     return fig
 
@@ -373,8 +374,7 @@ def _summary_table(records: list[dict], category: str) -> str:
         ens = r.get("ensemble", "-")
         sub = r.get("subsystem", "-")
         lines.append(
-            f"| {r['system']} | {r['num_qubits']} | {ens} | {sub} "
-            f"| {r['mean_ms']:.2f} | {r['stddev_ms']:.2f} |"
+            f"| {r['system']} | {r['num_qubits']} | {ens} | {sub} | {r['mean_ms']:.2f} | {r['stddev_ms']:.2f} |"
         )
     return "\n".join(lines) + "\n"
 
