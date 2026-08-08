@@ -14,8 +14,8 @@
 
 """JAX-based quantum operator transformations."""
 
-# Import gates, states, ensembles and lindbladians as submodules
-from . import channels, ensembles, gates, lindbladians, states
+# Import gates, states, ensembles, lindbladians and learning as submodules
+from . import channels, ensembles, gates, learning, lindbladians, states
 from ._apply import (
     apply_choi_to_density_matrix,
     apply_instrument_to_density_matrix,
@@ -269,6 +269,7 @@ __all__ = [
     "kraus_to_choi",
     "kraus_to_pauli_liouville",
     "kraus_to_superop",
+    "learning",
     "lindbladians",
     "mixed_state_matrix",
     "n_qudit_basis",

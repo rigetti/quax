@@ -76,6 +76,7 @@ Automatic Promotion
    examples/quantum-volume
    examples/leakage-randomized-benchmarking
    examples/superoperator-representations
+   examples/lindbladian-time-evolution
    examples/observables
    examples/random-operators
    api/index
