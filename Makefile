@@ -85,7 +85,7 @@ test-examples: ## Test all Jupyter notebooks in "docs/examples" run via papermil
 .PHONY: test-package
 test-package: ## Run all unit tests for the package, and report coverage.
 	cd ${PROJECT_DIR}
-	poetry run pytest -vv tests/
+	JAX_ENABLE_X64=1 poetry run pytest -vv tests/
 
 run-benchmarks: ## Run performance benchmarks
 	cd ${PROJECT_DIR}

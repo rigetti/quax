@@ -42,6 +42,14 @@ from ._apply import (
     targeted_apply_unitary,
     targeted_apply_unitary_to_density_matrix,
 )
+from ._circuits import (
+    Circuit,
+    CircuitOp,
+    MergePlan,
+    Placement,
+    dependency_edges,
+    random_circuit,
+)
 from ._compose import (
     compose_choi,
     compose_instrument,
@@ -187,13 +195,18 @@ from .channels import (
 
 __all__ = [
     "Choi",
+    # Circuits
+    "Circuit",
+    "CircuitOp",
     "DensityMatrix",
     "Involution",
     "KrausMap",
     "Lindbladian",
+    "MergePlan",
     "Observable",
     "Operator",
     "PauliLiouville",
+    "Placement",
     "QuantumInstrument",
     # Types
     "QuantumObject",
@@ -236,6 +249,7 @@ __all__ = [
     "compute_kraus_observables_from_states",
     "compute_pauli_liouville_observables_from_states",
     "compute_superop_observables_from_states",
+    "dependency_edges",
     "depolarizing_constant_to_average_fidelity",
     "depolarizing_constant_to_process_fidelity",
     # Promotion functions
@@ -296,6 +310,7 @@ __all__ = [
     "promote_incoherent",
     "promote_state_vector_to_density_matrix",
     "random_choi",
+    "random_circuit",
     "random_density_matrix",
     "random_observable",
     "random_operator",
