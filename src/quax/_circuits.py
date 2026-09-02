@@ -168,6 +168,14 @@ class Circuit:
     def __iter__(self) -> Iterator[Placement]:
         return iter(self.ops)
 
+    def __getitem__(self, index: int) -> Placement:
+        """Return one operation as an ``(operator, subsystem)`` pair.
+
+        Slicing is not supported: a slice of a circuit would still carry the whole register,
+        which is rarely what a caller means.  Build one explicitly with :meth:`with_ops`.
+        """
+        return self.ops[index]
+
     # ----- structure -----
 
     @property

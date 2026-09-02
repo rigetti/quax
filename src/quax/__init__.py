@@ -45,6 +45,7 @@ from ._apply import (
 from ._circuits import (
     Circuit,
     CircuitOp,
+    Group,
     MergePlan,
     Placement,
     dependency_edges,
@@ -199,6 +200,7 @@ __all__ = [
     "Circuit",
     "CircuitOp",
     "DensityMatrix",
+    "Group",
     "Involution",
     "KrausMap",
     "Lindbladian",

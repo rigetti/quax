@@ -187,6 +187,8 @@ class TestCircuitConstruction:
         assert circuit.operators == (qx.gates.H, qx.gates.CNOT)
         assert list(circuit) == [(op, sub) for op, sub in ops]
         assert len(circuit) == 2
+        assert circuit[0] == (qx.gates.H, (0,))
+        assert circuit[-1] == (qx.gates.CNOT, (1, 0))
 
     def test_operand_order_is_preserved(self):
         circuit = qx.Circuit.from_ops([(qx.gates.CNOT, (1, 0))])
