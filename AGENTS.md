@@ -32,7 +32,9 @@ src/quax/                              # Main package
 ├── _apply.py                          # Applying operators to states
 ├── _apply_superoperator.py            # Superoperator application logic
 ├── channels.py                        # SuperOp channels + measurement instrument constructors (public submodule)
+├── _circuits.py                       # Circuits, parameterized gates, merge planning
 ├── _compose.py                        # Operator composition
+├── _errors.py                         # Structured circuit errors (kind-discriminated)
 ├── _metrics.py                        # Fidelity and distance functions
 ├── _mul.py                            # Scalar multiplication logic
 ├── _observables.py                    # Observable utilities
@@ -40,6 +42,7 @@ src/quax/                              # Main package
 ├── _power.py                          # Operator exponent operations
 ├── _promotion.py                      # State promotion utilities
 ├── _quantum_objects.py                # Core quantum types (State, Operator, QuantumInstrument, etc.)
+├── _simulators.py                     # State-vector and density-matrix simulators
 ├── _random.py                         # Random quantum objects
 ├── _state.py                          # State creation and manipulation
 ├── _superoperator_transformations.py  # Convert between representations
@@ -224,6 +227,49 @@ Prefer adding a new noise channel there.
 3. Export from `__init__.py`.
 4. Add tests to `tests/test_lindbladian.py`, `tests/test_channels.py`, or
    `tests/test_common_channels.py` as appropriate.
+
+### Circuits and simulation
+
+The circuit layer is deliberately free of any source language: a `ConstantCircuit` has no gate names,
+no classical memory and no control flow, and building one from Quil (or anything else) is the
+caller's job. Three types carry the layer:
+
+- **`ConstantCircuit`** — concrete operators placed on a register. This is what every other quax
+  operation consumes (`to_superops`, `compose`, `MergePlan.apply`).
+- **`Circuit`** — the same structure, but a gate may be a `ParameterizedGate` that is
+  built later from a flat parameter vector. `bind(params)` is the only bridge to `ConstantCircuit`.
+- **`MergePlan`** — decides from the subsystems alone which operations may be fused. A plan is
+  data, not a closure, which is what lets a simulator read the group layout (`flat_order`,
+  `group_start`, `bases`) and build a fused operator stack without materialising operators.
+
+Naming follows one rule: **the general union gets the plain name, the specific case gets the
+qualifier.** So `CircuitOp` is anything an operation may be (built or not) and `ConstantOp` is
+the already-built case; `Placement` is the general pair and `ConstantPlacement` the built one.
+A `ParameterizedGate` argument is a `Slot` or a `Constant`, never a bare `int | float` — `bool`
+is an `int`, an integer-valued constant is indistinguishable from a slot index, and `NewType` is
+erased at runtime, so the bare version silently builds a different circuit.
+
+Two invariants are load-bearing and are enforced rather than assumed:
+
+1. **One parameter slot per `ParameterizedGate` argument.** No sharing, ever. This makes
+   `jax.grad(...)[k]` refer to one gate occurrence instead of an implicit sum over several. A
+   front end that shares a source parameter across gates maps it onto several slots and lets
+   the chain rule sum them back. Nothing downstream would catch a violation — a shared slot
+   builds fine and the forward pass stays correct — so `Circuit.__post_init__` checks
+   that the slots are a permutation of `range(num_params)`.
+2. **Simulator preparation is eager.** `Simulator.prepare()` runs at construction. Deferring it
+   would let the first `compute` build cached values *inside* a JAX trace; the next call would
+   then fail with a leaked-tracer error far from the cause.
+
+Performance in the simulators is about the size of the traced graph, not the speed of the
+arithmetic. Gate calls sharing a `batch_key` and an embedding shape are built under one
+`jax.vmap`, and merged operations dispatch through a `jax.lax.switch` keyed by subsystem, so
+the graph scales with the number of distinct gate *kinds* and *subsystems* rather than with the
+number of operations. Building the stack the obvious way instead — a comprehension over the
+bound circuit — puts one traced subgraph per gate into the jaxpr and XLA compile time then
+grows superlinearly with depth. There is a regression test for this
+(`test_the_traced_graph_does_not_grow_with_circuit_depth`); if it starts failing, batching has
+been broken, even though every numerical test will still pass.
 
 ### Adding a New Transformation
 

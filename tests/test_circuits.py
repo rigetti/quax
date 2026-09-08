@@ -152,37 +152,37 @@ class TestDependencyEdges:
 
 
 # ══════════════════════════════════════════════════════════
-# Circuit — construction, validation, interface
+# ConstantCircuit — construction, validation, interface
 # ══════════════════════════════════════════════════════════
 
 
 class TestCircuitConstruction:
     def test_from_ops_infers_qubit_dims(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         assert circuit.dims == (2, 2)
         assert circuit.num_ops == 2
         assert circuit.num_qudits == 2
         assert circuit.dim == 4
 
     def test_from_ops_infers_mixed_dims(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.MEASURE(dim=3), (1,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.MEASURE(dim=3), (1,))])
         assert circuit.dims == (2, 3)
 
     def test_from_ops_pads_untouched_qudits_with_the_default(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,))], num_qudits=3, default_dim=3)
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))], num_qudits=3, default_dim=3)
         assert circuit.dims == (2, 3, 3)
 
     def test_infer_dims_takes_the_largest_dimension_per_qudit(self):
         ops = [(qx.gates.H, (0,)), (qx.gates.TRX01(0.3), (0,))]
-        assert qx.Circuit.infer_dims(ops) == (3,)
+        assert qx.ConstantCircuit.infer_dims(ops) == (3,)
 
     def test_infer_dims_applies_the_default_only_to_untouched_qudits(self):
         ops = [(qx.gates.H, (0,))]
-        assert qx.Circuit.infer_dims(ops, num_qudits=2, default_dim=3) == (2, 3)
+        assert qx.ConstantCircuit.infer_dims(ops, num_qudits=2, default_dim=3) == (2, 3)
 
     def test_subsystems_and_operators_round_trip(self):
         ops = [(qx.gates.H, (0,)), (qx.gates.CNOT, (1, 0))]
-        circuit = qx.Circuit.from_ops(ops)
+        circuit = qx.ConstantCircuit.from_ops(ops)
         assert circuit.subsystems == ((0,), (1, 0))
         assert circuit.operators == (qx.gates.H, qx.gates.CNOT)
         assert list(circuit) == [(op, sub) for op, sub in ops]
@@ -191,11 +191,11 @@ class TestCircuitConstruction:
         assert circuit[-1] == (qx.gates.CNOT, (1, 0))
 
     def test_operand_order_is_preserved(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.CNOT, (1, 0))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.CNOT, (1, 0))])
         assert circuit.subsystems == ((1, 0),)
 
     def test_with_ops_keeps_the_register(self):
-        circuit = qx.Circuit(dims=(2, 2, 3), ops=((qx.gates.H, (0,)),))
+        circuit = qx.ConstantCircuit(dims=(2, 2, 3), ops=((qx.gates.H, (0,)),))
         replaced = circuit.with_ops([(qx.gates.X, (1,))])
         assert replaced.dims == (2, 2, 3)
         assert replaced.subsystems == ((1,),)
@@ -203,50 +203,50 @@ class TestCircuitConstruction:
     def test_accepts_lists_and_normalises_to_tuples(self):
         # Deliberately passing lists where tuples are declared: construction normalises them,
         # so a hand-written literal need not be punctuated exactly right.
-        circuit = qx.Circuit(dims=cast(Any, [2, 2]), ops=cast(Any, [(qx.gates.H, [0])]))
+        circuit = qx.ConstantCircuit(dims=cast(Any, [2, 2]), ops=cast(Any, [(qx.gates.H, [0])]))
         assert circuit.dims == (2, 2)
         assert circuit.subsystems == ((0,),)
 
     def test_empty_circuit_is_allowed(self):
-        circuit = qx.Circuit(dims=(2,), ops=())
+        circuit = qx.ConstantCircuit(dims=(2,), ops=())
         assert circuit.num_ops == 0
         assert circuit.subsystems == ()
 
     def test_str(self):
-        assert str(qx.Circuit.from_ops([(qx.gates.H, (0,))])) == "Circuit(dims=(2,), num_ops=1)"
+        assert str(qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))])) == "ConstantCircuit(dims=(2,), num_ops=1)"
 
 
 class TestCircuitValidation:
     def test_rejects_a_qudit_outside_the_register(self):
         with pytest.raises(ValueError, match="outside a register"):
-            qx.Circuit(dims=(2, 2), ops=((qx.gates.H, (5,)),))
+            qx.ConstantCircuit(dims=(2, 2), ops=((qx.gates.H, (5,)),))
 
     def test_rejects_a_repeated_qudit(self):
         with pytest.raises(ValueError, match="more than once"):
-            qx.Circuit(dims=(2, 2), ops=((qx.gates.CNOT, (1, 1)),))
+            qx.ConstantCircuit(dims=(2, 2), ops=((qx.gates.CNOT, (1, 1)),))
 
     def test_rejects_an_arity_mismatch(self):
         with pytest.raises(ValueError, match="but is placed on"):
-            qx.Circuit(dims=(2, 2), ops=((qx.gates.CNOT, (0,)),))
+            qx.ConstantCircuit(dims=(2, 2), ops=((qx.gates.CNOT, (0,)),))
 
     def test_rejects_an_operator_larger_than_its_register_slot(self):
         with pytest.raises(ValueError, match="does not fit the register"):
-            qx.Circuit(dims=(2, 2), ops=((qx.gates.MEASURE(dim=3), (0,)),))
+            qx.ConstantCircuit(dims=(2, 2), ops=((qx.gates.MEASURE(dim=3), (0,)),))
 
     def test_rejects_a_non_positive_dimension(self):
         with pytest.raises(ValueError, match="must be positive"):
-            qx.Circuit(dims=(2, 0), ops=())
+            qx.ConstantCircuit(dims=(2, 0), ops=())
 
     def test_allows_an_operator_smaller_than_its_register_slot(self):
         """A qubit gate in a qutrit register is legal; embed promotes it."""
-        circuit = qx.Circuit(dims=(3, 3), ops=((qx.gates.H, (0,)),))
+        circuit = qx.ConstantCircuit(dims=(3, 3), ops=((qx.gates.H, (0,)),))
         composed = circuit.compose()
         assert composed.dims == ((3, 3), (3, 3))
 
 
 class TestCircuitPytree:
     def test_flatten_exposes_operators_as_leaves(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         leaves, treedef = jax.tree_util.tree_flatten(circuit)
         # Each operator is itself a pytree of one array.
         assert len(leaves) == 2
@@ -261,63 +261,63 @@ class TestCircuitPytree:
         def composed_matrix(circuit):
             return circuit.compose().matrix
 
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         eager = composed_matrix(circuit)
         compiled = jax.jit(composed_matrix)(circuit)
         assert jnp.allclose(eager, compiled)
 
     def test_tree_map_over_operators(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))])
         doubled = jax.tree_util.tree_map(lambda x: 2.0 * x, circuit)
         assert jnp.allclose(doubled.operators[0].matrix, 2.0 * qx.gates.H.matrix)
 
 
 # ══════════════════════════════════════════════════════════
-# Circuit — representation changes and composition
+# ConstantCircuit — representation changes and composition
 # ══════════════════════════════════════════════════════════
 
 
 class TestToSuperops:
     def test_converts_unitaries(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))]).to_superops()
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))]).to_superops()
         assert all(isinstance(op, qx.SuperOp) for op in circuit.operators)
 
     def test_preserves_placement(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.CNOT, (1, 0))]).to_superops()
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.CNOT, (1, 0))]).to_superops()
         assert circuit.subsystems == ((1, 0),)
 
     def test_replaces_an_instrument_with_its_total_channel(self):
         instrument = qx.gates.MEASURE(dim=2)
-        circuit = qx.Circuit.from_ops([(instrument, (0,))]).to_superops()
+        circuit = qx.ConstantCircuit.from_ops([(instrument, (0,))]).to_superops()
         assert isinstance(circuit.operators[0], qx.SuperOp)
         assert_same_channel(circuit.operators[0], instrument.total_channel())
 
     def test_is_idempotent(self):
-        once = qx.Circuit.from_ops([(qx.gates.H, (0,))]).to_superops()
+        once = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))]).to_superops()
         assert_same_channel(once.to_superops().compose(), once.compose())
 
     def test_preserves_the_whole_channel(self):
-        circuit = qx.random_circuit((2, 2), 8, jax.random.key(3), channel_probability=0.5)
+        circuit = qx.random_constant_circuit((2, 2), 8, jax.random.key(3), channel_probability=0.5)
         assert_same_channel(circuit.to_superops().compose(), circuit.compose())
 
 
 class TestToKrausMaps:
     def test_converts_superops_to_kraus_maps(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,))]).to_superops().to_kraus_maps()
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))]).to_superops().to_kraus_maps()
         assert all(isinstance(op, qx.KrausMap) for op in circuit.operators)
 
     def test_passes_unitaries_and_instruments_through(self):
         ops = [(qx.gates.H, (0,)), (qx.gates.MEASURE(dim=2), (1,))]
-        circuit = qx.Circuit.from_ops(ops).to_kraus_maps()
+        circuit = qx.ConstantCircuit.from_ops(ops).to_kraus_maps()
         assert isinstance(circuit.operators[0], qx.Unitary)
         assert isinstance(circuit.operators[1], qx.QuantumInstrument)
 
     def test_preserves_the_channel(self):
-        circuit = qx.random_circuit((2, 2), 8, jax.random.key(5), channel_probability=1.0)
+        circuit = qx.random_constant_circuit((2, 2), 8, jax.random.key(5), channel_probability=1.0)
         assert_same_channel(circuit.to_kraus_maps().compose(), circuit.compose())
 
     def test_truncation_drops_negligible_kraus_operators(self):
-        unitary_channel = qx.Circuit.from_ops([(qx.gates.H, (0,))]).to_superops()
+        unitary_channel = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))]).to_superops()
         truncated = unitary_channel.to_kraus_maps(atol=1e-6).operators[0]
         # A unitary channel has Kraus rank 1, whatever the superoperator's dense shape.
         # A Kraus map's matrix is (*ensemble, num_kraus, d_out, d_in).
@@ -326,34 +326,34 @@ class TestToKrausMaps:
 
 class TestCompose:
     def test_matches_a_hand_composed_product(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))])
         expected = qx.gates.X @ qx.gates.H
         assert_same_channel(circuit.compose(), expected)
 
     def test_applies_operations_in_order(self):
         """H then X differs from X then H, so composition order is observable."""
-        forwards = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))]).compose()
-        backwards = qx.Circuit.from_ops([(qx.gates.X, (0,)), (qx.gates.H, (0,))]).compose()
+        forwards = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))]).compose()
+        backwards = qx.ConstantCircuit.from_ops([(qx.gates.X, (0,)), (qx.gates.H, (0,))]).compose()
         assert not jnp.allclose(forwards.matrix, backwards.matrix)
 
     def test_stays_unitary_for_unitary_circuits(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         assert isinstance(circuit.compose(), qx.Unitary)
 
     def test_promotes_to_a_superoperator_when_any_operation_is_a_channel(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,))]).to_superops()
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,))]).to_superops()
         assert isinstance(circuit.compose(), qx.SuperOperator)
 
     def test_spans_the_whole_register_including_idle_qudits(self):
-        circuit = qx.Circuit(dims=(2, 2, 2), ops=((qx.gates.H, (0,)),))
+        circuit = qx.ConstantCircuit(dims=(2, 2, 2), ops=((qx.gates.H, (0,)),))
         assert circuit.compose().dims == ((2, 2, 2), (2, 2, 2))
 
     def test_rejects_an_empty_circuit(self):
         with pytest.raises(ValueError, match="empty circuit"):
-            qx.Circuit(dims=(2,), ops=()).compose()
+            qx.ConstantCircuit(dims=(2,), ops=()).compose()
 
     def test_rejects_instruments_and_says_what_to_do(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.MEASURE(dim=2), (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.MEASURE(dim=2), (0,))])
         with pytest.raises(TypeError, match="to_superops"):
             circuit.compose()
 
@@ -565,7 +565,7 @@ class TestMergePreservesTheChannel:
     @pytest.mark.parametrize("dims", DIMS)
     @pytest.mark.parametrize("max_subsystem_size", [0, 1, 2, 3])
     def test_unitary_circuits(self, dims, max_subsystem_size):
-        circuit = qx.random_circuit(dims, 12, jax.random.key(11))
+        circuit = qx.random_constant_circuit(dims, 12, jax.random.key(11))
         plan = qx.MergePlan.greedy(circuit.subsystems, max_subsystem_size)
         assert_plan_is_well_formed(plan, circuit.subsystems, max_subsystem_size)
         assert_same_channel(plan.apply(circuit).compose(), circuit.compose())
@@ -573,33 +573,33 @@ class TestMergePreservesTheChannel:
     @pytest.mark.parametrize("dims", DIMS)
     @pytest.mark.parametrize("max_subsystem_size", [0, 2, 3])
     def test_noisy_circuits(self, dims, max_subsystem_size):
-        circuit = qx.random_circuit(dims, 12, jax.random.key(13), channel_probability=0.5)
+        circuit = qx.random_constant_circuit(dims, 12, jax.random.key(13), channel_probability=0.5)
         plan = qx.MergePlan.greedy(circuit.subsystems, max_subsystem_size)
         assert_same_channel(plan.apply(circuit).compose(), circuit.compose())
 
     @pytest.mark.parametrize("max_subsystem_size", [2, 3])
     def test_channel_only_circuits(self, max_subsystem_size):
-        circuit = qx.random_circuit((2, 2, 2), 10, jax.random.key(17), channel_probability=1.0)
+        circuit = qx.random_constant_circuit((2, 2, 2), 10, jax.random.key(17), channel_probability=1.0)
         plan = qx.MergePlan.greedy(circuit.subsystems, max_subsystem_size)
         assert_same_channel(plan.apply(circuit).compose(), circuit.compose())
 
     @pytest.mark.parametrize("max_subsystem_size", [2, 3])
     def test_mixed_arity_circuits(self, max_subsystem_size):
-        circuit = qx.random_circuit((2, 2, 2, 2), 16, jax.random.key(19), max_arity=3)
+        circuit = qx.random_constant_circuit((2, 2, 2, 2), 16, jax.random.key(19), max_arity=3)
         plan = qx.MergePlan.greedy(circuit.subsystems, max_subsystem_size)
         assert_same_channel(plan.apply(circuit).compose(), circuit.compose())
 
     def test_merging_actually_happens_in_these_cases(self):
         """Guard against the invariant passing because nothing was ever merged."""
-        circuit = qx.random_circuit((2, 2), 12, jax.random.key(11))
+        circuit = qx.random_constant_circuit((2, 2), 12, jax.random.key(11))
         plan = qx.MergePlan.greedy(circuit.subsystems, 2)
         assert plan.num_groups < circuit.num_ops
         assert any(len(nodes) > 1 for nodes, _ in plan.groups)
 
     def test_reversed_operand_order_is_respected_in_a_merge(self):
         """A merge embeds each member by position, so ``CNOT (1, 0)`` must not become (0, 1)."""
-        forwards = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
-        backwards = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (1, 0))])
+        forwards = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        backwards = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (1, 0))])
         merged_forwards = qx.MergePlan.greedy(forwards.subsystems, 2).apply(forwards)
         merged_backwards = qx.MergePlan.greedy(backwards.subsystems, 2).apply(backwards)
         assert_same_channel(merged_forwards.compose(), forwards.compose())
@@ -610,13 +610,13 @@ class TestMergePreservesTheChannel:
         )
 
     def test_a_merged_group_of_unitaries_stays_unitary(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         merged = qx.MergePlan.greedy(circuit.subsystems, 2).apply(circuit)
         assert isinstance(merged.operators[0], qx.Unitary)
 
     def test_a_merged_group_containing_a_channel_becomes_a_superoperator(self):
         ops = [(qx.gates.H, (0,)), (qx.to_superop(qx.gates.X), (0,))]
-        circuit = qx.Circuit.from_ops(ops)
+        circuit = qx.ConstantCircuit.from_ops(ops)
         merged = qx.MergePlan.greedy(circuit.subsystems, 1).apply(circuit)
         assert merged.num_ops == 1
         assert isinstance(merged.operators[0], qx.SuperOperator)
@@ -629,7 +629,7 @@ class TestMergeWithInstruments:
             (qx.gates.MEASURE(dim=2), (0,)),
             (qx.gates.X, (0,)),
         ]
-        circuit = qx.Circuit.from_ops(ops)
+        circuit = qx.ConstantCircuit.from_ops(ops)
         plan = qx.MergePlan.greedy(circuit.subsystems, 2, atomic=[1])
         merged = plan.apply(circuit)
         assert merged.num_ops == 3
@@ -637,14 +637,14 @@ class TestMergeWithInstruments:
         assert_same_channel(merged.to_superops().compose(), circuit.to_superops().compose())
 
     def test_merging_an_instrument_is_refused_with_a_pointer_to_atomic(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.MEASURE(dim=2), (0,)), (qx.gates.X, (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.MEASURE(dim=2), (0,)), (qx.gates.X, (0,))])
         plan = qx.MergePlan.greedy(circuit.subsystems, 2)
         assert plan.num_groups == 1  # nothing told the planner to keep the instrument apart
         with pytest.raises(TypeError, match="atomic"):
             plan.apply(circuit)
 
     def test_the_unconditioned_channel_is_preserved_around_an_instrument(self):
-        circuit = qx.random_circuit((2, 2), 8, jax.random.key(23))
+        circuit = qx.random_constant_circuit((2, 2), 8, jax.random.key(23))
         with_measurement = circuit.with_ops(
             list(circuit.ops[:4]) + [(qx.gates.MEASURE(dim=2), (0,))] + list(circuit.ops[4:])
         )
@@ -655,18 +655,18 @@ class TestMergeWithInstruments:
 
 class TestApplyValidation:
     def test_rejects_a_circuit_of_the_wrong_length(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.X, (0,))])
         plan = qx.MergePlan.trivial([(0,)])
         with pytest.raises(ValueError, match="covers 1 operation"):
             plan.apply(circuit)
 
     def test_a_trivial_plan_returns_the_operations_untouched(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (1, 0))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (1, 0))])
         applied = qx.MergePlan.trivial(circuit.subsystems).apply(circuit)
         assert applied.ops == circuit.ops
 
     def test_result_subsystems_match_the_plan(self):
-        circuit = qx.random_circuit((2, 2, 2), 10, jax.random.key(29))
+        circuit = qx.random_constant_circuit((2, 2, 2), 10, jax.random.key(29))
         plan = qx.MergePlan.greedy(circuit.subsystems, 2)
         merged = plan.apply(circuit)
         assert merged.subsystems == tuple(subsystem for _, subsystem in plan.groups)
@@ -674,40 +674,40 @@ class TestApplyValidation:
 
 
 # ══════════════════════════════════════════════════════════
-# random_circuit
+# random_constant_circuit
 # ══════════════════════════════════════════════════════════
 
 
 class TestRandomCircuit:
     @pytest.mark.parametrize("dims", DIMS)
     def test_shape_and_placement(self, dims):
-        circuit = qx.random_circuit(dims, 10, jax.random.key(0), max_arity=2)
+        circuit = qx.random_constant_circuit(dims, 10, jax.random.key(0), max_arity=2)
         assert circuit.dims == dims
         assert circuit.num_ops == 10
         assert all(1 <= len(sub) <= 2 for sub in circuit.subsystems)
         assert all(len(set(sub)) == len(sub) for sub in circuit.subsystems)
 
     def test_is_reproducible(self):
-        first = qx.random_circuit((2, 2), 6, jax.random.key(1))
-        second = qx.random_circuit((2, 2), 6, jax.random.key(1))
+        first = qx.random_constant_circuit((2, 2), 6, jax.random.key(1))
+        second = qx.random_constant_circuit((2, 2), 6, jax.random.key(1))
         assert first.subsystems == second.subsystems
         assert jnp.allclose(first.operators[0].matrix, second.operators[0].matrix)
 
     def test_unitary_by_default(self):
-        circuit = qx.random_circuit((2, 2), 8, jax.random.key(2))
+        circuit = qx.random_constant_circuit((2, 2), 8, jax.random.key(2))
         assert all(isinstance(op, qx.Unitary) for op in circuit.operators)
 
     def test_all_channels_when_asked(self):
-        circuit = qx.random_circuit((2, 2), 8, jax.random.key(2), channel_probability=1.0)
+        circuit = qx.random_constant_circuit((2, 2), 8, jax.random.key(2), channel_probability=1.0)
         assert all(isinstance(op, qx.SuperOp) for op in circuit.operators)
 
     def test_arity_is_clipped_to_the_register(self):
-        circuit = qx.random_circuit((2,), 4, jax.random.key(4), max_arity=3)
+        circuit = qx.random_constant_circuit((2,), 4, jax.random.key(4), max_arity=3)
         assert all(sub == (0,) for sub in circuit.subsystems)
 
     def test_rejects_an_empty_register(self):
         with pytest.raises(ValueError, match="empty register"):
-            qx.random_circuit((), 1, jax.random.key(0))
+            qx.random_constant_circuit((), 1, jax.random.key(0))
 
 
 class TestPlanLayout:

@@ -154,6 +154,62 @@ Distance Metrics
    process_fidelity_to_depolarizing_constant
    unitarity_to_stochastic_infidelity
 
+Circuits
+--------
+
+A :class:`Circuit` is an ordered sequence of operations placed on a qudit register.  An
+operation is either an already-built operator or a :class:`ParameterizedGate` whose arguments
+arrive later in a flat parameter vector.  :meth:`Circuit.to_constant_circuit` builds every gate
+and yields a :class:`ConstantCircuit`, the narrower type the operator algebra consumes;
+:meth:`ConstantCircuit.to_circuit` widens back.  A :class:`MergePlan` decides, from the
+subsystems alone, which operations may be fused.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   Circuit
+   ConstantCircuit
+   ParameterizedGate
+   Slot
+   Constant
+   MergePlan
+   dependency_edges
+   concat
+   tile
+
+Simulation
+----------
+
+Simulators evolve a circuit and are jit- and grad-friendly.  Use
+:class:`StateVectorSimulator` for unitary-only circuits and :class:`DensityMatrixSimulator`
+for anything with channels, resets or measurements.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   Simulator
+   StateVectorSimulator
+   DensityMatrixSimulator
+   simulate
+
+Errors
+------
+
+ConstantCircuit validation failures carry a :class:`CircuitErrorKind` discriminant so a front end can
+catch one and re-raise it naming its own source construct.  Each is also the builtin exception
+it has always been, so ``except ValueError`` and ``except TypeError`` keep working.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   CircuitError
+   CircuitErrorKind
+   CircuitValueError
+   CircuitTypeError
+
 Random Generators
 -----------------
 
@@ -165,6 +221,8 @@ Random Generators
    random_density_matrix
    random_unitary
    random_choi
+   random_constant_circuit
+   random_circuit
    ginibre_matrix_complex
 
 Common Channels

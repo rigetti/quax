@@ -15,7 +15,7 @@
 """Tests for the differentiable simulators.
 
 A simulator is a fast path, not a definition.  What a circuit *means* is already fixed by
-:meth:`~quax.Circuit.compose`: fold every operation into one operator and apply it to the
+:meth:`~quax.ConstantCircuit.compose`: fold every operation into one operator and apply it to the
 initial state.  So correctness here is almost entirely one property —
 
     simulate(circuit) == apply(compose(circuit), |0>)
@@ -41,25 +41,25 @@ import quax as qx
 # ---------- helpers ----------
 
 
-def rx(slot: int) -> qx.GateCall:
+def rx(slot: int) -> qx.ParameterizedGate:
     """A single-argument ``RX`` reading one parameter slot."""
-    return qx.GateCall(gate_fn=qx.gates.RX, param_indices=(slot,), concrete_values=(None,))
+    return qx.ParameterizedGate(gate_fn=qx.gates.RX, arguments=(qx.Slot(index=slot),))
 
 
-def ry(slot: int) -> qx.GateCall:
+def ry(slot: int) -> qx.ParameterizedGate:
     """A single-argument ``RY`` reading one parameter slot."""
-    return qx.GateCall(gate_fn=qx.gates.RY, param_indices=(slot,), concrete_values=(None,))
+    return qx.ParameterizedGate(gate_fn=qx.gates.RY, arguments=(qx.Slot(index=slot),))
 
 
-def composed_state_vector(circuit: qx.ParametricCircuit, params=None) -> qx.StateVector:
+def composed_state_vector(circuit: qx.Circuit, params=None) -> qx.StateVector:
     """The reference pure state: fold the circuit, apply it to ``|0>``."""
-    bound = circuit.bind(params)
+    bound = circuit.to_constant_circuit(params)
     return qx.apply_unitary_to_state_vector(bound.compose(), qx.zero_state_vector(dims=bound.dims))
 
 
-def composed_density_matrix(circuit: qx.ParametricCircuit, params=None) -> qx.DensityMatrix:
+def composed_density_matrix(circuit: qx.Circuit, params=None) -> qx.DensityMatrix:
     """The reference mixed state: fold the circuit's channel, apply it to ``|0><0|``."""
-    bound = circuit.bind(params).to_superops()
+    bound = circuit.to_constant_circuit(params).to_superops()
     return qx.apply_superop_to_density_matrix(bound.compose(), qx.zero_state_matrix(dims=bound.dims))
 
 
@@ -81,7 +81,7 @@ class TestAgreesWithCompose:
     @pytest.mark.parametrize("seed", range(5))
     @pytest.mark.parametrize("max_subsystem_size", MERGE_BUDGETS)
     def test_state_vector_matches_composed_unitary(self, seed, max_subsystem_size):
-        circuit = qx.random_parametric_circuit((2,) * 4, 14, jax.random.key(seed))
+        circuit = qx.random_circuit((2,) * 4, 14, jax.random.key(seed))
         params = jax.random.uniform(jax.random.key(100 + seed), (circuit.num_params,)) * 6.0
         simulator = qx.StateVectorSimulator(circuit=circuit, max_subsystem_size=max_subsystem_size)
         assert_close(simulator.compute(params), composed_state_vector(circuit, params))
@@ -89,14 +89,14 @@ class TestAgreesWithCompose:
     @pytest.mark.parametrize("seed", range(5))
     @pytest.mark.parametrize("max_subsystem_size", MERGE_BUDGETS)
     def test_density_matrix_matches_composed_channel(self, seed, max_subsystem_size):
-        circuit = qx.random_parametric_circuit((2,) * 3, 12, jax.random.key(seed))
+        circuit = qx.random_circuit((2,) * 3, 12, jax.random.key(seed))
         params = jax.random.uniform(jax.random.key(200 + seed), (circuit.num_params,)) * 6.0
         simulator = qx.DensityMatrixSimulator(circuit=circuit, max_subsystem_size=max_subsystem_size)
         assert_close(simulator.compute(params), composed_density_matrix(circuit, params))
 
     @pytest.mark.parametrize("max_subsystem_size", MERGE_BUDGETS)
     def test_a_noisy_circuit_matches_its_composed_channel(self, max_subsystem_size):
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [
                 (rx(0), (0,)),
                 (qx.gates.CNOT, (0, 1)),
@@ -112,7 +112,7 @@ class TestAgreesWithCompose:
 
     @pytest.mark.parametrize("max_subsystem_size", MERGE_BUDGETS)
     def test_a_qutrit_register_matches(self, max_subsystem_size):
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [(qx.gates.TH, (0,)), (qx.gates.X, (1,)), (qx.gates.TSWAP, (0, 2)), (qx.gates.TX, (2,))],
             num_params=0,
         )
@@ -125,7 +125,7 @@ class TestAgreesWithCompose:
         # A singleton group keeps its own operand order, so the simulator must apply the
         # matrix to permuted qudits rather than to the sorted subsystem.  A three-qubit gate
         # can never merge under the default budget, so this is the case that catches it.
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [(qx.gates.X, (2,)), (qx.gates.CCNOT, (2, 1, 0)), (qx.gates.CNOT, (1, 0))],
             num_params=0,
         )
@@ -133,7 +133,7 @@ class TestAgreesWithCompose:
         assert_close(simulator.compute(), composed_state_vector(circuit))
 
     def test_the_result_does_not_depend_on_the_merge_budget(self):
-        circuit = qx.random_parametric_circuit((2,) * 4, 20, jax.random.key(11))
+        circuit = qx.random_circuit((2,) * 4, 20, jax.random.key(11))
         params = jax.random.uniform(jax.random.key(12), (circuit.num_params,)) * 6.0
         results = [
             qx.StateVectorSimulator(circuit=circuit, max_subsystem_size=budget).compute(params)
@@ -145,7 +145,7 @@ class TestAgreesWithCompose:
 
 class TestMeasurement:
     def test_an_instrument_acts_as_its_total_channel(self):
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [(qx.gates.H, (0,)), (qx.gates.MEASURE(dim=2), (0,))],
             num_params=0,
         )
@@ -156,7 +156,7 @@ class TestMeasurement:
     def test_instruments_are_collapsed_before_planning(self):
         # Collapsing first is what lets a measurement merge with its neighbours; leaving the
         # instrument in place would force it to stand alone and could raise during apply.
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [(rx(0), (0,)), (qx.gates.MEASURE(dim=2), (0,)), (qx.gates.CNOT, (0, 1))],
             num_params=1,
         )
@@ -165,7 +165,7 @@ class TestMeasurement:
         assert_close(simulator.compute(jnp.array([0.9])), composed_density_matrix(circuit, jnp.array([0.9])))
 
     def test_the_state_stays_a_valid_density_matrix(self):
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [
                 (qx.gates.H, (0,)),
                 (qx.gates.CNOT, (0, 1)),
@@ -186,7 +186,7 @@ class TestMeasurement:
 class TestJitAndGrad:
     @pytest.fixture
     def circuit(self):
-        return qx.ParametricCircuit.from_ops(
+        return qx.Circuit.from_ops(
             [(rx(0), (0,)), (qx.gates.CNOT, (0, 1)), (ry(1), (1,)), (rx(2), (0,))],
             num_params=3,
         )
@@ -273,28 +273,28 @@ class TestJitAndGrad:
 
 class TestPreparation:
     def test_the_stack_has_one_matrix_per_merge_group(self):
-        circuit = qx.random_parametric_circuit((2,) * 3, 12, jax.random.key(4))
+        circuit = qx.random_circuit((2,) * 3, 12, jax.random.key(4))
         params = jnp.linspace(0.0, 1.0, circuit.num_params)
         simulator = qx.StateVectorSimulator(circuit=circuit)
         stack = simulator.operator_stack(params)
         assert stack.shape == (simulator.plan.num_groups, simulator.d_max, simulator.d_max)
 
     def test_the_density_matrix_stack_is_squared_in_width(self):
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))], num_params=0)
         simulator = qx.DensityMatrixSimulator(circuit=circuit)
         assert simulator.operator_stack().shape[-1] == simulator.d_max**2
 
     def test_a_parameter_free_circuit_materialises_its_stack_eagerly(self):
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))], num_params=0)
         simulator = qx.StateVectorSimulator(circuit=circuit)
         assert simulator._constant_stack is not None
 
     def test_a_parametric_circuit_has_no_constant_stack(self):
-        simulator = qx.StateVectorSimulator(circuit=qx.ParametricCircuit.from_ops([(rx(0), (0,))], num_params=1))
+        simulator = qx.StateVectorSimulator(circuit=qx.Circuit.from_ops([(rx(0), (0,))], num_params=1))
         assert simulator._constant_stack is None
 
     def test_the_traced_graph_does_not_grow_with_circuit_depth(self):
-        # The reason GateCall exists: same-kind gates are built under one vmap, and merged
+        # The reason ParameterizedGate exists: same-kind gates are built under one vmap, and merged
         # operations dispatch through a switch, so neither the number of gates nor the number
         # of merge groups puts equations into the graph.
         def layered(depth):
@@ -305,7 +305,7 @@ class TestPreparation:
                     slot += 1
                 for qubit in range(layer % 2, 3, 2):
                     ops.append((qx.gates.CZ, (qubit, qubit + 1)))
-            return qx.ParametricCircuit.from_ops(ops, num_params=slot)
+            return qx.Circuit.from_ops(ops, num_params=slot)
 
         counts = []
         for depth in (2, 8):
@@ -316,7 +316,7 @@ class TestPreparation:
         assert counts[0] == counts[1], f"graph grew with depth: {counts}"
 
     def test_the_merge_plan_covers_every_operation_once(self):
-        circuit = qx.random_parametric_circuit((2,) * 4, 18, jax.random.key(6))
+        circuit = qx.random_circuit((2,) * 4, 18, jax.random.key(6))
         plan = qx.StateVectorSimulator(circuit=circuit).plan
         assert sorted(plan.flat_order) == list(range(circuit.num_ops))
         assert plan.group_start[-1] == circuit.num_ops
@@ -325,48 +325,48 @@ class TestPreparation:
     def test_simulators_are_hashable_despite_holding_arrays(self):
         # ``eq=False`` keeps identity hashing; a synthesised ``__hash__`` over JAX array fields
         # would raise, and would do so far from the cause.
-        simulator = qx.StateVectorSimulator(circuit=qx.ParametricCircuit.from_ops([(qx.gates.H, (0,))], num_params=0))
+        simulator = qx.StateVectorSimulator(circuit=qx.Circuit.from_ops([(qx.gates.H, (0,))], num_params=0))
         assert {simulator: "usable as a key"}[simulator] == "usable as a key"
 
 
 class TestEmptyAndTrivial:
     def test_an_empty_circuit_returns_the_initial_state_vector(self):
-        circuit = qx.ParametricCircuit(dims=(2, 2), ops=(), num_params=0)
+        circuit = qx.Circuit(dims=(2, 2), ops=(), num_params=0)
         simulator = qx.StateVectorSimulator(circuit=circuit)
         assert_close(simulator.compute(), qx.zero_state_vector(dims=(2, 2)))
 
     def test_an_empty_circuit_returns_the_initial_density_matrix(self):
-        circuit = qx.ParametricCircuit(dims=(2,), ops=(), num_params=0)
+        circuit = qx.Circuit(dims=(2,), ops=(), num_params=0)
         assert_close(qx.DensityMatrixSimulator(circuit=circuit).compute(), qx.zero_state_matrix(dims=(2,)))
 
     def test_a_single_gate_circuit(self):
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.X, (0,))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.X, (0,))], num_params=0)
         assert jnp.allclose(qx.StateVectorSimulator(circuit=circuit).compute().matrix, jnp.array([0.0, 1.0]))
 
     def test_an_idle_qudit_is_left_alone(self):
-        circuit = qx.ParametricCircuit(dims=(2, 2), ops=((qx.gates.X, (0,)),), num_params=0)
+        circuit = qx.Circuit(dims=(2, 2), ops=((qx.gates.X, (0,)),), num_params=0)
         state = qx.StateVectorSimulator(circuit=circuit).compute()
         assert jnp.allclose(state.matrix, jnp.array([0.0, 0.0, 1.0, 0.0]))
 
 
 class TestUnitaryReadout:
     def test_matches_the_composed_circuit(self):
-        circuit = qx.random_parametric_circuit((2,) * 3, 10, jax.random.key(8))
+        circuit = qx.random_circuit((2,) * 3, 10, jax.random.key(8))
         params = jax.random.uniform(jax.random.key(9), (circuit.num_params,)) * 6.0
         simulator = qx.StateVectorSimulator(circuit=circuit)
         unitary = simulator.unitary(params)
-        difference = float(jnp.max(jnp.abs(unitary.matrix - circuit.bind(params).compose().matrix)))
+        difference = float(jnp.max(jnp.abs(unitary.matrix - circuit.to_constant_circuit(params).compose().matrix)))
         assert difference < 1e-11
 
     def test_applying_it_reproduces_compute(self):
-        circuit = qx.ParametricCircuit.from_ops([(rx(0), (0,)), (qx.gates.CNOT, (0, 1))], num_params=1)
+        circuit = qx.Circuit.from_ops([(rx(0), (0,)), (qx.gates.CNOT, (0, 1))], num_params=1)
         params = jnp.array([1.1])
         simulator = qx.StateVectorSimulator(circuit=circuit)
         applied = qx.apply_unitary_to_state_vector(simulator.unitary(params), qx.zero_state_vector(dims=circuit.dims))
         assert_close(applied, simulator.compute(params))
 
     def test_an_empty_circuit_gives_the_identity(self):
-        circuit = qx.ParametricCircuit(dims=(2, 2), ops=(), num_params=0)
+        circuit = qx.Circuit(dims=(2, 2), ops=(), num_params=0)
         unitary = qx.StateVectorSimulator(circuit=circuit).unitary()
         assert jnp.allclose(unitary.matrix, jnp.eye(4), atol=1e-12)
 
@@ -385,7 +385,7 @@ class TestValidation:
         ids=["channel", "instrument", "reset"],
     )
     def test_the_state_vector_simulator_rejects_non_unitary_operations(self, operation):
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.H, (0,)), (operation, (0,))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (operation, (0,))], num_params=0)
         with pytest.raises(qx.CircuitError, match="unitary operations only") as caught:
             qx.StateVectorSimulator(circuit=circuit)
         assert caught.value.kind is qx.CircuitErrorKind.NON_UNITARY_OP
@@ -394,12 +394,12 @@ class TestValidation:
 
     def test_the_rejection_is_also_a_plain_type_error(self):
         # Front ends that predate the structured errors must keep working.
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.RESET(dim=2), (0,))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.RESET(dim=2), (0,))], num_params=0)
         with pytest.raises(TypeError):
             qx.StateVectorSimulator(circuit=circuit)
 
     def test_the_density_matrix_simulator_accepts_everything(self):
-        circuit = qx.ParametricCircuit.from_ops(
+        circuit = qx.Circuit.from_ops(
             [
                 (qx.gates.RESET(dim=2), (0,)),
                 (qx.gates.MEASURE(dim=2), (0,)),
@@ -410,44 +410,44 @@ class TestValidation:
         assert qx.DensityMatrixSimulator(circuit=circuit).compute() is not None
 
     def test_rejects_a_negative_merge_budget(self):
-        circuit = qx.ParametricCircuit.from_ops([(qx.gates.H, (0,))], num_params=0)
+        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,))], num_params=0)
         with pytest.raises(ValueError, match="max_subsystem_size"):
             qx.StateVectorSimulator(circuit=circuit, max_subsystem_size=-1)
 
     def test_compute_validates_the_parameter_vector(self):
-        circuit = qx.ParametricCircuit.from_ops([(rx(0), (0,))], num_params=1)
+        circuit = qx.Circuit.from_ops([(rx(0), (0,))], num_params=1)
         simulator = qx.StateVectorSimulator(circuit=circuit)
         with pytest.raises(qx.CircuitError, match="Expected 1 parameter"):
             simulator.compute(jnp.zeros(2))
 
     def test_an_empty_circuit_still_validates_parameters(self):
-        circuit = qx.ParametricCircuit(dims=(2,), ops=(), num_params=0)
+        circuit = qx.Circuit(dims=(2,), ops=(), num_params=0)
         with pytest.raises(qx.CircuitError, match="Expected 0 parameter"):
             qx.StateVectorSimulator(circuit=circuit).compute(jnp.zeros(3))
 
 
 class TestSimulateConvenience:
     def test_chooses_a_state_vector_for_a_unitary_circuit(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
         assert isinstance(qx.simulate(circuit), qx.StateVector)
 
     def test_chooses_a_density_matrix_when_a_channel_is_present(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.channels.depolarizing(0.1, dims=(2,)), (0,))])
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.channels.depolarizing(0.1, dims=(2,)), (0,))])
         assert isinstance(qx.simulate(circuit), qx.DensityMatrix)
 
     def test_accepts_a_parametric_circuit(self):
-        circuit = qx.ParametricCircuit.from_ops([(rx(0), (0,))], num_params=1)
+        circuit = qx.Circuit.from_ops([(rx(0), (0,))], num_params=1)
         assert_close(qx.simulate(circuit, jnp.array([0.8])), composed_state_vector(circuit, jnp.array([0.8])))
 
     def test_agrees_with_constructing_the_simulator_directly(self):
-        circuit = qx.Circuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
-        lifted = qx.ParametricCircuit.from_circuit(circuit)
+        circuit = qx.ConstantCircuit.from_ops([(qx.gates.H, (0,)), (qx.gates.CNOT, (0, 1))])
+        lifted = circuit.to_circuit()
         assert_close(qx.simulate(circuit), qx.StateVectorSimulator(circuit=lifted).compute())
 
 
 class TestCallable:
     def test_calling_a_simulator_computes(self):
-        circuit = qx.ParametricCircuit.from_ops([(rx(0), (0,))], num_params=1)
+        circuit = qx.Circuit.from_ops([(rx(0), (0,))], num_params=1)
         simulator = qx.StateVectorSimulator(circuit=circuit)
         params = jnp.array([0.6])
         assert_close(simulator(params), simulator.compute(params))

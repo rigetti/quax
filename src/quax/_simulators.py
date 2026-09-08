@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Differentiable simulators for :class:`~quax.ParametricCircuit`.
+"""Differentiable simulators for :class:`~quax.Circuit`.
 
 Two simulators share one evolution machinery:
 
@@ -33,8 +33,8 @@ into a circuit belongs to whatever owns that language.
 Two ideas carry all the performance, and both are about the size of the traced graph rather
 than the speed of the arithmetic.
 
-**Operations are built in batches, not one at a time.**  Every :class:`~quax.GateCall`
-sharing a :attr:`~quax.GateCall.batch_key` and an embedding shape is built under a single
+**Operations are built in batches, not one at a time.**  Every :class:`~quax.ParameterizedGate`
+sharing a :attr:`~quax.ParameterizedGate.batch_key` and an embedding shape is built under a single
 :func:`jax.vmap`, so the graph grows with the number of distinct gate *kinds* rather than the
 number of gates.  Building the stack the obvious way — a comprehension over the bound circuit
 — instead puts one traced subgraph per gate into the jaxpr, and XLA compile time then grows
@@ -59,7 +59,7 @@ import numpy as np
 from jax import Array
 
 from ._apply import targeted_apply_superop, targeted_apply_unitary
-from ._circuits import Circuit, CircuitOp, GateCall, MergePlan, ParametricCircuit, ParametricOp
+from ._circuits import Circuit, CircuitOp, ConstantCircuit, ConstantOp, MergePlan, ParameterizedGate
 from ._errors import CircuitErrorKind, CircuitTypeError
 from ._promotion import embed
 from ._quantum_objects import DensityMatrix, State, StateVector, SuperOp, Unitary
@@ -72,7 +72,7 @@ from ._superoperator_transformations import to_superop
 
 
 def _embed_and_pad(
-    op: CircuitOp,
+    op: ConstantOp,
     target_dims: tuple[int, ...],
     positions: tuple[int, ...],
     width: int,
@@ -195,7 +195,7 @@ def _group_fold(group_start: Sequence[int], num_ops: int, width: int) -> Callabl
 
 
 def _stack_builder(
-    circuit: ParametricCircuit,
+    circuit: Circuit,
     plan: MergePlan,
     *,
     as_superop: bool,
@@ -203,10 +203,10 @@ def _stack_builder(
 ) -> Callable[[Array], Array]:
     """Build ``params -> (num_groups, width, width)``: the merged operator stack.
 
-    Equal to embedding and composing each merge group of ``plan.apply(circuit.bind(params))``,
+    Equal to embedding and composing each merge group of ``plan.apply(circuit.to_constant_circuit(params))``,
     but assembled so that the traced graph scales with the number of distinct gate *kinds*
     rather than the number of gates.  Every operation is embedded into its group's Hilbert
-    space — parametric gates in vmapped batches, concrete operators eagerly, outside the
+    space — parameterized gates in vmapped batches, already-built operators eagerly, outside the
     traced graph — and each group's members are then folded together.
 
     :param circuit: The circuit whose operations to build.
@@ -229,26 +229,23 @@ def _stack_builder(
     constant_matrices: list[Array] = []
 
     for row, op_index in enumerate(plan.flat_order):
-        op: ParametricOp = circuit.ops[op_index][0]
+        op: CircuitOp = circuit.ops[op_index][0]
         op_subsystem = circuit.subsystems[op_index]
         group_subsystem = group_of_row[row]
         target_dims = tuple(dims[q] for q in group_subsystem)
         group_positions = tuple(group_subsystem.index(q) for q in op_subsystem)
 
-        if isinstance(op, GateCall):
+        if isinstance(op, ParameterizedGate):
             # Keyed by embedding *shape*, not by physical qudits: two placements that trace to
             # the same graph share one vmap.
             embedding_key = (tuple(dims[q] for q in op_subsystem), target_dims, group_positions)
-            constants = tuple(
-                (position, value) for position, value in enumerate(op.concrete_values) if value is not None
-            )
             key = op.batch_key + (embedding_key,)
             batch = batches.get(key)
             if batch is None:
                 batch = _GateBatch(
                     gate_fn=op.gate_fn,
                     num_arguments=op.num_arguments,
-                    constants=constants,
+                    constants=op.constants,
                     target_dims=target_dims,
                     group_positions=group_positions,
                     width=width,
@@ -306,7 +303,7 @@ class Simulator(ABC):
         compile.  Purely a performance knob — results do not depend on it.
     """
 
-    circuit: ParametricCircuit
+    circuit: Circuit
     max_subsystem_size: int = 2
 
     def __post_init__(self) -> None:
@@ -345,9 +342,8 @@ class Simulator(ABC):
 
     # ----- preparation -----
 
-    @final
     @cached_property
-    def prepared_circuit(self) -> ParametricCircuit:
+    def prepared_circuit(self) -> Circuit:
         """The circuit as actually simulated, after any representation change."""
         return self.circuit
 
@@ -485,7 +481,7 @@ class StateVectorSimulator(Simulator):
     @override
     def _validate_circuit(self) -> None:
         for index, (op, subsystem) in enumerate(self.circuit.ops):
-            if isinstance(op, (GateCall, Unitary)):
+            if isinstance(op, (ParameterizedGate, Unitary)):
                 continue
             raise CircuitTypeError(
                 f"{type(self).__name__} evolves unitary operations only, but operation {index} "
@@ -538,7 +534,7 @@ class StateVectorSimulator(Simulator):
         :param params: The flat parameter vector; omit for a parameter-free circuit.
         :return: The circuit's unitary.
         """
-        bound = self.circuit.bind(params)
+        bound = self.circuit.to_constant_circuit(params)
         if not bound.num_ops:
             dim = bound.dim
             return Unitary.from_matrix(jnp.eye(dim, dtype=complex), (bound.dims, bound.dims))
@@ -574,7 +570,7 @@ class DensityMatrixSimulator(Simulator):
     @final
     @cached_property
     @override
-    def prepared_circuit(self) -> ParametricCircuit:
+    def prepared_circuit(self) -> Circuit:
         """The circuit with instruments collapsed to their total channels.
 
         Collapsing before planning is what lets a measurement merge with its neighbours: an
@@ -613,7 +609,7 @@ class DensityMatrixSimulator(Simulator):
         return self.evolve(self.initial_state, self.operator_stack(params))
 
 
-def simulate(circuit: Circuit | ParametricCircuit, params: Array | None = None) -> State:
+def simulate(circuit: ConstantCircuit | Circuit, params: Array | None = None) -> State:
     """Simulate *circuit* once, choosing the representation from its contents.
 
     A convenience for one-off use: a unitary-only circuit is evolved as a state vector, and
@@ -624,9 +620,9 @@ def simulate(circuit: Circuit | ParametricCircuit, params: Array | None = None) 
     :param params: The flat parameter vector; omit for a parameter-free circuit.
     :return: A ``StateVector`` for a unitary-only circuit, otherwise a ``DensityMatrix``.
     """
-    parametric = circuit if isinstance(circuit, ParametricCircuit) else ParametricCircuit.from_circuit(circuit)
-    unitary_only = all(isinstance(op, (GateCall, Unitary)) for op, _ in parametric.ops)
+    circuit = circuit.to_circuit() if isinstance(circuit, ConstantCircuit) else circuit
+    unitary_only = all(isinstance(op, (ParameterizedGate, Unitary)) for op, _ in circuit.ops)
     simulator: Simulator = (
-        StateVectorSimulator(circuit=parametric) if unitary_only else DensityMatrixSimulator(circuit=parametric)
+        StateVectorSimulator(circuit=circuit) if unitary_only else DensityMatrixSimulator(circuit=circuit)
     )
     return simulator.compute(params)
