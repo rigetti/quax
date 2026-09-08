@@ -45,11 +45,18 @@ from ._apply import (
 from ._circuits import (
     Circuit,
     CircuitOp,
+    GateCall,
     Group,
     MergePlan,
+    ParametricCircuit,
+    ParametricOp,
+    ParametricPlacement,
     Placement,
+    concat,
     dependency_edges,
     random_circuit,
+    random_parametric_circuit,
+    tile,
 )
 from ._compose import (
     compose_choi,
@@ -59,6 +66,12 @@ from ._compose import (
     compose_pauli_liouville,
     compose_superop,
     compose_unitary,
+)
+from ._errors import (
+    CircuitError,
+    CircuitErrorKind,
+    CircuitTypeError,
+    CircuitValueError,
 )
 from ._exponentiation import (
     cis,
@@ -131,6 +144,12 @@ from ._random import (
     random_state_vector,
     random_unitary,
 )
+from ._simulators import (
+    DensityMatrixSimulator,
+    Simulator,
+    StateVectorSimulator,
+    simulate,
+)
 from ._squeeze import squeeze
 from ._state import (
     mixed_state_matrix,
@@ -198,8 +217,16 @@ __all__ = [
     "Choi",
     # Circuits
     "Circuit",
+    # Errors
+    "CircuitError",
+    "CircuitErrorKind",
     "CircuitOp",
+    "CircuitTypeError",
+    "CircuitValueError",
     "DensityMatrix",
+    # Simulators
+    "DensityMatrixSimulator",
+    "GateCall",
     "Group",
     "Involution",
     "KrausMap",
@@ -207,13 +234,18 @@ __all__ = [
     "MergePlan",
     "Observable",
     "Operator",
+    "ParametricCircuit",
+    "ParametricOp",
+    "ParametricPlacement",
     "PauliLiouville",
     "Placement",
     "QuantumInstrument",
     # Types
     "QuantumObject",
+    "Simulator",
     "State",
     "StateVector",
+    "StateVectorSimulator",
     "SuperOp",
     "SuperOperator",
     "Unitary",
@@ -251,6 +283,7 @@ __all__ = [
     "compute_kraus_observables_from_states",
     "compute_pauli_liouville_observables_from_states",
     "compute_superop_observables_from_states",
+    "concat",
     "dependency_edges",
     "depolarizing_constant_to_average_fidelity",
     "depolarizing_constant_to_process_fidelity",
@@ -316,9 +349,11 @@ __all__ = [
     "random_density_matrix",
     "random_observable",
     "random_operator",
+    "random_parametric_circuit",
     "random_state_vector",
     "random_unitary",
     "select_outcome",
+    "simulate",
     "squeeze",
     "state_vector_reduced_density_matrix",
     "states",
@@ -347,6 +382,7 @@ __all__ = [
     "tensor_state_vectors",
     "tensor_superop",
     "tensor_unitary",
+    "tile",
     "to_choi",
     "to_kraus",
     "to_pauli_liouville",

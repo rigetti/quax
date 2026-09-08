@@ -708,3 +708,64 @@ class TestRandomCircuit:
     def test_rejects_an_empty_register(self):
         with pytest.raises(ValueError, match="empty register"):
             qx.random_circuit((), 1, jax.random.key(0))
+
+
+class TestPlanLayout:
+    """The flat layout a vectorised stack builder reads off a plan.
+
+    These accessors exist so a builder can place every operation without materialising an
+    operator first, which is what keeps a plan usable as data.  They are pure derivations of
+    ``groups``, so the tests are about consistency with it rather than about any new decision.
+    """
+
+    def test_flat_order_covers_every_operation_exactly_once(self):
+        rng = np.random.default_rng(0)
+        for _ in range(50):
+            subsystems = random_subsystems(rng, num_ops=14, num_qudits=5)
+            plan = qx.MergePlan.greedy(subsystems, max_subsystem_size=2)
+            assert sorted(plan.flat_order) == list(range(plan.num_ops))
+
+    def test_group_start_slices_flat_order_into_the_groups(self):
+        rng = np.random.default_rng(1)
+        for _ in range(50):
+            subsystems = random_subsystems(rng, num_ops=12, num_qudits=4)
+            plan = qx.MergePlan.greedy(subsystems, max_subsystem_size=3)
+            assert len(plan.group_start) == plan.num_groups + 1
+            assert plan.group_start[0] == 0
+            assert plan.group_start[-1] == plan.num_ops
+            for index, (nodes, _) in enumerate(plan.groups):
+                start, stop = plan.group_start[index], plan.group_start[index + 1]
+                assert plan.flat_order[start:stop] == nodes
+
+    def test_group_start_is_non_decreasing(self):
+        plan = qx.MergePlan.greedy(random_subsystems(np.random.default_rng(2), 20, 6), max_subsystem_size=2)
+        assert all(a <= b for a, b in itertools.pairwise(plan.group_start))
+
+    def test_max_group_size_matches_the_largest_group(self):
+        rng = np.random.default_rng(3)
+        for _ in range(30):
+            subsystems = random_subsystems(rng, num_ops=16, num_qudits=4)
+            plan = qx.MergePlan.greedy(subsystems, max_subsystem_size=2)
+            assert plan.max_group_size == max(len(nodes) for nodes, _ in plan.groups)
+
+    def test_a_trivial_plan_has_one_operation_per_group(self):
+        subsystems = [(0,), (1,), (0, 1)]
+        plan = qx.MergePlan.trivial(subsystems)
+        assert plan.flat_order == (0, 1, 2)
+        assert plan.group_start == (0, 1, 2, 3)
+        assert plan.max_group_size == 1
+
+    def test_an_empty_plan_is_well_formed(self):
+        plan = qx.MergePlan.trivial([])
+        assert plan.flat_order == ()
+        assert plan.group_start == (0,)
+        assert plan.max_group_size == 1
+
+    def test_flat_order_agrees_with_the_group_index_map(self):
+        subsystems = random_subsystems(np.random.default_rng(4), 15, 5)
+        plan = qx.MergePlan.greedy(subsystems, max_subsystem_size=2)
+        where = group_index_of_op(plan)
+        for index, (nodes, _) in enumerate(plan.groups):
+            start, stop = plan.group_start[index], plan.group_start[index + 1]
+            for node in plan.flat_order[start:stop]:
+                assert where[node] == index

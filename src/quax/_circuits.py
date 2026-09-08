@@ -34,15 +34,17 @@ makes vectorised (``jax.vmap``) stack construction possible for parametric circu
 """
 
 import heapq
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import cached_property, reduce
 from operator import mul
-from typing import TypeAlias
+from typing import TypeAlias, final
 
 import jax
+import jax.numpy as jnp
 from jax import Array
 
+from ._errors import CircuitErrorKind, CircuitTypeError, CircuitValueError
 from ._promotion import embed
 from ._quantum_objects import (
     KrausMap,
@@ -89,8 +91,45 @@ def dependency_edges(subsystems: Sequence[tuple[int, ...]]) -> tuple[tuple[int, 
     return tuple(edges)
 
 
+def validate_placement_indices(
+    index: int,
+    subsystem: tuple[int, ...],
+    num_qudits: int,
+    dims: tuple[int, ...],
+) -> None:
+    """Check that one operation's subsystem indexes the register legally.
+
+    Shared by :class:`Circuit` and :class:`ParametricCircuit`.  Only the *indices* are
+    checked, never the operator's dimensions: a parametric circuit's gates are unresolved, so
+    their dimensions are not knowable until parameters are bound.
+
+    :param index: Position of the operation, for the error message.
+    :param subsystem: Register indices the operation acts on.
+    :param num_qudits: Size of the register.
+    :param dims: Per-qudit dimensions, for the error message.
+    :raises CircuitValueError: If an index is out of range or repeated.
+    """
+    out_of_range = [q for q in subsystem if not 0 <= q < num_qudits]
+    if out_of_range:
+        raise CircuitValueError(
+            f"Operation {index} acts on qudit(s) {out_of_range}, outside a register of "
+            f"{num_qudits} qudit(s) with dims={dims}.",
+            kind=CircuitErrorKind.SUBSYSTEM_OUT_OF_RANGE,
+            op_index=index,
+            subsystem=subsystem,
+        )
+    if len(set(subsystem)) != len(subsystem):
+        raise CircuitValueError(
+            f"Operation {index} names a qudit more than once: {subsystem}.",
+            kind=CircuitErrorKind.DUPLICATE_QUDIT,
+            op_index=index,
+            subsystem=subsystem,
+        )
+
+
+@final
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Circuit:
     """An ordered sequence of concrete operators placed on a qudit register.
 
@@ -122,25 +161,26 @@ class Circuit:
 
         num_qudits = len(self.dims)
         for index, (op, subsystem) in enumerate(self.ops):
-            out_of_range = [q for q in subsystem if not 0 <= q < num_qudits]
-            if out_of_range:
-                raise ValueError(
-                    f"Operation {index} acts on qudit(s) {out_of_range}, outside a register of "
-                    f"{num_qudits} qudit(s) with dims={self.dims}."
-                )
-            if len(set(subsystem)) != len(subsystem):
-                raise ValueError(f"Operation {index} names a qudit more than once: {subsystem}.")
+            validate_placement_indices(index, subsystem, num_qudits, self.dims)
 
             op_dims = op.dims[1]
             if len(op_dims) != len(subsystem):
-                raise ValueError(
+                raise CircuitValueError(
                     f"Operation {index} acts on {len(op_dims)} qudit(s) but is placed on "
-                    f"{len(subsystem)} register position(s) {subsystem}."
+                    f"{len(subsystem)} register position(s) {subsystem}.",
+                    kind=CircuitErrorKind.OPERATOR_ARITY_MISMATCH,
+                    op_index=index,
+                    subsystem=subsystem,
                 )
             too_large = [(q, d, self.dims[q]) for q, d in zip(subsystem, op_dims, strict=True) if d > self.dims[q]]
             if too_large:
                 detail = ", ".join(f"qudit {q}: operator dim {d} > register dim {rd}" for q, d, rd in too_large)
-                raise ValueError(f"Operation {index} does not fit the register ({detail}).")
+                raise CircuitValueError(
+                    f"Operation {index} does not fit the register ({detail}).",
+                    kind=CircuitErrorKind.OPERATOR_EXCEEDS_REGISTER,
+                    op_index=index,
+                    subsystem=subsystem,
+                )
 
     # ----- pytree -----
 
@@ -227,7 +267,10 @@ class Circuit:
             num_qudits = 1 + max((q for _, sub in ops for q in sub), default=-1)
         dims = [0] * num_qudits
         for op, subsystem in ops:
-            for qudit, d in zip(subsystem, op.dims[1], strict=True):
+            # Not strict: a subsystem/operator arity mismatch is reported by ``__post_init__``
+            # with the operation index and a usable message, which a zip failure here would
+            # pre-empt with an opaque one.
+            for qudit, d in zip(subsystem, op.dims[1]):
                 dims[qudit] = max(dims[qudit], d)
         return tuple(d or default_dim for d in dims)
 
@@ -310,9 +353,11 @@ class Circuit:
             raise ValueError("Cannot compose an empty circuit.")
         instruments = [i for i, (op, _) in enumerate(self.ops) if isinstance(op, QuantumInstrument)]
         if instruments:
-            raise TypeError(
+            raise CircuitTypeError(
                 f"Operation(s) {instruments} are QuantumInstruments, which do not compose. "
-                "Call to_superops() first to compose their total channels instead."
+                "Call to_superops() first to compose their total channels instead.",
+                kind=CircuitErrorKind.INSTRUMENT_IN_MERGE_GROUP,
+                op_index=instruments[0],
             )
         return _merge(self.ops, tuple(range(self.num_qudits)), self.dims)
 
@@ -343,6 +388,7 @@ def _merge(
     return accumulated
 
 
+@final
 class _UnionFind:
     """Disjoint-set forest with union by rank and path compression."""
 
@@ -372,6 +418,7 @@ class _UnionFind:
         return root_x
 
 
+@final
 class _Quotient:
     """A mutable DAG over group representatives, contracted as groups merge.
 
@@ -444,7 +491,8 @@ class _Quotient:
         return order
 
 
-@dataclass(frozen=True)
+@final
+@dataclass(frozen=True, kw_only=True)
 class MergePlan:
     """A structural recipe for fusing a circuit's operations into groups.
 
@@ -516,6 +564,33 @@ class MergePlan:
         """The index into :attr:`bases` of each group's subsystem, in application order."""
         lookup = {subsystem: i for i, subsystem in enumerate(self.bases)}
         return tuple(lookup[subsystem] for _, subsystem in self.groups)
+
+    @cached_property
+    def flat_order(self) -> tuple[int, ...]:
+        """Operation indices laid out group by group, in application order within each group.
+
+        This is the layout a vectorised stack builder wants: every operation appears exactly
+        once, and :attr:`group_start` slices it into groups.  Reading the layout off the plan
+        means the builder never has to materialise an operator to discover where it belongs.
+        """
+        return tuple(node for nodes, _ in self.groups for node in nodes)
+
+    @cached_property
+    def group_start(self) -> tuple[int, ...]:
+        """Offsets into :attr:`flat_order`, one per group plus a final sentinel.
+
+        Group ``g`` occupies ``flat_order[group_start[g]:group_start[g + 1]]``, so the tuple
+        has ``num_groups + 1`` entries and its last entry is :attr:`num_ops`.
+        """
+        starts = [0]
+        for nodes, _ in self.groups:
+            starts.append(starts[-1] + len(nodes))
+        return tuple(starts)
+
+    @cached_property
+    def max_group_size(self) -> int:
+        """The largest number of operations in any one group; ``1`` when nothing merged."""
+        return max((len(nodes) for nodes, _ in self.groups), default=1)
 
     @property
     def compression_ratio(self) -> float:
@@ -671,10 +746,12 @@ class MergePlan:
                 node for node, (op, _) in zip(nodes, group_ops, strict=True) if isinstance(op, QuantumInstrument)
             ]
             if instruments:
-                raise TypeError(
+                raise CircuitTypeError(
                     f"Group {nodes} contains QuantumInstrument operation(s) {instruments}, which "
                     "cannot be merged: fusing an instrument into a neighbour discards the outcome. "
-                    "Pass those indices as MergePlan.greedy(..., atomic=...)."
+                    "Pass those indices as MergePlan.greedy(..., atomic=...).",
+                    kind=CircuitErrorKind.INSTRUMENT_IN_MERGE_GROUP,
+                    op_index=instruments[0],
                 )
             merged.append((_merge(group_ops, subsystem, circuit.dims), subsystem))
         return circuit.with_ops(merged)
@@ -724,3 +801,515 @@ def random_circuit(
             op = random_unitary((op_dims, op_dims), key=op_key)
         ops.append((op, subsystem))
     return Circuit(dims=tuple(dims), ops=tuple(ops))
+
+
+# ══════════════════════════════════════════════════════════
+# Parametric circuits
+# ══════════════════════════════════════════════════════════
+
+
+@final
+@dataclass(frozen=True, kw_only=True, slots=True)
+class GateCall:
+    """A gate constructor together with the parameter slots feeding its arguments.
+
+    A :class:`GateCall` is a gate that has not been built yet.  It exists so that a circuit
+    can be *structurally* complete — every operation placed on the register, every dependency
+    known — while the numbers that determine its matrices arrive later.
+
+    The point is not laziness but batching.  Because the constructor and the argument layout
+    are available as **data**, a consumer can group every call sharing them and build the
+    whole group under a single :func:`jax.vmap`.  A traced Python closure ``params -> gate``
+    could not be grouped that way: nothing can be read off it before it runs.  So the traced
+    graph grows with the number of distinct gate *kinds* rather than the number of gates,
+    which is the difference between a compile time that is flat in circuit depth and one that
+    is not.
+
+    Each argument is either a runtime parameter or a compile-time constant, never both.
+    ``param_indices[i]`` gives the slot for argument ``i`` and ``concrete_values[i]`` is then
+    ``None``; for a constant argument the two swap roles.
+
+        >>> GateCall(gate_fn=gates.RX, param_indices=(0,), concrete_values=(None,))
+        >>> GateCall(gate_fn=gates.PHASEDRX, param_indices=(None, 3), concrete_values=(0.5, None))
+
+    :param gate_fn: The gate constructor, e.g. ``quax.gates.RX``.  Must be hashable and
+        stable across calls — it is half of :attr:`batch_key`, so a freshly created closure
+        per call site defeats batching even when the gates are identical.
+    :param param_indices: Per-argument slot into the flat parameter vector, or ``None`` for a
+        compile-time constant.
+    :param concrete_values: Per-argument constant, or ``None`` for a runtime parameter.
+    """
+
+    gate_fn: Callable[..., Unitary]
+    param_indices: tuple[int | None, ...]
+    concrete_values: tuple[float | None, ...]
+
+    def __post_init__(self) -> None:
+        if len(self.param_indices) != len(self.concrete_values):
+            raise ValueError(
+                f"param_indices and concrete_values must describe the same arguments, got "
+                f"{len(self.param_indices)} and {len(self.concrete_values)} entries."
+            )
+        for position, (slot, value) in enumerate(zip(self.param_indices, self.concrete_values, strict=True)):
+            if (slot is None) == (value is None):
+                supplied = "both a slot and a constant" if slot is not None else "neither a slot nor a constant"
+                raise ValueError(
+                    f"Argument {position} of {self.name} supplies {supplied}; each argument is "
+                    "either a runtime parameter or a compile-time constant."
+                )
+            if slot is not None and slot < 0:
+                raise ValueError(f"Argument {position} of {self.name} has negative parameter slot {slot}.")
+
+    @property
+    def name(self) -> str:
+        """The constructor's name, for error messages."""
+        return getattr(self.gate_fn, "__name__", repr(self.gate_fn))
+
+    @property
+    def num_arguments(self) -> int:
+        """The number of arguments the gate takes."""
+        return len(self.param_indices)
+
+    @property
+    def free_slots(self) -> tuple[int, ...]:
+        """The parameter slots this call reads, in argument order."""
+        return tuple(slot for slot in self.param_indices if slot is not None)
+
+    @property
+    def batch_key(self) -> tuple[object, ...]:
+        """Identity for grouping calls that can be built under one ``jax.vmap``.
+
+        Two calls share a key when they invoke the same constructor with the same constants
+        pinned to the same argument positions — everything that shapes the traced graph.  The
+        slots the free arguments read are deliberately *not* part of the key: those become the
+        vmapped axis.
+
+        Keyed on the function object rather than its ``id``, which is reusable after garbage
+        collection and differs per call site for a locally created constructor.
+        """
+        constants = tuple((i, v) for i, v in enumerate(self.concrete_values) if v is not None)
+        return (self.gate_fn, self.num_arguments, constants)
+
+    def __call__(self, params: Array) -> Unitary:
+        """Build the gate by reading this call's arguments out of *params*.
+
+        :param params: The flat parameter vector.
+        :return: The gate as a :class:`~quax.Unitary`.
+        """
+        arguments = [
+            value if slot is None else params[slot]
+            for slot, value in zip(self.param_indices, self.concrete_values, strict=True)
+        ]
+        gate = self.gate_fn(*arguments)
+        if not isinstance(gate, Unitary):
+            raise CircuitTypeError(
+                f"Gate constructor {self.name} returned {type(gate).__name__}, not a Unitary.",
+                kind=CircuitErrorKind.NON_UNITARY_OP,
+            )
+        return gate
+
+
+#: An operation in a parametric circuit: a concrete operator, or a gate yet to be built.
+ParametricOp: TypeAlias = CircuitOp | GateCall
+
+#: One parametric operation: an operation together with the register indices it acts on.
+ParametricPlacement: TypeAlias = tuple[ParametricOp, tuple[int, ...]]
+
+
+@final
+@dataclass(frozen=True, kw_only=True)
+class ParametricCircuit:
+    """A circuit whose gates may depend on a flat vector of runtime parameters.
+
+    Structurally this is a :class:`Circuit` — same register, same placements, same dependency
+    structure — except that an operation may be a :class:`GateCall` instead of a built
+    operator.  :meth:`bind` supplies the parameters and returns an ordinary ``Circuit``.
+
+    **Every gate argument owns its own slot.** No two :class:`GateCall` arguments share one,
+    which makes ``jax.grad`` unambiguous: entry ``k`` of the gradient is the derivative with
+    respect to one specific gate argument at one specific point in the circuit, never an
+    implicit sum over several. A front end whose source language *does* share a parameter
+    across gates (a Quil memory reference used in twenty places, say) maps that one value onto
+    twenty slots on the way in; differentiating through that map sums the contributions back
+    up, exactly and without the front end doing arithmetic. See :attr:`param_owners`.
+
+    The invariant is enforced rather than assumed, because nothing downstream would catch its
+    violation: building gates from a shared slot works perfectly well, and the forward pass
+    would stay correct while that slot's gradient quietly became a sum.
+
+    :param dims: Per-qudit dimensions of the register, e.g. ``(2, 2, 3)``.
+    :param ops: The operations, each an ``(operation, subsystem)`` pair, in application order.
+    :param num_params: Length of the parameter vector :meth:`bind` expects.
+    """
+
+    dims: tuple[int, ...]
+    ops: tuple[ParametricPlacement, ...]
+    num_params: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dims", tuple(int(d) for d in self.dims))
+        object.__setattr__(self, "ops", tuple((op, tuple(int(q) for q in sub)) for op, sub in self.ops))
+        object.__setattr__(self, "num_params", int(self.num_params))
+
+        if any(d < 1 for d in self.dims):
+            raise ValueError(f"Register dimensions must be positive, got {self.dims}.")
+        if self.num_params < 0:
+            raise ValueError(f"num_params must be non-negative, got {self.num_params}.")
+
+        num_qudits = len(self.dims)
+        for index, (op, subsystem) in enumerate(self.ops):
+            validate_placement_indices(index, subsystem, num_qudits, self.dims)
+            # A GateCall's dimensions are unknown until it is built, so the operator-vs-register
+            # dimension check belongs to bind(), where Circuit performs it on the real operators.
+            if isinstance(op, GateCall):
+                continue
+            if len(op.dims[1]) != len(subsystem):
+                raise CircuitValueError(
+                    f"Operation {index} acts on {len(op.dims[1])} qudit(s) but is placed on "
+                    f"{len(subsystem)} register position(s) {subsystem}.",
+                    kind=CircuitErrorKind.OPERATOR_ARITY_MISMATCH,
+                    op_index=index,
+                    subsystem=subsystem,
+                )
+
+        self._validate_parameter_slots()
+
+    def _validate_parameter_slots(self) -> None:
+        """Enforce that the slots are a permutation of ``range(num_params)``."""
+        used = [slot for op, _ in self.ops if isinstance(op, GateCall) for slot in op.free_slots]
+        if sorted(used) == list(range(self.num_params)):
+            return
+        duplicated = sorted({slot for slot in used if used.count(slot) > 1})
+        missing = sorted(set(range(self.num_params)) - set(used))
+        out_of_range = sorted({slot for slot in used if slot >= self.num_params})
+        detail = []
+        if duplicated:
+            detail.append(f"slot(s) {duplicated} claimed by more than one gate argument")
+        if missing:
+            detail.append(f"slot(s) {missing} claimed by none")
+        if out_of_range:
+            detail.append(f"slot(s) {out_of_range} beyond num_params={self.num_params}")
+        raise CircuitValueError(
+            "Parameter slots must be a permutation of "
+            f"0..{self.num_params - 1}, each owned by exactly one gate argument: "
+            + "; ".join(detail or [f"got {len(used)} reference(s) for num_params={self.num_params}"])
+            + ". Each GateCall argument owns an independent slot so that a gradient entry "
+            "refers to one gate occurrence; map a shared source parameter onto several slots "
+            "instead of reusing one.",
+            kind=CircuitErrorKind.PARAM_SLOT_NOT_UNIQUE,
+        )
+
+    # ----- display -----
+
+    def __str__(self) -> str:
+        return f"ParametricCircuit(dims={self.dims}, num_ops={self.num_ops}, num_params={self.num_params})"
+
+    def __len__(self) -> int:
+        return len(self.ops)
+
+    def __iter__(self) -> Iterator[ParametricPlacement]:
+        return iter(self.ops)
+
+    def __getitem__(self, index: int) -> ParametricPlacement:
+        """Return one operation as an ``(operation, subsystem)`` pair."""
+        return self.ops[index]
+
+    # ----- structure -----
+
+    @property
+    def num_ops(self) -> int:
+        """The number of operations."""
+        return len(self.ops)
+
+    @property
+    def num_qudits(self) -> int:
+        """The number of qudits in the register."""
+        return len(self.dims)
+
+    @property
+    def dim(self) -> int:
+        """The total Hilbert-space dimension of the register."""
+        return reduce(mul, self.dims, 1)
+
+    @cached_property
+    def subsystems(self) -> tuple[tuple[int, ...], ...]:
+        """The register indices each operation acts on, in operand order."""
+        return tuple(subsystem for _, subsystem in self.ops)
+
+    @cached_property
+    def operations(self) -> tuple[ParametricOp, ...]:
+        """The operations, in application order.  Gates may be unbuilt."""
+        return tuple(op for op, _ in self.ops)
+
+    @cached_property
+    def is_concrete(self) -> bool:
+        """Whether every operation is already an operator, so :meth:`bind` needs no parameters."""
+        return not any(isinstance(op, GateCall) for op, _ in self.ops)
+
+    @cached_property
+    def param_owners(self) -> tuple[tuple[int, int], ...]:
+        """For each slot, the ``(operation index, argument index)`` that owns it.
+
+        The inverse of the slot assignment, and what makes a gradient entry self-describing:
+        ``param_owners[k]`` says which operation's which argument entry ``k`` differentiates.
+        Well defined precisely because slots are not shared.
+        """
+        owners: list[tuple[int, int]] = [(-1, -1)] * self.num_params
+        for op_index, (op, _) in enumerate(self.ops):
+            if not isinstance(op, GateCall):
+                continue
+            for argument, slot in enumerate(op.param_indices):
+                if slot is not None:
+                    owners[slot] = (op_index, argument)
+        return tuple(owners)
+
+    @cached_property
+    def instrument_indices(self) -> tuple[int, ...]:
+        """Indices of operations that are :class:`~quax.QuantumInstrument`."""
+        return tuple(i for i, (op, _) in enumerate(self.ops) if isinstance(op, QuantumInstrument))
+
+    # ----- construction -----
+
+    @classmethod
+    def from_circuit(cls, circuit: Circuit) -> "ParametricCircuit":
+        """Lift a concrete circuit into a parameter-free parametric circuit.
+
+        :param circuit: The circuit to lift.
+        :return: An equivalent circuit with ``num_params == 0``.
+        """
+        return cls(dims=circuit.dims, ops=tuple(circuit.ops), num_params=0)
+
+    @classmethod
+    def from_ops(
+        cls,
+        ops: Sequence[ParametricPlacement],
+        num_params: int,
+        num_qudits: int | None = None,
+        default_dim: int = 2,
+    ) -> "ParametricCircuit":
+        """Build a circuit, inferring register dimensions from the *concrete* operators.
+
+        A :class:`GateCall` contributes nothing to the inference — its dimensions are unknown
+        until it is built — so a qudit touched only by gate calls takes ``default_dim``.  Pass
+        ``dims`` to the constructor directly when that is not what you want.
+
+        :param ops: The operations, in application order.
+        :param num_params: Length of the parameter vector.
+        :param num_qudits: Register size.  Defaults to one past the largest index used.
+        :param default_dim: Dimension for a qudit no concrete operator determines.
+        :return: The circuit.
+        """
+        if num_qudits is None:
+            num_qudits = 1 + max((q for _, sub in ops for q in sub), default=-1)
+        dims = [0] * num_qudits
+        for op, subsystem in ops:
+            if isinstance(op, GateCall):
+                continue
+            for qudit, d in zip(subsystem, op.dims[1]):  # not strict; see Circuit.infer_dims
+                dims[qudit] = max(dims[qudit], d)
+        return cls(dims=tuple(d or default_dim for d in dims), ops=tuple(ops), num_params=num_params)
+
+    def with_ops(self, ops: Sequence[ParametricPlacement], num_params: int | None = None) -> "ParametricCircuit":
+        """Return a circuit with the same register and different operations.
+
+        :param ops: The replacement operations.
+        :param num_params: New parameter count; defaults to the current one.
+        :return: The new circuit.
+        """
+        return ParametricCircuit(
+            dims=self.dims,
+            ops=tuple(ops),
+            num_params=self.num_params if num_params is None else num_params,
+        )
+
+    # ----- binding -----
+
+    def bind(self, params: Array | None = None) -> Circuit:
+        """Build every gate and return an ordinary :class:`Circuit`.
+
+        This is the only bridge between the two types.  Everything else in quax — merging,
+        composing, representation changes, simulation — consumes a ``Circuit``.
+
+        :param params: The flat parameter vector.  May be omitted only when
+            ``num_params == 0``.
+        :return: The concrete circuit.
+        :raises CircuitValueError: If *params* has the wrong length, or is omitted for a
+            circuit that takes parameters.
+        """
+        params = self.validate_params(params)
+        return Circuit(
+            dims=self.dims,
+            ops=tuple((op(params) if isinstance(op, GateCall) else op, subsystem) for op, subsystem in self.ops),
+        )
+
+    def validate_params(self, params: Array | None) -> Array:
+        """Return *params* as an array, checked against :attr:`num_params`.
+
+        Reported here rather than left to the indexing that would otherwise fail: a gather out
+        of range surfaces as an opaque XLA message far from the mistake, and a vector that is
+        too long is silently ignored.
+
+        :param params: The candidate vector, or ``None`` for a parameter-free circuit.
+        :return: The validated vector.
+        :raises CircuitValueError: If the length is wrong or the vector is missing.
+        """
+        if params is None:
+            if self.num_params:
+                raise CircuitValueError(
+                    f"This circuit has {self.num_params} parameter(s); params cannot be omitted.",
+                    kind=CircuitErrorKind.PARAM_COUNT_MISMATCH,
+                )
+            return jnp.zeros((0,), dtype=float)
+        params = jnp.asarray(params)
+        if params.shape != (self.num_params,):
+            raise CircuitValueError(
+                f"Expected {self.num_params} parameter(s) for this circuit, got shape {tuple(params.shape)}.",
+                kind=CircuitErrorKind.PARAM_COUNT_MISMATCH,
+            )
+        return params
+
+    # ----- representation changes -----
+
+    def collapse_instruments(self) -> "ParametricCircuit":
+        """Replace every :class:`~quax.QuantumInstrument` with its total channel.
+
+        Density-matrix evolution describes the unconditioned dynamics, in which a measurement
+        is a dephasing channel and the outcome labels are discarded.  Instruments also cannot
+        be fused, so collapsing them *before* planning is what lets a measurement merge with
+        its neighbours like any other superoperator.
+
+        Only concrete operations are touched: a :class:`GateCall` always builds a unitary.
+
+        :return: A circuit with no instruments.
+        """
+        if not self.instrument_indices:
+            return self
+        collapsed: list[ParametricPlacement] = [
+            (op.total_channel() if isinstance(op, QuantumInstrument) else op, subsystem) for op, subsystem in self.ops
+        ]
+        return self.with_ops(collapsed)
+
+    # ----- combination -----
+
+    def concat(self, other: "ParametricCircuit") -> "ParametricCircuit":
+        """Append *other*'s operations to this circuit's, renumbering its parameter slots.
+
+        The two circuits must share a register.  ``other``'s slots are shifted up by this
+        circuit's :attr:`num_params` so that the result still owns one slot per gate argument;
+        the combined vector is this circuit's parameters followed by ``other``'s.
+
+        :param other: The circuit to append.
+        :return: The concatenation.
+        :raises ValueError: If the registers differ.
+        """
+        if self.dims != other.dims:
+            raise ValueError(f"Cannot concatenate circuits over different registers: {self.dims} and {other.dims}.")
+        offset = self.num_params
+        shifted = [(shift_slots(op, offset), subsystem) for op, subsystem in other.ops]
+        return ParametricCircuit(
+            dims=self.dims,
+            ops=self.ops + tuple(shifted),
+            num_params=self.num_params + other.num_params,
+        )
+
+    def __add__(self, other: "ParametricCircuit") -> "ParametricCircuit":
+        """``a + b`` is :meth:`concat`."""
+        if not isinstance(other, ParametricCircuit):
+            return NotImplemented
+        return self.concat(other)
+
+
+def shift_slots(op: ParametricOp, offset: int) -> ParametricOp:
+    """Return *op* with every parameter slot shifted up by *offset*.
+
+    :param op: The operation.  A concrete operator is returned unchanged.
+    :param offset: How far to shift.
+    :return: The shifted operation.
+    """
+    if not isinstance(op, GateCall) or offset == 0:
+        return op
+    return GateCall(
+        gate_fn=op.gate_fn,
+        param_indices=tuple(None if slot is None else slot + offset for slot in op.param_indices),
+        concrete_values=op.concrete_values,
+    )
+
+
+def concat(*circuits: ParametricCircuit) -> ParametricCircuit:
+    """Concatenate circuits over a shared register, renumbering parameter slots.
+
+    :param circuits: The circuits, in application order.  At least one is required.
+    :return: The concatenation.
+    :raises ValueError: If no circuits are given, or their registers differ.
+    """
+    if not circuits:
+        raise ValueError("Cannot concatenate zero circuits; a register cannot be inferred.")
+    return reduce(lambda a, b: a.concat(b), circuits)
+
+
+def tile(op: CircuitOp, placements: Iterable[tuple[int, ...]]) -> tuple[Placement, ...]:
+    """Place one operator on several subsystems.
+
+    A block that will be applied repeatedly can be built once as its own :class:`Circuit`,
+    folded with :meth:`Circuit.compose`, and then placed wherever it is needed::
+
+        >>> block = Circuit.from_ops([(gates.H, (0,)), (gates.CNOT, (0, 1))])
+        >>> ops = tile(block.compose(), [(0, 1), (2, 3)])
+
+    Note that pre-composing overrides the merge planner: a wide dense operator may be slower
+    than letting :meth:`MergePlan.greedy` fuse the block's gates into narrower groups.  Reach
+    for this when the block is known to be worth folding, not by default.
+
+    :param op: The operator to place.
+    :param placements: The subsystems to place it on, in application order.
+    :return: The placements, ready to pass to a circuit constructor.
+    """
+    return tuple((op, tuple(int(q) for q in subsystem)) for subsystem in placements)
+
+
+def random_parametric_circuit(
+    dims: tuple[int, ...],
+    num_ops: int,
+    key: Array,
+    *,
+    gate_probability: float = 0.5,
+    max_arity: int = 2,
+) -> ParametricCircuit:
+    """Generate a random circuit mixing single-argument gate calls with concrete unitaries.
+
+    Every generated gate call is a single-qubit rotation, so a qudit of dimension greater than
+    two is only ever touched by a concrete operator.
+
+    :param dims: Per-qudit dimensions of the register.
+    :param num_ops: The number of operations to generate.
+    :param key: A JAX PRNG key.
+    :param gate_probability: The probability that an operation is a parametric gate call
+        rather than a concrete random unitary.
+    :param max_arity: The largest number of qudits one concrete operation may act on.
+    :return: The circuit.
+    """
+    from .gates import RX, RY, RZ
+
+    rotations = (RX, RY, RZ)
+    num_qudits = len(dims)
+    if num_qudits == 0:
+        raise ValueError("Cannot generate a circuit over an empty register.")
+    qubit_positions = [q for q, d in enumerate(dims) if d == 2]
+    max_arity = min(max_arity, num_qudits)
+
+    ops: list[ParametricPlacement] = []
+    slot = 0
+    for _ in range(num_ops):
+        key, kind_key, which_key, subsystem_key, op_key = jax.random.split(key, 5)
+        parametric = qubit_positions and float(jax.random.uniform(kind_key)) < gate_probability
+        if parametric:
+            gate_fn = rotations[int(jax.random.randint(which_key, (), 0, len(rotations)))]
+            qudit = qubit_positions[int(jax.random.randint(subsystem_key, (), 0, len(qubit_positions)))]
+            ops.append((GateCall(gate_fn=gate_fn, param_indices=(slot,), concrete_values=(None,)), (qudit,)))
+            slot += 1
+        else:
+            arity = int(jax.random.randint(which_key, (), 1, max_arity + 1))
+            subsystem = tuple(int(q) for q in jax.random.choice(subsystem_key, num_qudits, (arity,), replace=False))
+            op_dims = tuple(dims[q] for q in subsystem)
+            ops.append((random_unitary((op_dims, op_dims), key=op_key), subsystem))
+    return ParametricCircuit(dims=tuple(dims), ops=tuple(ops), num_params=slot)
