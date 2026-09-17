@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class QuantumObject:
     """Base class for all quantum objects: states, operators, and superoperators.
 
@@ -80,6 +80,14 @@ class QuantumObject:
         if self.dims != other.dims:
             return False
         return bool(jnp.allclose(self.data, other.data))
+
+    # Equality is tolerant (``allclose`` / fidelity), so no value-based hash can be
+    # coherent with it: objects that compare equal would have to share a hash.  Like
+    # JAX arrays, quantum objects are therefore unhashable.  They are pytrees and are
+    # passed to ``jax.jit`` as dynamic arguments, so nothing on the jit path needs it.
+    # Subclasses are declared ``eq=False`` so they inherit tolerant equality rather
+    # than having the dataclass machinery regenerate ``__eq__`` and ``__hash__``.
+    __hash__ = None  # type: ignore[assignment]
 
     # ----- ensemble indexing -----
 
@@ -147,7 +155,7 @@ class QuantumObject:
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class State(QuantumObject):
     """Base class for a quantum state."""
 
@@ -183,7 +191,7 @@ class State(QuantumObject):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Operator(QuantumObject):
     """Base class for a quantum operator."""
 
@@ -366,7 +374,7 @@ class Operator(QuantumObject):
 # This class is basically for typing purposes
 # Some methods work on any sort of Superoperator
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SuperOperator(QuantumObject):
     """Base class for a quantum superoperator.
 
@@ -461,7 +469,7 @@ class SuperOperator(QuantumObject):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class StateVector(State):
     """State vector ``|psi>``, shape ``(*ensemble, d0, d1, ...)`` in tensor form or ``(*ensemble, d)`` in matrix form."""
 
@@ -632,7 +640,7 @@ class StateVector(State):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class DensityMatrix(State):
     """Density matrix ρ, shape ``(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`` in tensor form
     or ``(*ensemble, d, d)`` in matrix form."""
@@ -819,7 +827,7 @@ class DensityMatrix(State):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Unitary(Operator):
     """Unitary operator U, shape ``(*ensemble, d0_out, d1_out, ..., d0_in, d1_in, ...)`` in tensor form
     or ``(*ensemble, d, d)`` in matrix form."""
@@ -992,7 +1000,7 @@ class Unitary(Operator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Observable(Operator):
     """
     Hermitian operator A = A†, used to represent a quantum observable.
@@ -1173,7 +1181,7 @@ class Observable(Operator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Involution(Observable, Unitary):
     """An operator that is simultaneously Hermitian (A = A†) and Unitary (A A† = I).
 
@@ -1278,7 +1286,7 @@ class Involution(Observable, Unitary):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SuperOp(SuperOperator):
     """SuperOp matrix (also known as Superoperator) S.
 
@@ -1448,7 +1456,7 @@ class SuperOp(SuperOperator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class KrausMap(SuperOperator):
     """Kraus channel.
 
@@ -1629,7 +1637,7 @@ class KrausMap(SuperOperator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Choi(SuperOperator):
     """Choi matrix C.
 
@@ -1794,7 +1802,7 @@ class Choi(SuperOperator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Chi(SuperOperator):
     """Chi matrix Χ.
 
@@ -1908,7 +1916,7 @@ class Chi(SuperOperator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class PauliLiouville(SuperOperator):
     """Pauli-Liouville matrix P.
 
@@ -2056,7 +2064,7 @@ class PauliLiouville(SuperOperator):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Lindbladian(QuantumObject):
     """Lindbladian generator of a quantum dynamical semigroup.
 
@@ -2246,7 +2254,7 @@ class Lindbladian(QuantumObject):
 
 
 @jax.tree_util.register_pytree_node_class
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class QuantumInstrument(QuantumObject):
     """A quantum instrument modeling mid-circuit measurement.
 
@@ -2542,6 +2550,16 @@ class QuantumInstrument(QuantumObject):
     def __repr__(self) -> str:
         mq = ",".join(str(q) for q in self.measured_qudits)
         return f"QuantumInstrument(dims={self.dims}, num_outcomes={self.num_outcomes}, measured_qudits=({mq}))"
+
+    def __eq__(self, other: object) -> bool:
+        """Element-wise equality of the per-outcome superoperators, with matching measured qudits."""
+        if not isinstance(other, QuantumInstrument):
+            return NotImplemented
+        if self.dims != other.dims or self.measured_qudits != other.measured_qudits:
+            return False
+        if self.data.shape != other.data.shape:
+            return False
+        return bool(jnp.allclose(self.data, other.data))
 
 
 # ======================================================================
