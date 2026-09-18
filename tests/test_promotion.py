@@ -168,8 +168,9 @@ def _qt_embed_superoperator(qt_superop, d_in, d_target):
     eigvals = eigvals[order]
     eigvecs = eigvecs[:, order]
 
-    # Clamp and sqrt
-    eigvals = np.where(eigvals > 1e-6, eigvals, 0.0)
+    # Clamp and sqrt, with the same dtype-scaled threshold choi_to_kraus uses
+    tol = J_herm.shape[-1] * np.finfo(eigvals.dtype).eps * np.abs(eigvals).max()
+    eigvals = np.where(eigvals > tol, eigvals, 0.0)
     coeffs = np.sqrt(eigvals)
 
     # Scale eigenvectors and reshape to Kraus operators in tensor form

@@ -415,3 +415,61 @@ class TestKrausTruncation:
         result = qx.truncate_kraus(kraus, atol=1e10)
 
         assert result.matrix.shape[-3] >= 1
+
+
+# ============================================================================
+# Test the dtype-scaled eigenvalue tolerance
+# ============================================================================
+
+
+class TestKrausTolerance:
+    """The default clamp in :func:`quax.choi_to_kraus` scales with dtype and spectrum.
+
+    A fixed threshold cannot serve both precisions: ``1e-6`` is the resolution of float32
+    arithmetic, but nine orders of magnitude coarser than float64's, where it silently
+    discards real low-weight channel components.
+    """
+
+    def test_keeps_low_weight_components(self):
+        """A channel far weaker than the old fixed 1e-6 keeps its full Kraus rank."""
+        # Depolarizing at rate 1e-9 has three Choi eigenvalues around 6.7e-10, well under the
+        # old clamp, which would have left only the identity operator.
+        channel = qx.channels.depolarizing(1e-9, (2,))
+        norms = jnp.linalg.norm(qx.to_kraus(channel).matrix, axis=(-2, -1))
+        assert int(jnp.sum(norms > 0)) == 4
+
+        # The old fixed threshold, for contrast: everything but the identity is lost.
+        old = qx.choi_to_kraus(qx.to_choi(channel), tol=1e-6)
+        assert int(jnp.sum(jnp.linalg.norm(old.matrix, axis=(-2, -1)) > 0)) == 1
+
+    def test_clamps_round_off_on_a_unitary(self):
+        """A unitary is rank one: round-off must not become spurious Kraus operators."""
+        for gate in (qx.gates.H, qx.gates.CZ):
+            norms = jnp.linalg.norm(qx.to_kraus(gate).matrix, axis=(-2, -1))
+            assert int(jnp.sum(norms > 0)) == 1
+
+    def test_output_shape_is_independent_of_the_tolerance(self):
+        """The Kraus axis stays d_out * d_in, which is what keeps the function jittable."""
+        choi = qx.to_choi(qx.channels.depolarizing(0.01, (2,)))
+        assert qx.choi_to_kraus(choi).matrix.shape == qx.choi_to_kraus(choi, tol=0.5).matrix.shape
+
+    def test_is_jittable(self):
+        """The default tolerance is computed from traced values, so it survives a trace."""
+        choi = qx.to_choi(qx.channels.depolarizing(0.01, (2,)))
+        jitted = jax.jit(lambda c: qx.choi_to_kraus(c).matrix)
+
+        assert jnp.allclose(jitted(choi), qx.choi_to_kraus(choi).matrix)
+
+    def test_scales_per_ensemble_member(self):
+        """Each ensemble member gets a tolerance from its own spectrum."""
+        channels = [qx.channels.depolarizing(rate, (2,)) for rate in (0.5, 0.01, 1e-9)]
+        ensemble = qx.Choi.from_matrix(jnp.stack([qx.to_choi(c).matrix for c in channels]), channels[0].dims)
+
+        norms = jnp.linalg.norm(qx.choi_to_kraus(ensemble).matrix, axis=(-2, -1))
+
+        assert jnp.all(jnp.sum(norms > 0, axis=-1) == 4)
+
+    def test_truncation_drops_only_round_off(self):
+        """``truncate_kraus`` keeps every operator the arithmetic can resolve."""
+        assert qx.truncate_kraus(qx.to_kraus(qx.gates.H)).matrix.shape[-3] == 1
+        assert qx.truncate_kraus(qx.to_kraus(qx.channels.depolarizing(1e-9, (2,)))).matrix.shape[-3] == 4
