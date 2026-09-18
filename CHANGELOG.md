@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.4] - 2026-09-18
+
+### Fixed
+
+- `choi_to_kraus` and `truncate_kraus` now derive their default tolerance from the working
+  dtype and the scale of the data instead of a fixed `1e-6`. 
+
 ## [0.7.3] - 2026-09-18
 
 ### Fixed
