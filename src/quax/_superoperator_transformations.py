@@ -22,6 +22,7 @@ from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
+from ._tolerance import eigenvalue_tolerance, norm_tolerance
 
 # ============================================================================
 # Choi <-> Superoperator transformations
@@ -246,7 +247,7 @@ def kraus_to_pauli_liouville(kraus_ops: KrausMap) -> PauliLiouville:
 
 
 @jax.jit
-def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
+def choi_to_kraus(choi: Choi, tol: float | None = None) -> KrausMap:
     """
     Convert Choi matrix to a fixed-size Kraus representation (jit-compatible).
 
@@ -260,6 +261,15 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     The Kraus operators are returned in descending order of their Choi
     eigenvalues. Eigenvalues below tol are clamped to 0, yielding zero
     Kraus operators that can be removed with :func:`truncate_kraus`.
+
+    :param choi: The Choi matrix to decompose.
+    :param tol: Eigenvalues at or below this are clamped to zero.  The clamp exists to keep
+        round-off, which can make a positive-semidefinite spectrum slightly negative, out of
+        the ``sqrt``.  The default derives the threshold from the working dtype and the
+        largest eigenvalue (see :func:`quax._tolerance.eigenvalue_tolerance`), so it is about
+        ``1e-6`` at float32 -- the resolution of the arithmetic -- and about ``1e-14`` at
+        float64.  A fixed value would either discard real low-weight channel components at
+        float64 or promise a precision float32 cannot deliver.  Pass a float to override.
     """
     d_out, d_in = choi.d
     ensemble_size = choi.ensemble_size
@@ -279,7 +289,8 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     eigvecs = jnp.take_along_axis(eigvecs, order[..., None, :], axis=-1)  # (..., n, n)
 
     # Clamp + sqrt
-    eigvals = jnp.where(eigvals > tol, eigvals, 0.0)
+    threshold = eigenvalue_tolerance(eigvals, n) if tol is None else tol
+    eigvals = jnp.where(eigvals > threshold, eigvals, 0.0)
     coeffs = jnp.sqrt(eigvals).astype(J.dtype)  # (..., n)
 
     # Scale columns: W[..., :, i] = coeffs[..., i] * v_i
@@ -296,7 +307,7 @@ def choi_to_kraus(choi: Choi, tol: float = 1e-6) -> KrausMap:
     return KrausMap.from_matrix(K, choi.dims)
 
 
-def truncate_kraus(kraus_map: KrausMap, atol: float = 1e-6) -> KrausMap:
+def truncate_kraus(kraus_map: KrausMap, atol: float | None = None) -> KrausMap:
     """
     Sort Kraus operators by descending Frobenius norm and remove near-zero operators.
 
@@ -323,12 +334,17 @@ def truncate_kraus(kraus_map: KrausMap, atol: float = 1e-6) -> KrausMap:
 
     :param kraus_map: KrausMap to truncate
     :param atol: Absolute tolerance. Kraus operators with Frobenius norm <= atol are removed.
+        The default derives the threshold from the working dtype and the largest norm (see
+        :func:`quax._tolerance.norm_tolerance`), which keeps every operator the arithmetic
+        can resolve and drops only round-off -- in particular the exact zeros
+        :func:`choi_to_kraus` produces.  Pass a float to truncate more aggressively.
     :return: KrausMap with operators sorted by descending norm and near-zero operators removed
     """
     K = kraus_map.matrix  # (..., n_kraus, d_out, d_in)
 
     # Frobenius norm of each Kraus operator: (..., n_kraus)
     norms = jnp.linalg.norm(K, axis=(-2, -1))
+    threshold = norm_tolerance(norms, K.shape[-1] * K.shape[-2]) if atol is None else atol
 
     # Sort by descending norm
     order = jnp.flip(jnp.argsort(norms, axis=-1), axis=-1)
@@ -338,7 +354,7 @@ def truncate_kraus(kraus_map: KrausMap, atol: float = 1e-6) -> KrausMap:
     norms_sorted = jnp.take_along_axis(norms, order, axis=-1)
 
     # Count significant operators per ensemble member, then take global max
-    n_sig = jnp.sum(norms_sorted > atol, axis=-1)
+    n_sig = jnp.sum(norms_sorted > threshold, axis=-1)
     max_kraus = int(jnp.max(n_sig))
     max_kraus = max(max_kraus, 1)  # keep at least one operator
 
