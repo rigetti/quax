@@ -461,6 +461,36 @@ def test_equality(num_qubits, ensemble_size, object_1, object_2, qudit_dim):
     assert random_object_2 == random_object_2  # noqa: PLR0124 (checking __eq__ reflexivity)
 
 
+def test_equality_is_tolerant_and_never_raises():
+    """Subclasses inherit the tolerant ``__eq__`` rather than a generated dataclass one."""
+    matrix = qx.gates.H.matrix
+    assert Unitary.from_matrix(matrix, qx.gates.H.dims) == Unitary.from_matrix(matrix + 1e-12, qx.gates.H.dims)
+    assert Unitary.from_matrix(matrix, qx.gates.H.dims) != Unitary.from_matrix(matrix + 1e-2, qx.gates.H.dims)
+
+    # Distinct gates compare False instead of raising on the ambiguous truth of an array.
+    assert qx.gates.H != qx.gates.X
+    assert qx.gates.H == qx.gates.H
+    assert qx.gates.MEASURE() == qx.gates.MEASURE()
+    assert qx.gates.MEASURE() != qx.gates.MEASURE(dim=3)
+
+
+@pytest.mark.parametrize(
+    "quantum_object",
+    [
+        qx.gates.H,
+        qx.gates.MEASURE(),
+        Unitary.from_matrix(qx.gates.X.matrix, qx.gates.X.dims),
+        qx.to_superop(qx.gates.H),
+        qx.zero_state_vector(dims=(2,)),
+        qx.zero_state_matrix(dims=(2,)),
+    ],
+)
+def test_quantum_objects_are_unhashable(quantum_object):
+    """Tolerant equality admits no coherent value hash, so quantum objects are unhashable."""
+    with pytest.raises(TypeError, match=f"unhashable type: '{type(quantum_object).__name__}'"):
+        hash(quantum_object)
+
+
 @pytest.mark.parametrize("qudit_dim", [2, 3])
 def test_indexing(qudit_dim):
     """Test that an ensemble can be indexed."""
