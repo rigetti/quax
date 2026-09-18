@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.3] - 2026-09-18
+
+### Fixed
+
+- `QuantumObject` is now unhashable and relies on fidelity-based equality tolerant to floating point errors.
+
 ## [0.7.2] - 2026-07-29
 
 ### Fixed
