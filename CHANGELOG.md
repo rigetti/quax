@@ -19,11 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 ### Fixed
 
 - `choi_to_kraus` and `truncate_kraus` now derive their default tolerance from the working
-  dtype and the scale of the data instead of a fixed `1e-6`. The old constant is the
-  resolution of float32 arithmetic, so at float64 it discarded Kraus components nine orders
-  of magnitude above the noise floor -- a depolarizing channel at rate `1e-9`, for instance,
-  came back with only its identity operator. The new default is unchanged in effect at
-  float32 and about `1e-14` at float64. Pass an explicit tolerance to override.
+  dtype and the scale of the data instead of a fixed `1e-6`. 
 
 ## [0.7.3] - 2026-09-18
 
