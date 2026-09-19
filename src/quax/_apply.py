@@ -664,7 +664,7 @@ def state_vector_reduced_density_matrix(psi: StateVector, subsystem: tuple[int, 
 
 
 @jax.jit(static_argnames=("subsystem",))
-def _sample_kraus_map_trajectory(
+def sample_kraus_map_trajectory(
     kraus_map: KrausMap, psi: StateVector, key: Array, subsystem: tuple[int, ...]
 ) -> tuple[StateVector, Array]:
     """
@@ -672,6 +672,9 @@ def _sample_kraus_map_trajectory(
 
     This computes Born probabilities via the subsystem
     reduced density matrix instead of materializing all K_i|ψ⟩ simultaneously.
+
+    Use :func:`targeted_apply_kraus_map_trajectory` instead when the sampled index is not
+    needed; it wraps this function and returns the state alone.
 
     Algorithm:
       1. Compute M_i = K_i†K_i for each Kraus operator.
@@ -797,8 +800,11 @@ def targeted_apply_kraus_map_trajectory(
     :param key: A JAX PRNG key (scalar or ensemble of keys) for sampling.
     :param subsystem: The qubit indices the operator acts on.
     :return: A state vector with data shape (*broadcast_ens, d0, d1, ...).
+
+    .. seealso:: :func:`sample_kraus_map_trajectory`, which also returns the sampled
+        Kraus index.
     """
-    state, _ = _sample_kraus_map_trajectory(kraus_map, psi, key, subsystem)
+    state, _ = sample_kraus_map_trajectory(kraus_map, psi, key, subsystem)
     return state
 
 
@@ -1112,7 +1118,7 @@ def targeted_apply_instrument_to_state_vector(
     kraus_data = kraus_data.reshape(shape[:n_ens_i] + (n_total_kraus,) + shape[n_ens_i + 2 :])
 
     merged_kraus_map = KrausMap(data=kraus_data, num_qubits=kraus_map.num_qubits)
-    selected_state, sampled_kraus_idx = _sample_kraus_map_trajectory(merged_kraus_map, psi, key, subsystem)
+    selected_state, sampled_kraus_idx = sample_kraus_map_trajectory(merged_kraus_map, psi, key, subsystem)
 
     sampled_outcome = sampled_kraus_idx // n_kraus_per_outcome
 

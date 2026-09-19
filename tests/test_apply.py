@@ -1134,6 +1134,32 @@ def test_targeted_apply_kraus_map_trajectory_unitary(dims, gate, subsystem):
     assert jnp.allclose(qx.fidelity(psi_trajectory, psi_reference), 1.0, atol=1e-6)
 
 
+def test_sample_kraus_map_trajectory_reports_the_operator_it_applied():
+    """The sampled index should name the Kraus operator that produced the returned state."""
+    key = jax.random.key(7)
+    state_key, sample_key = jax.random.split(key)
+    initial_state = qx.random_state_vector((2, 2), state_key)
+    kraus = qx.to_kraus(qx.channels.depolarizing(0.3))
+
+    sample_keys = jax.random.split(sample_key, 64)
+    states, indices = qx.sample_kraus_map_trajectory(kraus, initial_state, sample_keys, (1,))
+
+    # A depolarizing channel has four branches and all of them should be reachable.
+    assert states.data.shape == (64, 2, 2)
+    assert indices.shape == (64,)
+    assert set(np.unique(np.asarray(indices)).tolist()) == {0, 1, 2, 3}
+
+    # Applying the named operator by hand must reproduce the state, up to normalization.
+    operators = np.asarray(kraus.matrix)[np.asarray(indices)]
+    expected = np.einsum("nbc,ac->nab", operators, np.asarray(initial_state.data))
+    expected = expected / np.linalg.norm(expected.reshape(64, -1), axis=-1)[:, None, None]
+    assert np.allclose(np.asarray(states.data), expected, atol=1e-6)
+
+    # The wrapper returns exactly the same states, just without the index.
+    without_index = qx.targeted_apply_kraus_map_trajectory(kraus, initial_state, sample_keys, (1,))
+    assert np.allclose(np.asarray(without_index.data), np.asarray(states.data))
+
+
 def test_targeted_apply_kraus_map_trajectory_normalization():
     """Output states should always be normalized."""
     key = jax.random.key(42)
