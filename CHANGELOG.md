@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.5] - 2026-09-19
+
+### Added
+
+- `sample_kraus_map_trajectory` is now public, returning the sampled Kraus index alongside the state.
+
 ## [0.7.4] - 2026-09-18
 
 ### Fixed
