@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.6] - 2026-09-21
+
+### Changed
+
+- `power_superop`, `power_choi`, `power_kraus`, `power_pauli_liouville` and `SuperOp.__pow__` raise to a concrete integer power by exact repeated multiplication, which holds for non-diagonalizable superoperators and is differentiable; only non-integer (or traced) exponents go through the eigendecomposition.
+
 ## [0.7.5] - 2026-09-19
 
 ### Added

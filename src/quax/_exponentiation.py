@@ -42,6 +42,7 @@ from typing import overload
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ._quantum_objects import (
@@ -188,6 +189,19 @@ def _evolve_lindbladian(generator: Lindbladian, t: float = 1.0) -> SuperOp:
     return SuperOp.from_matrix(result, generator.dims)
 
 
+def _is_concrete_integer(power: float) -> bool:
+    """Whether ``power`` is a concrete (untraced) integer-valued number."""
+    if isinstance(power, bool):
+        return False
+    if isinstance(power, (int, np.integer)):
+        return True
+    try:
+        return float(power).is_integer()
+    except (TypeError, ValueError, jax.errors.ConcretizationTypeError):
+        return False
+
+
+@jax.jit
 def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     """Compute matrix power using eigendecomposition: M^p = V @ diag(λ^p) @ V^(-1)."""
     eigvals, eigvecs = jnp.linalg.eig(matrix)
@@ -197,20 +211,33 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     return V_scaled @ V_inv
 
 
-@jax.jit
+def _matrix_power(matrix: Array, power: float) -> Array:
+    """
+    ``matrix ** power``: exact repeated multiplication for a concrete integer, eigendecomposition
+    otherwise.
+
+    The integer path works for non-diagonalizable matrices and has a stable gradient, which the
+    eigendecomposition does not; a traced exponent inside ``jax.jit`` takes the general path.
+    """
+    if _is_concrete_integer(power):
+        return jnp.linalg.matrix_power(matrix, int(power))
+    return _matrix_power_via_eig(matrix, power)
+
+
 def power_choi(choi: Choi, power: float) -> Choi:
     """Raise a Choi channel to ``power``. See :func:`power_superop` for semantics and caveats."""
     return superop_to_choi(power_superop(choi_to_superop(choi), power))
 
 
-@jax.jit
 def power_superop(superop: SuperOp, power: float) -> SuperOp:
-    """Raise a channel superoperator to ``power`` via its generator: ``M^power = exp(power · log M)``.
+    """Raise a channel superoperator to ``power``.
 
-    Computed as ``V · Λ^power · V⁻¹`` (equivalently ``exp(power · log M)``, i.e. evolving the
-    channel's Liouvillian generator ``log M`` for a fraction ``power`` of unit time).  For an
-    integer ``power`` this is exact repeated composition; for an **infinitely divisible** channel a
-    non-integer ``power`` is the physically meaningful fractional channel and stays CPTP.
+    A concrete integer ``power`` is exact repeated composition (``jnp.linalg.matrix_power``), which
+    holds for non-diagonalizable superoperators and is differentiable in ``superop``. Otherwise the
+    power goes via the generator, ``M^power = exp(power · log M)``, computed as ``V · Λ^power · V⁻¹``
+    (evolving the channel's Liouvillian generator ``log M`` for a fraction ``power`` of unit time);
+    for an **infinitely divisible** channel a non-integer ``power`` is the physically meaningful
+    fractional channel and stays CPTP. An exponent traced by ``jax.jit`` always takes this path.
 
     .. warning::
         **Fractional powers of a superoperator are not well defined in general.**  ``log M`` uses
@@ -226,23 +253,21 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
     :param power: The exponent.
     :return: ``superop`` raised to ``power``.
     """
-    powered_data = _matrix_power_via_eig(superop.matrix, power)
+    powered_data = _matrix_power(superop.matrix, power)
     return SuperOp.from_matrix(powered_data, superop.dims)
 
 
-@jax.jit
 def power_pauli_liouville(pauli_liouville: PauliLiouville, power: float) -> PauliLiouville:
-    """Compute the power of a Pauli-Liouville matrix via eigendecomposition.
+    """Compute the power of a Pauli-Liouville matrix; see :func:`power_superop` for the semantics.
 
     :param pauli_liouville: The Pauli-Liouville matrix to exponentiate.
     :param power: The power to raise the Pauli-Liouville matrix to.
     :return: The Pauli-Liouville matrix raised to the specified power.
     """
-    powered_data = _matrix_power_via_eig(pauli_liouville.matrix, power)
+    powered_data = _matrix_power(pauli_liouville.matrix, power)
     return PauliLiouville.from_matrix(powered_data, pauli_liouville.dims)
 
 
-@jax.jit
 def power_kraus(kraus_map: KrausMap, power: float) -> KrausMap:
     """Compute the power of a Kraus map via the superoperator representation.
 

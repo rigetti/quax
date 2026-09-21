@@ -1340,7 +1340,10 @@ class SuperOp(SuperOperator):
         return qobjs.reshape(self.ensemble_size)
 
     def __pow__(self, exponent: float) -> "SuperOp":
-        """Raise the superoperator to a power (integer: exact; non-integer: via its Lindbladian)."""
+        """
+        Raise the superoperator to a power: exact repeated composition for a concrete integer,
+        the principal-branch fractional power otherwise (see :func:`quax.power_superop`).
+        """
         from ._exponentiation import power_superop
 
         return power_superop(self, exponent)
@@ -1520,8 +1523,8 @@ class KrausMap(SuperOperator):
         # KrausMap is always an ensemble of Kraus operators, shape (K, d_out, d_in)
         return [qt.Qobj(np.array(k), dims=[[list(self.dims[0])], [list(self.dims[1])]]) for k in matrix]
 
-    def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Kraus channel using eigendecomposition (ensemble-compatible)."""
+    def __pow__(self, exponent: float) -> "KrausMap":
+        """Raise to a power; see :func:`quax.power_superop` for the semantics (ensemble-compatible)."""
         from ._exponentiation import power_kraus
 
         return power_kraus(self, exponent)
@@ -1942,8 +1945,8 @@ class PauliLiouville(SuperOperator):
         """
         raise NotImplementedError("Conversion to QuTiP Qobj not implemented for PauliLiouville.")
 
-    def __pow__(self, exponent: float) -> Self:
-        """Exponentiation of the Pauli-Liouville matrix using eigendecomposition (ensemble-compatible)."""
+    def __pow__(self, exponent: float) -> "PauliLiouville":
+        """Raise to a power; see :func:`quax.power_superop` for the semantics (ensemble-compatible)."""
         from ._exponentiation import power_pauli_liouville
 
         return power_pauli_liouville(self, exponent)

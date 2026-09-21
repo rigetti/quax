@@ -287,3 +287,41 @@ def test_choi_fractional_power_cptp():
     root = choi**0.5
     assert qx.is_cptp(root)
     assert jnp.allclose(qx.to_superop(root @ root).matrix, qx.to_superop(choi).matrix, atol=1e-6)
+
+
+def _jordan_block_superop() -> qx.SuperOp:
+    """A non-diagonalizable superoperator: the identity plus a nilpotent part."""
+    matrix = jnp.eye(4, dtype=complex) + 0.1 * jnp.eye(4, k=1, dtype=complex)
+    return qx.SuperOp.from_matrix(matrix, ((2,), (2,)))
+
+
+def test_superop_integer_power_of_non_diagonalizable_matrix_is_exact():
+    """A concrete integer exponent is repeated multiplication, so a Jordan block is no obstacle."""
+    S = _jordan_block_superop()
+    expected = S.matrix @ S.matrix @ S.matrix
+    for cubed in (S**3, qx.power_superop(S, 3), qx.power_superop(S, 3.0)):
+        assert jnp.allclose(cubed.matrix, expected, atol=1e-12)
+    assert jnp.allclose((S**0).matrix, jnp.eye(4), atol=1e-12)
+    # The same block as a (real) Pauli-Liouville matrix.
+    R = qx.PauliLiouville.from_matrix(jnp.real(S.matrix), S.dims)
+    assert jnp.allclose(qx.power_pauli_liouville(R, 3).matrix, jnp.real(expected), atol=1e-12)
+
+
+def test_superop_integer_power_has_a_finite_gradient():
+    """Integer powers differentiate through repeated multiplication, not an eigendecomposition."""
+    S = _divisible_superop()
+
+    def loss(matrix):
+        powered = qx.SuperOp.from_matrix(matrix, S.dims) ** 4
+        return jnp.sum(jnp.abs(powered.matrix) ** 2)
+
+    gradient = jax.grad(loss)(S.matrix)
+    assert jnp.all(jnp.isfinite(gradient))
+    assert not jnp.allclose(gradient, 0.0)
+
+
+def test_superop_traced_power_falls_back_to_eigendecomposition():
+    """Inside jit the exponent is a tracer, and the general path still reproduces integer powers."""
+    S = _divisible_superop()
+    powered = jax.jit(qx.power_superop)(S, 2.0)
+    assert jnp.allclose(powered.matrix, (S @ S).matrix, atol=1e-9)
