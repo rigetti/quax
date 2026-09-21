@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import warnings
 from functools import lru_cache, reduce, singledispatch
 from operator import mul
 
@@ -273,8 +274,8 @@ def _partial_trace_data(data: Array, dims: tuple[int, ...], keep: tuple[int, ...
 
 
 @jax.jit
-def compute_kraus_observables_from_states(
-    kraus_map: KrausMap, input_states: DensityMatrix, observables: Unitary
+def _compute_kraus_observables_from_states(
+    kraus_map: KrausMap, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -304,7 +305,9 @@ def compute_kraus_observables_from_states(
 
 
 @jax.jit
-def compute_choi_observables_from_states(choi: Choi, input_states: DensityMatrix, observables: Unitary) -> Array:
+def _compute_choi_observables_from_states(
+    choi: Choi, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
 
@@ -330,12 +333,12 @@ def compute_choi_observables_from_states(choi: Choi, input_states: DensityMatrix
     superop = choi_to_superop(choi)
 
     # Use the superoperator implementation
-    return compute_superop_observables_from_states(superop, input_states, observables)
+    return _compute_superop_observables_from_states(superop, input_states, observables)
 
 
 @jax.jit
-def compute_superop_observables_from_states(
-    superop: SuperOp, input_states: DensityMatrix, observables: Unitary
+def _compute_superop_observables_from_states(
+    superop: SuperOp, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -377,8 +380,8 @@ def compute_superop_observables_from_states(
 
 
 @jax.jit
-def compute_pauli_liouville_observables_from_states(
-    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Unitary
+def _compute_pauli_liouville_observables_from_states(
+    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -406,7 +409,87 @@ def compute_pauli_liouville_observables_from_states(
     superop = pauli_liouville_to_superop(pauli_liouville)
 
     # Use the superoperator implementation
-    return compute_superop_observables_from_states(superop, input_states, observables)
+    return _compute_superop_observables_from_states(superop, input_states, observables)
+
+
+def compute_kraus_observables_from_states(
+    kraus_map: KrausMap, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs.
+
+    .. deprecated:: 0.8.0
+        Apply the channel and use :func:`~quax.estimate`, which broadcasts ensembles:
+        ``estimate(superop @ input_states[:, None], observables[None])``, or
+        :func:`~quax.expectation_table`.  Both take proper ``Observable`` ensembles and work for
+        ensembles of channels.
+    """
+    warnings.warn(
+        "compute_kraus_observables_from_states is deprecated; use estimate(superop @ states[:, None], observables[None]) or "
+        "expectation_table(superop @ states, observables).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _compute_kraus_observables_from_states(kraus_map, input_states, observables)
+
+
+def compute_choi_observables_from_states(
+    choi: Choi, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs.
+
+    .. deprecated:: 0.8.0
+        Apply the channel and use :func:`~quax.estimate`, which broadcasts ensembles:
+        ``estimate(superop @ input_states[:, None], observables[None])``, or
+        :func:`~quax.expectation_table`.  Both take proper ``Observable`` ensembles and work for
+        ensembles of channels.
+    """
+    warnings.warn(
+        "compute_choi_observables_from_states is deprecated; use estimate(superop @ states[:, None], observables[None]) or "
+        "expectation_table(superop @ states, observables).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _compute_choi_observables_from_states(choi, input_states, observables)
+
+
+def compute_superop_observables_from_states(
+    superop: SuperOp, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs.
+
+    .. deprecated:: 0.8.0
+        Apply the channel and use :func:`~quax.estimate`, which broadcasts ensembles:
+        ``estimate(superop @ input_states[:, None], observables[None])``, or
+        :func:`~quax.expectation_table`.  Both take proper ``Observable`` ensembles and work for
+        ensembles of channels.
+    """
+    warnings.warn(
+        "compute_superop_observables_from_states is deprecated; use estimate(superop @ states[:, None], observables[None]) or "
+        "expectation_table(superop @ states, observables).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _compute_superop_observables_from_states(superop, input_states, observables)
+
+
+def compute_pauli_liouville_observables_from_states(
+    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs.
+
+    .. deprecated:: 0.8.0
+        Apply the channel and use :func:`~quax.estimate`, which broadcasts ensembles:
+        ``estimate(superop @ input_states[:, None], observables[None])``, or
+        :func:`~quax.expectation_table`.  Both take proper ``Observable`` ensembles and work for
+        ensembles of channels.
+    """
+    warnings.warn(
+        "compute_pauli_liouville_observables_from_states is deprecated; use estimate(superop @ states[:, None], observables[None]) or "
+        "expectation_table(superop @ states, observables).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _compute_pauli_liouville_observables_from_states(pauli_liouville, input_states, observables)
 
 
 @singledispatch

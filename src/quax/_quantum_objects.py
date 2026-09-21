@@ -689,6 +689,44 @@ class DensityMatrix(State):
         tensor = matrix.reshape(ensemble_shape + dims + dims)
         return cls(data=tensor, num_qubits=num_qubits)
 
+    @classmethod
+    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> "DensityMatrix":
+        """The state ``(1/d) sum_b r_b B_b`` with the given coefficients in the Hermitian operator basis.
+
+        Inverse of :func:`~quax.to_pauli_vector`; ``r_0`` is the trace.
+
+        :param vector: Real coefficients of shape ``(*ensemble, d**2)``.
+        :param dims: Tuple of qudit dimensions (d0, d1, ...).
+        """
+        from ._pauli_vector import pauli_vector_to_matrix
+
+        return cls.from_matrix(pauli_vector_to_matrix(vector, dims), tuple(dims))
+
+    @classmethod
+    def from_bloch_vector(cls, bloch: Array, dims: tuple[int, ...] = (2,)) -> "DensityMatrix":
+        """The unit-trace state with the given (generalized) Bloch vector, ``(I + sum_b r_b B_b) / d``.
+
+        For a qubit ``bloch`` is the ordinary Bloch vector ``(<X>, <Y>, <Z>)``.
+
+        :param bloch: Real coefficients of shape ``(*ensemble, d**2 - 1)``.
+        :param dims: Tuple of qudit dimensions, a single qubit by default.
+        """
+        bloch = jnp.asarray(bloch)
+        ones = jnp.ones(bloch.shape[:-1] + (1,), dtype=bloch.dtype)
+        return cls.from_pauli_vector(jnp.concatenate([ones, bloch], axis=-1), dims)
+
+    @property
+    def pauli_vector(self) -> Array:
+        """The coefficients ``Tr[B_b rho]`` in the Hermitian operator basis, ``(*ensemble, d**2)``; see :func:`~quax.to_pauli_vector`."""
+        from ._pauli_vector import to_pauli_vector
+
+        return to_pauli_vector(self)
+
+    @property
+    def bloch_vector(self) -> Array:
+        """The generalized Bloch vector, the Pauli vector without its trace entry, ``(*ensemble, d**2 - 1)``."""
+        return self.pauli_vector[..., 1:]
+
     @property
     def T(self):
         """Transpose of the operator(s)"""
@@ -1030,6 +1068,27 @@ class Observable(Operator):
     def h(self) -> "Observable":
         """Hermitian conjugate of the observable — returns ``self`` because A† = A."""
         return self
+
+    @classmethod
+    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> "Observable":
+        """The observable ``(1/d) sum_a c_a B_a`` with the given coefficients in the Hermitian operator basis.
+
+        Inverse of :func:`~quax.to_pauli_vector`.
+
+        :param vector: Real coefficients of shape ``(*ensemble, d**2)``.
+        :param dims: Tuple of qudit dimensions (d0, d1, ...) of the space the observable acts on.
+        """
+        from ._pauli_vector import pauli_vector_to_matrix
+
+        dims = tuple(dims)
+        return cls.from_matrix(pauli_vector_to_matrix(vector, dims), (dims, dims))
+
+    @property
+    def pauli_vector(self) -> Array:
+        """The coefficients ``Tr[B_a A]`` in the Hermitian operator basis, ``(*ensemble, d**2)``; see :func:`~quax.to_pauli_vector`."""
+        from ._pauli_vector import to_pauli_vector
+
+        return to_pauli_vector(self)
 
     def __neg__(self) -> "Observable":
         """Negate the observable; -A is still Hermitian (and still Involution if self is an Involution)."""

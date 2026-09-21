@@ -171,7 +171,9 @@ Common Channels
 ---------------
 
 Rate-parameterized noise channels live in the :mod:`quax.channels` submodule (e.g.
-``qx.channels.depolarizing``), each an evolved :mod:`quax.lindbladians` generator.  Measurement
+``qx.channels.depolarizing``), each an evolved :mod:`quax.lindbladians` generator; gate generators
+for noisy gate models live in :mod:`quax.hamiltonians` (e.g. ``qx.hamiltonians.fsim``) and the
+matching two-qubit relaxation model is ``qx.lindbladians.conditional_relaxation``.  Measurement
 instruments:
 
 .. autosummary::
@@ -184,11 +186,42 @@ instruments:
 Observables Computation
 -----------------------
 
+Expectation values are ``estimate(state, observable)``, which broadcasts ensembles; a table over
+input states and observables is :func:`expectation_table`.  The ``compute_*_observables_from_states``
+functions are deprecated in favour of applying the channel and calling ``estimate``.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
 
+   estimate
+   expectation_table
    compute_kraus_observables_from_states
    compute_choi_observables_from_states
    compute_pauli_liouville_observables_from_states
    compute_superop_observables_from_states
+
+Pauli Vectors and Tomography
+----------------------------
+
+States and observables in the Hermitian operator basis, matching the Pauli-Liouville matrix of a
+channel, and the linear inversion of an expectation table into a channel or a state.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   to_pauli_vector
+   linear_inversion_process
+   linear_inversion_state
+
+Projection onto Physical Maps
+-----------------------------
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   project_to_cp
+   project_to_tp
+   project_to_cptp

@@ -15,7 +15,7 @@
 """JAX-based quantum operator transformations."""
 
 # Import gates, states, ensembles and lindbladians as submodules
-from . import channels, ensembles, gates, lindbladians, states
+from . import channels, ensembles, gates, hamiltonians, lindbladians, states
 from ._apply import (
     apply_choi_to_density_matrix,
     apply_instrument_to_density_matrix,
@@ -89,6 +89,8 @@ from ._operator_basis import (
     weyl_basis,
     weyl_basis_labels,
 )
+from ._pauli_vector import to_pauli_vector
+from ._projection import project_to_cp, project_to_cptp, project_to_tp
 from ._promotion import (
     embed,
     permute,
@@ -167,6 +169,7 @@ from ._tensor import (
     tensor_superop,
     tensor_unitary,
 )
+from ._tomography import expectation_table, linear_inversion_process, linear_inversion_state
 from ._validation import (
     is_completely_positive,
     is_cptp,
@@ -245,12 +248,14 @@ __all__ = [
     "estimate",
     "evolve",
     "exp",
+    "expectation_table",
     # Distance metrics
     "fidelity",
     # Submodules
     "gates",
     # Random functions
     "ginibre_matrix_complex",
+    "hamiltonians",
     "hermitian_weyl_basis",
     "hermitian_weyl_basis_labels",
     "instrument_fidelity",
@@ -271,6 +276,8 @@ __all__ = [
     "kraus_to_pauli_liouville",
     "kraus_to_superop",
     "lindbladians",
+    "linear_inversion_process",
+    "linear_inversion_state",
     "mixed_state_matrix",
     "n_qudit_basis",
     "n_qudit_herm_basis",
@@ -292,6 +299,9 @@ __all__ = [
     "process_fidelity",
     "process_fidelity_to_average_fidelity",
     "process_fidelity_to_depolarizing_constant",
+    "project_to_cp",
+    "project_to_cptp",
+    "project_to_tp",
     "promote",
     "promote_hilbert_space",
     "promote_incoherent",
@@ -335,6 +345,7 @@ __all__ = [
     "to_choi",
     "to_kraus",
     "to_pauli_liouville",
+    "to_pauli_vector",
     "to_superop",
     "truncate_kraus",
     "unitarity",
