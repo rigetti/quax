@@ -146,6 +146,30 @@ In tests or example notebooks, always use `import quax as qx` and then acccess f
 4. **Private Modules**: Internal implementation files use `_` prefix
 5. **Docstrings**: Required for all public functions, use ReST format
 
+### Dispatch on Type, Not Conditionals
+
+A function that accepts several quantum types **dispatches** on the type of its first argument with
+`functools.singledispatch`, rather than branching on `isinstance` or taking a union of input types.
+The base function carries the docstring and raises a `TypeError` naming the accepted types;
+each type gets its own registered `_`-prefixed implementation.  `estimate`, `to_choi`, `promote`,
+`mul` and `to_pauli_vector` all follow this pattern.
+
+```python
+@singledispatch
+def to_pauli_vector(operator) -> Array:
+    """The coefficients of a state or observable in the Hermitian operator basis."""
+    raise TypeError(f"to_pauli_vector() does not support type {type(operator)!r}. ...")
+
+
+@to_pauli_vector.register(DensityMatrix)
+def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array: ...
+```
+
+This keeps each type's code path short and separately testable, and lets a new quantum type opt in
+by registering rather than by editing an `if`/`elif` chain.  A union type hint
+(`DensityMatrix | StateVector | Observable`) with a body that branches on which one it got is the
+shape to avoid.
+
 ### Naming Conventions
 
 - **Functions**: `snake_case` (e.g., `apply_unitary_to_state_vector`)

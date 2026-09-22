@@ -14,34 +14,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
-## [0.8.0] - 2026-09-21
+## [0.8.0] - 2026-09-22
 
 ### Added
 
-- `to_pauli_vector`, with `DensityMatrix.from_pauli_vector`, `Observable.from_pauli_vector`, the
-  `pauli_vector` property on both and `DensityMatrix.bloch_vector` / `from_bloch_vector`: the
-  coefficients of a state or observable in the Hermitian operator basis, in the convention of the
-  Pauli-Liouville matrix (`to_pauli_vector(S @ rho) == to_pauli_liouville(S).matrix @ to_pauli_vector(rho)`).
+- `to_pauli_vector`, a single-dispatch function on `DensityMatrix`, `StateVector` and `Observable`,
+  with `DensityMatrix.from_pauli_vector`, `Observable.from_pauli_vector`, the `pauli_vector`
+  property on both and `DensityMatrix.bloch_vector` / `from_bloch_vector`: the coefficients of a
+  state or observable in the Hermitian operator basis, in the convention of the Pauli-Liouville
+  matrix (`to_pauli_vector(S @ rho) == to_pauli_liouville(S).matrix @ to_pauli_vector(rho)`).
 - `linear_inversion_process(states, observables, expectations)` and `linear_inversion_state`: the
   minimum-norm least-squares channel (or state) behind a table of expectation values, solved in the
-  Pauli-Liouville basis with the trace-preservation row fixed; `expectation_table(states, observables)`
-  is the forward table.
+  Pauli-Liouville basis with the trace-preservation row fixed.  The forward table is
+  `estimate(states[:, None], observables[None])`.
 - `project_to_cptp`, `project_to_cp` and `project_to_tp`: the closest completely positive and/or
   trace-preserving map in Frobenius norm on the Choi matrix, by Dykstra's alternating projections
   under `jax.jit`, for every superoperator representation and for ensembles.
-- `hamiltonians.fsim(theta, phi, phi_0, phi_1)`, the PhasedFSim-form generator whose unit-time
-  evolution is `gates.FSIM`, and `lindbladians.conditional_relaxation(decay, dephasing)`, two-qubit
-  decay and dephasing whose rates depend on the partner's state; `lindbladians.noisy_fsim` combines
-  them into a gate model.
+- `integer_power_superop`, `integer_power_choi`, `integer_power_kraus` and
+  `integer_power_pauli_liouville`: exact repeated composition, which holds for non-diagonalizable
+  superoperators and is differentiable, with the exponent a static argument.  `**` picks this path
+  for a concrete integer exponent and the fractional `power_*` otherwise.
+- `lindbladians.conditional_relaxation(decay, dephasing)`: two-qubit decay and dephasing whose
+  rates depend on the partner's state.
 
 ### Deprecated
 
 - `compute_superop_observables_from_states` and its Kraus, Choi and Pauli-Liouville siblings: apply
-  the channel and use `estimate(superop @ states[:, None], observables[None])` or `expectation_table`.
+  the channel and use `estimate(superop @ states[:, None], observables[None])`.
 
 ### Changed
 
-- `power_superop`, `power_choi`, `power_kraus`, `power_pauli_liouville` and `SuperOp.__pow__` raise to a concrete integer power by exact repeated multiplication, which holds for non-diagonalizable superoperators and is differentiable; only non-integer (or traced) exponents go through the eigendecomposition.
+- `DensityMatrix.from_matrix`, `from_pauli_vector` and `from_bloch_vector` and
+  `Observable.from_pauli_vector` are annotated `Self`, so they keep the subclass they are called on.
 
 ## [0.7.5] - 2026-09-19
 

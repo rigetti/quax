@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for linear-inversion tomography and the expectation table."""
+"""Tests for linear-inversion tomography."""
 
 import itertools
 from functools import reduce
@@ -47,6 +47,11 @@ def _traceless_observables(dims) -> qx.Observable:
     return qx.n_qudit_herm_basis(tuple(dims))[1:]
 
 
+def _expectation_table(states: qx.DensityMatrix, observables: qx.Observable) -> jnp.ndarray:
+    """``E[i, j] = Tr[O_j rho_i]``: :func:`qx.estimate` with the two ensembles indexed to broadcast."""
+    return qx.estimate(states[:, None], observables[None])
+
+
 def _random_hermiticity_preserving_map(dims, key, trace_preserving: bool) -> qx.SuperOp:
     """A random real Pauli-Liouville matrix, so a Hermiticity-preserving but generally non-CP map."""
     d2 = _d(dims) ** 2
@@ -56,22 +61,21 @@ def _random_hermiticity_preserving_map(dims, key, trace_preserving: bool) -> qx.
     return qx.pauli_liouville_to_superop(qx.PauliLiouville.from_matrix(matrix, (dims, dims)))
 
 
-def test_expectation_table_matches_estimate():
+def test_broadcast_expectation_table_matches_estimate():
+    """The table the linear inversions expect is ``estimate`` broadcast over the two ensembles."""
     states = _pauli_eigenstates(1)
     observables = _traceless_observables((2,))
-    table = qx.expectation_table(states, observables)
+    table = _expectation_table(states, observables)
     assert table.shape == (6, 3)
     expected = jnp.array([[qx.estimate(states[i], observables[j]) for j in range(3)] for i in range(6)])
     assert jnp.allclose(table, expected)
-    with pytest.raises(ValueError):
-        qx.expectation_table(states[0], observables)
 
 
 @pytest.mark.parametrize("dims", [(2,), (2, 2), (3,)], ids=str)
 def test_recovers_random_cptp_channel(dims):
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=_d(dims), key=jax.random.key(12)))
     states, observables = _input_states(dims), _traceless_observables(dims)
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     estimate = qx.linear_inversion_process(states, observables, table)
     assert isinstance(estimate, qx.SuperOp)
     assert jnp.allclose(estimate.matrix, truth.matrix, atol=1e-10)
@@ -81,7 +85,7 @@ def test_recovers_random_cptp_channel(dims):
 def test_recovers_non_cp_trace_preserving_map(dims):
     truth = _random_hermiticity_preserving_map(dims, jax.random.key(13), trace_preserving=True)
     states, observables = _input_states(dims), _traceless_observables(dims)
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     estimate = qx.linear_inversion_process(states, observables, table)
     assert jnp.allclose(estimate.matrix, truth.matrix, atol=1e-10)
 
@@ -90,7 +94,7 @@ def test_trace_preserving_row_is_exact_under_noise():
     dims = (2, 2)
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=4, key=jax.random.key(14)))
     states, observables = _input_states(dims), _traceless_observables(dims)
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     noisy = table + 0.05 * jax.random.normal(jax.random.key(15), table.shape)
     estimate = qx.to_pauli_liouville(qx.linear_inversion_process(states, observables, noisy))
     assert jnp.allclose(estimate.matrix[0], jnp.eye(16)[0], atol=1e-14)
@@ -102,7 +106,7 @@ def test_general_solve_recovers_a_non_trace_preserving_map():
     truth = _random_hermiticity_preserving_map(dims, jax.random.key(16), trace_preserving=False)
     states = _input_states(dims)
     observables = qx.n_qudit_herm_basis(dims)  # traceful observables see the identity row
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     estimate = qx.linear_inversion_process(states, observables, table, trace_preserving=False)
     assert jnp.allclose(estimate.matrix, truth.matrix, atol=1e-10)
 
@@ -125,7 +129,7 @@ def test_matches_the_dense_least_squares_solution(complete):
     if not complete:
         states = states[jnp.array([0, 2, 4])]  # |+x>, |+y>, |+z> only: not informationally complete
     observables = _traceless_observables(dims)
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     noisy = table + 0.02 * jax.random.normal(jax.random.key(18), table.shape)
     estimate = qx.to_pauli_liouville(qx.linear_inversion_process(states, observables, noisy))
     assert np.allclose(np.asarray(estimate.matrix), _dense_least_squares(states, observables, noisy, 2), atol=1e-10)
@@ -135,7 +139,7 @@ def test_batched_tables_give_an_ensemble():
     dims = (2,)
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=2, key=jax.random.key(19), size=(3,)))
     states, observables = _input_states(dims), _traceless_observables(dims)
-    tables = jnp.stack([qx.expectation_table(truth[k] @ states, observables) for k in range(3)])
+    tables = jnp.stack([_expectation_table(truth[k] @ states, observables) for k in range(3)])
     estimate = qx.linear_inversion_process(states, observables, tables)
     assert estimate.ensemble_size == (3,)
     assert jnp.allclose(estimate.matrix, truth.matrix, atol=1e-10)
@@ -145,7 +149,7 @@ def test_jit_and_grad():
     dims = (2,)
     states, observables = _input_states(dims), _traceless_observables(dims)
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=2, key=jax.random.key(20)))
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     jitted = jax.jit(qx.linear_inversion_process, static_argnames="trace_preserving")(states, observables, table)
     assert jnp.allclose(jitted.matrix, truth.matrix, atol=1e-10)
 
@@ -194,7 +198,7 @@ def test_deprecated_observable_tables_still_agree_and_warn():
     dims = (2,)
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=2, key=jax.random.key(23)))
     states, observables = _input_states(dims), _traceless_observables(dims)
-    table = qx.expectation_table(truth @ states, observables)
+    table = _expectation_table(truth @ states, observables)
     with pytest.warns(DeprecationWarning):
         old = qx.compute_superop_observables_from_states(truth, states, observables)
     assert jnp.allclose(old, table)

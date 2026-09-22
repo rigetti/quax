@@ -38,13 +38,13 @@ Example::
 from functools import reduce
 from operator import mul
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
-from ._quantum_objects import Lindbladian, Observable, Operator
+from ._quantum_objects import Lindbladian, Operator
 from .gates import GELLMANN6, GELLMANN7, P0, P1, X, Y, Z
-from .hamiltonians import fsim
 
 # Qubit lowering/raising operators |0⟩⟨1| = (X + iY)/2 and |1⟩⟨0| = (X − iY)/2.
 _SIGMA_MINUS = Operator.from_matrix((X.matrix + 1j * Y.matrix) / 2, ((2,), (2,)))
@@ -229,6 +229,7 @@ def seepage(gamma: float | Array) -> Lindbladian:
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
 
 
+@jax.jit
 def conditional_relaxation(decay: Array, dephasing: Array) -> Lindbladian:
     r"""Lindbladian generator for two-qubit relaxation whose rates depend on the partner's state.
 
@@ -250,8 +251,8 @@ def conditional_relaxation(decay: Array, dephasing: Array) -> Lindbladian:
     ``thermal_relaxation(1/g0, 1/f0) | thermal_relaxation(1/g1, 1/f1)``.
 
     Rates are per unit time of :func:`~quax.evolve`; for a gate model measure them per gate and evolve
-    for ``t = 1``.  Leading batch axes of the rate arrays produce an ensemble.  Jittable and
-    differentiable in the rates (away from exactly zero, where the square root is not).
+    for ``t = 1``.  Leading batch axes of the rate arrays produce an ensemble.  Compiled with
+    ``jax.jit`` and differentiable in the rates (away from exactly zero, where the square root is not).
 
     :param decay: Decay rates ``(*ensemble, 2, 2)`` indexed ``[qubit, partner_state]``.
     :param dephasing: Pure-dephasing rates ``(*ensemble, 2, 2)`` indexed the same way.
@@ -279,28 +280,3 @@ def conditional_relaxation(decay: Array, dephasing: Array) -> Lindbladian:
         axis=-3,
     )
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(jumps, ((2, 2), (2, 2))))
-
-
-def noisy_fsim(
-    theta: float | Array,
-    phi: float | Array,
-    decay: Array,
-    dephasing: Array,
-    phi_0: float | Array = 0.0,
-    phi_1: float | Array = 0.0,
-) -> Lindbladian:
-    """A two-qubit gate model: the fSim generator with partner-conditional relaxation acting during the gate.
-
-    ``Lindbladian(hamiltonian=hamiltonians.fsim(theta, phi, phi_0, phi_1),
-    jump_operators=conditional_relaxation(decay, dephasing).jump_operators)``, so that ``evolve(·, 1.0)``
-    is the noisy gate; see :func:`quax.hamiltonians.fsim` and :func:`conditional_relaxation` for the
-    parameters.  The angles and the rate arrays broadcast to a common ensemble.
-
-    :return: Lindbladian generator on two qubits.
-    """
-    hamiltonian = fsim(theta, phi, phi_0, phi_1)
-    jumps = conditional_relaxation(decay, dephasing).jump_operators
-    ensemble = jnp.broadcast_shapes(hamiltonian.ensemble_size, jumps.ensemble_size[:-1])
-    hamiltonian = Observable.from_matrix(jnp.broadcast_to(hamiltonian.matrix, ensemble + (4, 4)), hamiltonian.dims)
-    jumps = Operator.from_matrix(jnp.broadcast_to(jumps.matrix, ensemble + jumps.matrix.shape[-3:]), jumps.dims)
-    return Lindbladian(hamiltonian=hamiltonian, jump_operators=jumps)

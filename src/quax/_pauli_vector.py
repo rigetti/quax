@@ -25,7 +25,7 @@ With the same vector :math:`c` for an observable, :math:`\mathrm{Tr}[O\rho] = c 
 :math:`r(S\rho) = R\,r(\rho)` for the Pauli-Liouville matrix :math:`R` of a channel :math:`S`.
 """
 
-from functools import reduce
+from functools import reduce, singledispatch
 from operator import mul
 
 import jax
@@ -33,6 +33,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
+from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
@@ -43,7 +44,13 @@ def _basis_matrices(dims: tuple[int, ...]) -> Array:
         return jnp.asarray(n_qudit_herm_basis(tuple(dims)).matrix)
 
 
-def to_pauli_vector(operator: DensityMatrix | StateVector | Observable) -> Array:
+def _coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
+    """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``."""
+    return jnp.real(jnp.einsum("...ij,kji->...k", matrix, _basis_matrices(dims)))
+
+
+@singledispatch
+def to_pauli_vector(operator) -> Array:
     r"""The coefficients of a state or observable in the Hermitian operator basis.
 
     .. math:: r_b = \mathrm{Tr}[B_b\,A],
@@ -54,24 +61,34 @@ def to_pauli_vector(operator: DensityMatrix | StateVector | Observable) -> Array
     ``to_pauli_vector(S @ rho) == to_pauli_liouville(S).matrix @ to_pauli_vector(rho)`` and
     ``estimate(rho, O) == to_pauli_vector(O) @ to_pauli_vector(rho) / d``.
 
-    Ensembles broadcast; the function is jittable and differentiable.
+    Dispatches on the type of *operator*.  Ensembles broadcast; the function is jittable and
+    differentiable.
 
-    :param operator: A density matrix, state vector or observable (Hermitian), possibly an ensemble.
+    :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
     :return: Real array of shape ``(*ensemble, d**2)``.
     """
-    if isinstance(operator, StateVector):
-        from ._promotion import promote_state_vector_to_density_matrix
+    raise TypeError(
+        f"to_pauli_vector() does not support type {type(operator)!r}. "
+        "Expected a DensityMatrix, StateVector or Observable."
+    )
 
-        density = promote_state_vector_to_density_matrix(operator)
-        dims, matrix = tuple(density.dims), density.matrix
-    elif isinstance(operator, DensityMatrix):
-        dims, matrix = tuple(operator.dims), operator.matrix
-    else:
-        dims_out, dims_in = operator.dims
-        if tuple(dims_out) != tuple(dims_in):
-            raise ValueError(f"A Pauli vector needs a square operator, got dims {operator.dims}.")
-        dims, matrix = tuple(dims_out), operator.matrix
-    return jnp.real(jnp.einsum("...ij,kji->...k", matrix, _basis_matrices(dims)))
+
+@to_pauli_vector.register(DensityMatrix)
+def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array:
+    return _coefficients(operator.matrix, tuple(operator.dims))
+
+
+@to_pauli_vector.register(StateVector)
+def _state_vector_to_pauli_vector(operator: StateVector) -> Array:
+    return to_pauli_vector(promote_state_vector_to_density_matrix(operator))
+
+
+@to_pauli_vector.register(Observable)
+def _observable_to_pauli_vector(operator: Observable) -> Array:
+    dims_out, dims_in = operator.dims
+    if tuple(dims_out) != tuple(dims_in):
+        raise ValueError(f"A Pauli vector needs a square operator, got dims {operator.dims}.")
+    return _coefficients(operator.matrix, tuple(dims_out))
 
 
 def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:

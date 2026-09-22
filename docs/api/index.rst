@@ -126,10 +126,17 @@ Superoperator Transformations
 Power Operations
 ----------------
 
+``channel ** n`` picks the exact ``integer_power_*`` path for a concrete integer exponent and the
+principal-branch fractional ``power_*`` otherwise.
+
 .. autosummary::
    :toctree: generated/
    :nosignatures:
 
+   integer_power_kraus
+   integer_power_choi
+   integer_power_pauli_liouville
+   integer_power_superop
    power_unitary
    power_kraus
    power_choi
@@ -171,10 +178,9 @@ Common Channels
 ---------------
 
 Rate-parameterized noise channels live in the :mod:`quax.channels` submodule (e.g.
-``qx.channels.depolarizing``), each an evolved :mod:`quax.lindbladians` generator; gate generators
-for noisy gate models live in :mod:`quax.hamiltonians` (e.g. ``qx.hamiltonians.fsim``) and the
-matching two-qubit relaxation model is ``qx.lindbladians.conditional_relaxation``.  Measurement
-instruments:
+``qx.channels.depolarizing``), each an evolved :mod:`quax.lindbladians` generator; two-qubit decay
+and dephasing whose rates depend on the partner's state is
+``qx.lindbladians.conditional_relaxation``.  Measurement instruments:
 
 .. autosummary::
    :toctree: generated/
@@ -186,16 +192,15 @@ instruments:
 Observables Computation
 -----------------------
 
-Expectation values are ``estimate(state, observable)``, which broadcasts ensembles; a table over
-input states and observables is :func:`expectation_table`.  The ``compute_*_observables_from_states``
-functions are deprecated in favour of applying the channel and calling ``estimate``.
+Expectation values are ``estimate(state, observable)``, which broadcasts ensembles: a table over
+input states and observables is ``estimate(states[:, None], observables[None])``.  The
+``compute_*_observables_from_states`` functions are deprecated in favour of that.
 
 .. autosummary::
    :toctree: generated/
    :nosignatures:
 
    estimate
-   expectation_table
    compute_kraus_observables_from_states
    compute_choi_observables_from_states
    compute_pauli_liouville_observables_from_states
@@ -205,7 +210,7 @@ Pauli Vectors and Tomography
 ----------------------------
 
 States and observables in the Hermitian operator basis, matching the Pauli-Liouville matrix of a
-channel, and the linear inversion of an expectation table into a channel or a state.
+channel, and the linear inversion of a table of expectation values into a channel or a state.
 
 .. autosummary::
    :toctree: generated/

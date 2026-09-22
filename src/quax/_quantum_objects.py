@@ -676,7 +676,7 @@ class DensityMatrix(State):
         return self.data.reshape(ensemble_shape + (d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> "DensityMatrix":
+    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, d, d)`` where d = prod(dims)
@@ -690,7 +690,7 @@ class DensityMatrix(State):
         return cls(data=tensor, num_qubits=num_qubits)
 
     @classmethod
-    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> "DensityMatrix":
+    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> Self:
         """The state ``(1/d) sum_b r_b B_b`` with the given coefficients in the Hermitian operator basis.
 
         Inverse of :func:`~quax.to_pauli_vector`; ``r_0`` is the trace.
@@ -703,7 +703,7 @@ class DensityMatrix(State):
         return cls.from_matrix(pauli_vector_to_matrix(vector, dims), tuple(dims))
 
     @classmethod
-    def from_bloch_vector(cls, bloch: Array, dims: tuple[int, ...] = (2,)) -> "DensityMatrix":
+    def from_bloch_vector(cls, bloch: Array, dims: tuple[int, ...] = (2,)) -> Self:
         """The unit-trace state with the given (generalized) Bloch vector, ``(I + sum_b r_b B_b) / d``.
 
         For a qubit ``bloch`` is the ordinary Bloch vector ``(<X>, <Y>, <Z>)``.
@@ -1070,7 +1070,7 @@ class Observable(Operator):
         return self
 
     @classmethod
-    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> "Observable":
+    def from_pauli_vector(cls, vector: Array, dims: tuple[int, ...]) -> Self:
         """The observable ``(1/d) sum_a c_a B_a`` with the given coefficients in the Hermitian operator basis.
 
         Inverse of :func:`~quax.to_pauli_vector`.
@@ -1400,12 +1400,16 @@ class SuperOp(SuperOperator):
 
     def __pow__(self, exponent: float) -> "SuperOp":
         """
-        Raise the superoperator to a power: exact repeated composition for a concrete integer,
-        the principal-branch fractional power otherwise (see :func:`quax.power_superop`).
-        """
-        from ._exponentiation import power_superop
+        Raise the superoperator to a power.
 
-        return power_superop(self, exponent)
+        A concrete integer exponent is exact repeated composition
+        (:func:`quax.integer_power_superop`); any other exponent is the principal-branch fractional
+        power (:func:`quax.power_superop`), with the caveats documented there.
+        """
+        from ._exponentiation import concrete_integer_exponent, integer_power_superop, power_superop
+
+        integer = concrete_integer_exponent(exponent)
+        return power_superop(self, exponent) if integer is None else integer_power_superop(self, integer)
 
     def __matmul__(self, other: Any) -> Any:
         """Matrix multiplication of the superoperator with another superoperator."""
@@ -1583,10 +1587,17 @@ class KrausMap(SuperOperator):
         return [qt.Qobj(np.array(k), dims=[[list(self.dims[0])], [list(self.dims[1])]]) for k in matrix]
 
     def __pow__(self, exponent: float) -> "KrausMap":
-        """Raise to a power; see :func:`quax.power_superop` for the semantics (ensemble-compatible)."""
-        from ._exponentiation import power_kraus
+        """
+        Raise the Kraus channel to a power.
 
-        return power_kraus(self, exponent)
+        A concrete integer exponent is exact repeated composition
+        (:func:`quax.integer_power_kraus`); any other exponent is the principal-branch fractional
+        power (:func:`quax.power_kraus`), with the caveats documented there.
+        """
+        from ._exponentiation import concrete_integer_exponent, integer_power_kraus, power_kraus
+
+        integer = concrete_integer_exponent(exponent)
+        return power_kraus(self, exponent) if integer is None else integer_power_kraus(self, integer)
 
     def __matmul__(self, other: Any) -> Any:
         """Matrix multiplication of the Kraus channel with another superoperator."""
@@ -1748,10 +1759,17 @@ class Choi(SuperOperator):
         return qobjs.reshape(self.ensemble_size)
 
     def __pow__(self, exponent: float) -> "Choi":
-        """Raise the Choi channel to a power (integer: exact; non-integer: via its Lindbladian)."""
-        from ._exponentiation import power_choi
+        """
+        Raise the Choi channel to a power.
 
-        return power_choi(self, exponent)
+        A concrete integer exponent is exact repeated composition
+        (:func:`quax.integer_power_choi`); any other exponent is the principal-branch fractional
+        power (:func:`quax.power_choi`), with the caveats documented there.
+        """
+        from ._exponentiation import concrete_integer_exponent, integer_power_choi, power_choi
+
+        integer = concrete_integer_exponent(exponent)
+        return power_choi(self, exponent) if integer is None else integer_power_choi(self, integer)
 
     def __matmul__(self, other: Any) -> Any:
         """Matrix multiplication of the Choi with another Superoperator."""
@@ -2005,10 +2023,23 @@ class PauliLiouville(SuperOperator):
         raise NotImplementedError("Conversion to QuTiP Qobj not implemented for PauliLiouville.")
 
     def __pow__(self, exponent: float) -> "PauliLiouville":
-        """Raise to a power; see :func:`quax.power_superop` for the semantics (ensemble-compatible)."""
-        from ._exponentiation import power_pauli_liouville
+        """
+        Raise the Pauli-Liouville matrix to a power.
 
-        return power_pauli_liouville(self, exponent)
+        A concrete integer exponent is exact repeated composition
+        (:func:`quax.integer_power_pauli_liouville`); any other exponent is the principal-branch fractional
+        power (:func:`quax.power_pauli_liouville`), with the caveats documented there.
+        """
+        from ._exponentiation import (
+            concrete_integer_exponent,
+            integer_power_pauli_liouville,
+            power_pauli_liouville,
+        )
+
+        integer = concrete_integer_exponent(exponent)
+        if integer is None:
+            return power_pauli_liouville(self, exponent)
+        return integer_power_pauli_liouville(self, integer)
 
     def __matmul__(self, other: Any) -> Any:
         """Matrix multiplication of the PauliLiouville with another PauliLiouville."""

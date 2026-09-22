@@ -46,6 +46,9 @@ from jax import Array
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, SuperOperator, Unitary
 from ._superoperator_transformations import choi_to_kraus, choi_to_pauli_liouville, choi_to_superop, to_choi
 
+# The projections are representation-preserving: a ``Choi`` in gives a ``Choi`` back, a
+# ``PauliLiouville`` a ``PauliLiouville``.  A type variable carries that through to the caller,
+# where a plain ``SuperOperator`` return type would force a cast at every call site.
 ChannelT = TypeVar("ChannelT", bound=SuperOperator)
 
 
@@ -122,8 +125,11 @@ def _same_representation(result: Choi, like: SuperOperator | Unitary) -> SuperOp
             return choi_to_pauli_liouville(result)
         case KrausMap():
             return choi_to_kraus(result)
-        case _:
+        case Unitary():
+            # Outside the annotated signature, but a projected unitary is a channel, not a unitary.
             return choi_to_superop(result)
+        case _:
+            raise NotImplementedError(f"Projection is not implemented for {type(like).__name__}.")
 
 
 def project_to_cp(channel: ChannelT) -> ChannelT:

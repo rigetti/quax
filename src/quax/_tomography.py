@@ -35,28 +35,9 @@ from operator import mul
 import jax.numpy as jnp
 from jax import Array
 
-from ._apply import estimate
 from ._pauli_vector import to_pauli_vector
 from ._quantum_objects import DensityMatrix, Observable, PauliLiouville, SuperOp
 from ._superoperator_transformations import pauli_liouville_to_superop
-
-
-def expectation_table(states: DensityMatrix, observables: Observable) -> Array:
-    """The expectation values of every observable in every state, ``E[i, j] = Tr[O_j rho_i]``.
-
-    This is :func:`~quax.estimate` with the two ensembles indexed to ``(n, 1)`` and ``(1, m)`` so
-    that they broadcast into a table; the states a channel produces are ``superop @ states``.
-
-    :param states: An ensemble of ``n`` states, ``ensemble_size == (n,)``.
-    :param observables: An ensemble of ``m`` observables, ``ensemble_size == (m,)``.
-    :return: Real array of shape ``(n, m)``.
-    """
-    if len(states.ensemble_size) != 1 or len(observables.ensemble_size) != 1:
-        raise ValueError(
-            "expectation_table takes one-dimensional ensembles of states and observables, got ensemble sizes "
-            f"{states.ensemble_size} and {observables.ensemble_size}."
-        )
-    return estimate(states[:, None], observables[None])
 
 
 def _square_dims(observables: Observable) -> tuple[int, ...]:

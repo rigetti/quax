@@ -15,7 +15,7 @@
 """JAX-based quantum operator transformations."""
 
 # Import gates, states, ensembles and lindbladians as submodules
-from . import channels, ensembles, gates, hamiltonians, lindbladians, states
+from . import channels, ensembles, gates, lindbladians, states
 from ._apply import (
     apply_choi_to_density_matrix,
     apply_instrument_to_density_matrix,
@@ -56,6 +56,10 @@ from ._exponentiation import (
     cis,
     evolve,
     exp,
+    integer_power_choi,
+    integer_power_kraus,
+    integer_power_pauli_liouville,
+    integer_power_superop,
     power_choi,
     power_kraus,
     power_pauli_liouville,
@@ -169,7 +173,7 @@ from ._tensor import (
     tensor_superop,
     tensor_unitary,
 )
-from ._tomography import expectation_table, linear_inversion_process, linear_inversion_state
+from ._tomography import linear_inversion_process, linear_inversion_state
 from ._validation import (
     is_completely_positive,
     is_cptp,
@@ -248,20 +252,22 @@ __all__ = [
     "estimate",
     "evolve",
     "exp",
-    "expectation_table",
     # Distance metrics
     "fidelity",
     # Submodules
     "gates",
     # Random functions
     "ginibre_matrix_complex",
-    "hamiltonians",
     "hermitian_weyl_basis",
     "hermitian_weyl_basis_labels",
     "instrument_fidelity",
     "instrument_from_axis",
     # Common channels
     "instrument_from_confusion_and_transition",
+    "integer_power_choi",
+    "integer_power_kraus",
+    "integer_power_pauli_liouville",
+    "integer_power_superop",
     "is_completely_positive",
     "is_cptp",
     "is_hermicity_preserving",
