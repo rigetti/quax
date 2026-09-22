@@ -39,7 +39,7 @@ from ._quantum_objects import Involution, Lindbladian, Observable, Operator, Qua
 # --------------------------------------------------------------------------- #
 
 
-@functools.partial(jax.jit, static_argnums=(2, 3))
+@jax.jit(static_argnums=(2, 3))
 def _broadcast_scalar_data(
     scalar: Array,
     data: Array,

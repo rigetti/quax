@@ -38,12 +38,13 @@ Example::
 from functools import reduce
 from operator import mul
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Lindbladian, Operator
-from .gates import GELLMANN6, GELLMANN7, X, Y, Z
+from .gates import GELLMANN6, GELLMANN7, P0, P1, X, Y, Z
 
 # Qubit lowering/raising operators |0⟩⟨1| = (X + iY)/2 and |1⟩⟨0| = (X − iY)/2.
 _SIGMA_MINUS = Operator.from_matrix((X.matrix + 1j * Y.matrix) / 2, ((2,), (2,)))
@@ -226,3 +227,56 @@ def seepage(gamma: float | Array) -> Lindbladian:
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * _SIGMA_21.matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
+
+
+@jax.jit
+def conditional_relaxation(decay: Array, dephasing: Array) -> Lindbladian:
+    r"""Lindbladian generator for two-qubit relaxation whose rates depend on the partner's state.
+
+    During a tunable-coupler or adiabatic two-qubit gate each qubit is parked at a frequency that
+    depends on the state of its partner, so its decay and pure dephasing do too.  The rates are
+    indexed ``[qubit, partner_state]``: ``decay[q, s]`` is the decay rate of qubit ``q`` while its
+    partner is in :math:`|s\rangle`, likewise ``dephasing[q, s]`` for the pure-dephasing rate.  The
+    jump operators are one per qubit and type,
+
+    .. math::
+
+        L_{\downarrow,0} = |0\rangle\langle 1| \otimes (\sqrt{\gamma_{00}} P_0 + \sqrt{\gamma_{01}} P_1),
+        \qquad
+        L_{\varphi,0} = Z \otimes (\sqrt{\gamma^\varphi_{00}/2}\, P_0 + \sqrt{\gamma^\varphi_{01}/2}\, P_1),
+
+    and their mirror images on the second qubit, so a jump on one qubit does not disturb the other.
+    Equal columns reproduce independent relaxation exactly:
+    ``conditional_relaxation([[g0, g0], [g1, g1]], [[f0, f0], [f1, f1]])`` equals
+    ``thermal_relaxation(1/g0, 1/f0) | thermal_relaxation(1/g1, 1/f1)``.
+
+    Rates are per unit time of :func:`~quax.evolve`; for a gate model measure them per gate and evolve
+    for ``t = 1``.  Leading batch axes of the rate arrays produce an ensemble.  Compiled with
+    ``jax.jit`` and differentiable in the rates (away from exactly zero, where the square root is not).
+
+    :param decay: Decay rates ``(*ensemble, 2, 2)`` indexed ``[qubit, partner_state]``.
+    :param dephasing: Pure-dephasing rates ``(*ensemble, 2, 2)`` indexed the same way.
+    :return: Lindbladian generator on two qubits.
+    """
+    decay, dephasing = jnp.broadcast_arrays(jnp.asarray(decay, dtype=float), jnp.asarray(dephasing, dtype=float))
+    if decay.shape[-2:] != (2, 2):
+        raise ValueError(f"Expected rates of shape (..., 2, 2) indexed [qubit, partner_state], got {decay.shape}.")
+    g = jnp.sqrt(decay)[..., None, None]
+    s = jnp.sqrt(dephasing / 2.0)[..., None, None]
+    p0, p1 = P0.matrix, P1.matrix
+
+    def conditioned(q: int, amplitude: Array) -> Array:
+        """``amplitude[..., q, 0] P0 + amplitude[..., q, 1] P1`` acting on the partner of ``q``."""
+        return amplitude[..., q, 0, :, :] * p0 + amplitude[..., q, 1, :, :] * p1
+
+    lower = _SIGMA_MINUS.matrix
+    jumps = jnp.stack(
+        [
+            jnp.kron(lower, conditioned(0, g)),
+            jnp.kron(conditioned(1, g), lower),
+            jnp.kron(Z.matrix, conditioned(0, s)),
+            jnp.kron(conditioned(1, s), Z.matrix),
+        ],
+        axis=-3,
+    )
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(jumps, ((2, 2), (2, 2))))

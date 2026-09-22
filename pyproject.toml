@@ -14,7 +14,7 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.7.5"
+version = "0.7.6"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
     {name = "Bram Evert",email = "bevert@rigetti.com"}
@@ -23,7 +23,8 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
 dependencies = [
-    "jax (>=0.10.2)"
+    "jax (>=0.10.2)",
+    "deprecated (>=1.2.14)"
 ]
 
 [project.optional-dependencies]

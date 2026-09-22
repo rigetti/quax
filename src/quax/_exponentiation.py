@@ -37,11 +37,12 @@ All power implementations use eigendecomposition matching scipy.linalg.fractiona
   scale the time: ``evolve(L, s·t)`` is CPTP for ``s·t ≥ 0``.
 """
 
-from functools import partial, singledispatch
+from functools import singledispatch
 from typing import overload
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ._quantum_objects import (
@@ -188,6 +189,21 @@ def _evolve_lindbladian(generator: Lindbladian, t: float = 1.0) -> SuperOp:
     return SuperOp.from_matrix(result, generator.dims)
 
 
+def concrete_integer_exponent(power: float) -> int | None:
+    """``power`` as a Python ``int`` when it is a concrete, integer-valued number, otherwise ``None``.
+
+    A tracer (an exponent inside ``jax.jit``) is never concrete, so it comes back as ``None``.
+    """
+    if isinstance(power, (int, np.integer)):
+        return int(power)
+    try:
+        value = float(power)
+    except (TypeError, ValueError, jax.errors.ConcretizationTypeError):
+        return None
+    return int(value) if value.is_integer() else None
+
+
+@jax.jit
 def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     """Compute matrix power using eigendecomposition: M^p = V @ diag(λ^p) @ V^(-1)."""
     eigvals, eigvecs = jnp.linalg.eig(matrix)
@@ -197,9 +213,43 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     return V_scaled @ V_inv
 
 
+@jax.jit(static_argnames=("power",))
+def integer_power_superop(superop: SuperOp, power: int) -> SuperOp:
+    """Compose a channel superoperator with itself ``power`` times, by exact repeated multiplication.
+
+    Unlike :func:`power_superop` this holds for a non-diagonalizable superoperator and has a stable
+    gradient in ``superop``, and it is exact rather than accurate to the eigensolver.  A negative
+    ``power`` inverts the superoperator first; ``power`` is a static argument, so a value traced by
+    ``jax.jit`` needs :func:`power_superop` instead.
+
+    :param superop: The channel superoperator.
+    :param power: The (concrete) integer exponent.
+    :return: ``superop`` raised to ``power``.
+    """
+    return SuperOp.from_matrix(jnp.linalg.matrix_power(superop.matrix, power), superop.dims)
+
+
+@jax.jit(static_argnames=("power",))
+def integer_power_choi(choi: Choi, power: int) -> Choi:
+    """Compose a Choi channel with itself ``power`` times; see :func:`integer_power_superop`."""
+    return superop_to_choi(integer_power_superop(choi_to_superop(choi), power))
+
+
+@jax.jit(static_argnames=("power",))
+def integer_power_pauli_liouville(pauli_liouville: PauliLiouville, power: int) -> PauliLiouville:
+    """Compose a Pauli-Liouville matrix with itself ``power`` times; see :func:`integer_power_superop`."""
+    return PauliLiouville.from_matrix(jnp.linalg.matrix_power(pauli_liouville.matrix, power), pauli_liouville.dims)
+
+
+@jax.jit(static_argnames=("power",))
+def integer_power_kraus(kraus_map: KrausMap, power: int) -> KrausMap:
+    """Compose a Kraus map with itself ``power`` times; see :func:`integer_power_superop`."""
+    return superop_to_kraus(integer_power_superop(kraus_to_superop(kraus_map), power))
+
+
 @jax.jit
 def power_choi(choi: Choi, power: float) -> Choi:
-    """Raise a Choi channel to ``power``. See :func:`power_superop` for semantics and caveats."""
+    """Raise a Choi channel to a fractional ``power``. See :func:`power_superop` for semantics and caveats."""
     return superop_to_choi(power_superop(choi_to_superop(choi), power))
 
 
@@ -209,8 +259,12 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
 
     Computed as ``V · Λ^power · V⁻¹`` (equivalently ``exp(power · log M)``, i.e. evolving the
     channel's Liouvillian generator ``log M`` for a fraction ``power`` of unit time).  For an
-    integer ``power`` this is exact repeated composition; for an **infinitely divisible** channel a
-    non-integer ``power`` is the physically meaningful fractional channel and stays CPTP.
+    **infinitely divisible** channel a non-integer ``power`` is the physically meaningful fractional
+    channel and stays CPTP.
+
+    For an integer exponent prefer :func:`integer_power_superop`, which is exact repeated
+    composition: it holds for a non-diagonalizable superoperator and its gradient is stable.  The
+    ``**`` operator picks that path automatically for a concrete integer exponent.
 
     .. warning::
         **Fractional powers of a superoperator are not well defined in general.**  ``log M`` uses
@@ -223,7 +277,7 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
         directly.
 
     :param superop: The channel superoperator.
-    :param power: The exponent.
+    :param power: The exponent, which may be traced by ``jax.jit``.
     :return: ``superop`` raised to ``power``.
     """
     powered_data = _matrix_power_via_eig(superop.matrix, power)
@@ -233,6 +287,9 @@ def power_superop(superop: SuperOp, power: float) -> SuperOp:
 @jax.jit
 def power_pauli_liouville(pauli_liouville: PauliLiouville, power: float) -> PauliLiouville:
     """Compute the power of a Pauli-Liouville matrix via eigendecomposition.
+
+    See :func:`power_superop` for the semantics and :func:`integer_power_pauli_liouville` for an
+    integer exponent.
 
     :param pauli_liouville: The Pauli-Liouville matrix to exponentiate.
     :param power: The power to raise the Pauli-Liouville matrix to.
@@ -246,8 +303,8 @@ def power_pauli_liouville(pauli_liouville: PauliLiouville, power: float) -> Paul
 def power_kraus(kraus_map: KrausMap, power: float) -> KrausMap:
     """Compute the power of a Kraus map via the superoperator representation.
 
-    Note: For integer powers n > 1, this corresponds to composing the channel n times.
-    For fractional powers, this may not preserve CPTP properties.
+    See :func:`power_superop` for the semantics and :func:`integer_power_kraus` for an integer
+    exponent, which is the composition of the channel with itself and preserves CPTP.
 
     :param kraus_map: The Kraus map to exponentiate.
     :param power: The power to raise the Kraus map to.
@@ -352,4 +409,4 @@ def _fractional_power_unitary_bwd(residuals, g: Unitary):
 
 
 fractional_power_unitary.defvjp(_fractional_power_unitary_fwd, _fractional_power_unitary_bwd)
-fractional_power_unitary = partial(jax.jit, static_argnames=("exponent",))(fractional_power_unitary)  # type: ignore[assignment]
+fractional_power_unitary = jax.jit(static_argnames=("exponent",))(fractional_power_unitary)  # type: ignore[assignment]

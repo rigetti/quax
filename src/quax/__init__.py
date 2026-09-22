@@ -56,6 +56,10 @@ from ._exponentiation import (
     cis,
     evolve,
     exp,
+    integer_power_choi,
+    integer_power_kraus,
+    integer_power_pauli_liouville,
+    integer_power_superop,
     power_choi,
     power_kraus,
     power_pauli_liouville,
@@ -89,6 +93,8 @@ from ._operator_basis import (
     weyl_basis,
     weyl_basis_labels,
 )
+from ._pauli_vector import to_pauli_vector
+from ._projection import project_to_cp, project_to_cptp, project_to_tp
 from ._promotion import (
     embed,
     permute,
@@ -167,6 +173,7 @@ from ._tensor import (
     tensor_superop,
     tensor_unitary,
 )
+from ._tomography import linear_inversion_process, linear_inversion_state
 from ._validation import (
     is_completely_positive,
     is_cptp,
@@ -257,6 +264,10 @@ __all__ = [
     "instrument_from_axis",
     # Common channels
     "instrument_from_confusion_and_transition",
+    "integer_power_choi",
+    "integer_power_kraus",
+    "integer_power_pauli_liouville",
+    "integer_power_superop",
     "is_completely_positive",
     "is_cptp",
     "is_hermicity_preserving",
@@ -271,6 +282,8 @@ __all__ = [
     "kraus_to_pauli_liouville",
     "kraus_to_superop",
     "lindbladians",
+    "linear_inversion_process",
+    "linear_inversion_state",
     "mixed_state_matrix",
     "n_qudit_basis",
     "n_qudit_herm_basis",
@@ -292,6 +305,9 @@ __all__ = [
     "process_fidelity",
     "process_fidelity_to_average_fidelity",
     "process_fidelity_to_depolarizing_constant",
+    "project_to_cp",
+    "project_to_cptp",
+    "project_to_tp",
     "promote",
     "promote_hilbert_space",
     "promote_incoherent",
@@ -335,6 +351,7 @@ __all__ = [
     "to_choi",
     "to_kraus",
     "to_pauli_liouville",
+    "to_pauli_vector",
     "to_superop",
     "truncate_kraus",
     "unitarity",

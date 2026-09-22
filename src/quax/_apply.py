@@ -17,6 +17,7 @@ from operator import mul
 
 import jax
 import jax.numpy as jnp
+from deprecated.sphinx import deprecated
 from jax import Array
 
 from ._promotion import promote, promote_hilbert_space
@@ -273,8 +274,8 @@ def _partial_trace_data(data: Array, dims: tuple[int, ...], keep: tuple[int, ...
 
 
 @jax.jit
-def compute_kraus_observables_from_states(
-    kraus_map: KrausMap, input_states: DensityMatrix, observables: Unitary
+def _compute_kraus_observables_from_states(
+    kraus_map: KrausMap, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -304,7 +305,9 @@ def compute_kraus_observables_from_states(
 
 
 @jax.jit
-def compute_choi_observables_from_states(choi: Choi, input_states: DensityMatrix, observables: Unitary) -> Array:
+def _compute_choi_observables_from_states(
+    choi: Choi, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
 
@@ -330,12 +333,12 @@ def compute_choi_observables_from_states(choi: Choi, input_states: DensityMatrix
     superop = choi_to_superop(choi)
 
     # Use the superoperator implementation
-    return compute_superop_observables_from_states(superop, input_states, observables)
+    return _compute_superop_observables_from_states(superop, input_states, observables)
 
 
 @jax.jit
-def compute_superop_observables_from_states(
-    superop: SuperOp, input_states: DensityMatrix, observables: Unitary
+def _compute_superop_observables_from_states(
+    superop: SuperOp, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -377,8 +380,8 @@ def compute_superop_observables_from_states(
 
 
 @jax.jit
-def compute_pauli_liouville_observables_from_states(
-    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Unitary
+def _compute_pauli_liouville_observables_from_states(
+    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
     """
     Compute the provided observables for the given input density matrices and process.
@@ -406,7 +409,46 @@ def compute_pauli_liouville_observables_from_states(
     superop = pauli_liouville_to_superop(pauli_liouville)
 
     # Use the superoperator implementation
-    return compute_superop_observables_from_states(superop, input_states, observables)
+    return _compute_superop_observables_from_states(superop, input_states, observables)
+
+
+_ESTIMATE_INSTEAD = (
+    "Apply the channel and use :func:`~quax.estimate`, which broadcasts ensembles: "
+    "``estimate(superop @ states[:, None], observables[None])``.  It takes proper ``Observable`` "
+    "ensembles and works for ensembles of channels."
+)
+
+
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
+def compute_kraus_observables_from_states(
+    kraus_map: KrausMap, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs."""
+    return _compute_kraus_observables_from_states(kraus_map, input_states, observables)
+
+
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
+def compute_choi_observables_from_states(
+    choi: Choi, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs."""
+    return _compute_choi_observables_from_states(choi, input_states, observables)
+
+
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
+def compute_superop_observables_from_states(
+    superop: SuperOp, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs."""
+    return _compute_superop_observables_from_states(superop, input_states, observables)
+
+
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
+def compute_pauli_liouville_observables_from_states(
+    pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Observable | Unitary
+) -> Array:
+    """Expectation values ``(num_states, num_observables)`` of the observables on the channel's outputs."""
+    return _compute_pauli_liouville_observables_from_states(pauli_liouville, input_states, observables)
 
 
 @singledispatch

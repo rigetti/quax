@@ -327,3 +327,74 @@ def test_non_cp_operations_unsupported():
         _ = L - L
     with pytest.raises(NotImplementedError):
         _ = (1.0 + 1.0j) * L
+
+
+# ---------------------------------------------------------------------------
+# Partner-conditional relaxation
+# ---------------------------------------------------------------------------
+
+_TWO_QUBIT_DIMS = ((2, 2), (2, 2))
+
+
+def test_conditional_relaxation_with_equal_columns_is_independent_relaxation():
+    decay = jnp.array([[0.02, 0.02], [0.05, 0.05]])
+    dephasing = jnp.array([[0.01, 0.01], [0.03, 0.03]])
+    conditional = qx.lindbladians.conditional_relaxation(decay, dephasing)
+    independent = qx.lindbladians.thermal_relaxation(1 / 0.02, 1 / 0.01) | qx.lindbladians.thermal_relaxation(
+        1 / 0.05, 1 / 0.03
+    )
+    assert jnp.allclose(conditional.matrix, independent.matrix, atol=1e-12)
+    assert qx.is_cptp(qx.evolve(conditional, 1.0))
+
+
+@pytest.mark.parametrize("partner", [0, 1])
+def test_conditional_relaxation_decays_at_the_partners_rate(partner):
+    """Qubit 0 excited with the partner frozen in |partner>: its population decays at decay[0, partner]."""
+    decay = jnp.array([[0.3, 0.1], [0.0, 0.0]])
+    channel = qx.evolve(qx.lindbladians.conditional_relaxation(decay, jnp.zeros((2, 2))), 1.0)
+    initial = qx.promote_state_vector_to_density_matrix(
+        qx.states.KET1 | (qx.states.KET1 if partner else qx.states.KET0)
+    )
+    final = channel @ initial
+    population = qx.estimate(final, qx.Observable.from_matrix((qx.gates.P1 | qx.gates.I).matrix, _TWO_QUBIT_DIMS))
+    assert population == pytest.approx(float(jnp.exp(-decay[0, partner])), abs=1e-10)
+    # the partner is untouched by the jump
+    partner_population = qx.estimate(
+        final, qx.Observable.from_matrix((qx.gates.I | qx.gates.P1).matrix, _TWO_QUBIT_DIMS)
+    )
+    assert partner_population == pytest.approx(float(partner), abs=1e-10)
+
+
+def test_conditional_dephasing_at_the_partners_rate():
+    dephasing = jnp.array([[0.4, 0.1], [0.0, 0.0]])
+    channel = qx.evolve(qx.lindbladians.conditional_relaxation(jnp.zeros((2, 2)), dephasing), 1.0)
+    for partner, rate in ((0, 0.4), (1, 0.1)):
+        initial = qx.promote_state_vector_to_density_matrix(
+            qx.states.XPLUS | (qx.states.KET1 if partner else qx.states.KET0)
+        )
+        coherence = qx.estimate(
+            channel @ initial, qx.Observable.from_matrix((qx.gates.X | qx.gates.I).matrix, _TWO_QUBIT_DIMS)
+        )
+        # dephasing(gamma) shrinks <X> by exp(-gamma t)
+        assert coherence == pytest.approx(float(jnp.exp(-rate)), abs=1e-10)
+
+
+def test_conditional_relaxation_broadcasts_and_differentiates():
+    decay = jnp.full((3, 2, 2), 0.02) * jnp.arange(1, 4)[:, None, None]
+    dephasing = jnp.full((2, 2), 0.01)
+    ensemble = qx.lindbladians.conditional_relaxation(decay, dephasing)
+    assert ensemble.ensemble_size == (3,)
+
+    def population(rates):
+        channel = qx.evolve(qx.lindbladians.conditional_relaxation(rates, dephasing), 1.0)
+        initial = qx.promote_state_vector_to_density_matrix(qx.states.KET1 | qx.states.KET0)
+        return qx.estimate(
+            channel @ initial, qx.Observable.from_matrix((qx.gates.P1 | qx.gates.I).matrix, _TWO_QUBIT_DIMS)
+        )
+
+    gradient = jax.grad(population)(decay[0])
+    assert jnp.all(jnp.isfinite(gradient))
+    assert gradient[0, 0] < 0 and gradient[0, 1] == pytest.approx(0.0, abs=1e-10)
+
+    with pytest.raises(ValueError):
+        qx.lindbladians.conditional_relaxation(jnp.zeros(4), jnp.zeros(4))

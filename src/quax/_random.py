@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import partial, reduce
+from functools import reduce
 from operator import mul
 
 import jax
@@ -22,7 +22,7 @@ from jax import Array
 from ._quantum_objects import Choi, DensityMatrix, Observable, Operator, StateVector, Unitary
 
 
-@partial(jax.jit, static_argnames=("dim", "k", "size"))
+@jax.jit(static_argnames=("dim", "k", "size"))
 def ginibre_matrix_complex(dim: int, k: int, key: Array, size: tuple[int, ...] = ()) -> Array:
     r"""
     Given a scalars dim and k, returns a dim by k matrix, drawn from the complex Ginibre
@@ -45,7 +45,7 @@ def ginibre_matrix_complex(dim: int, k: int, key: Array, size: tuple[int, ...] =
     )
 
 
-@partial(jax.jit, static_argnames=("dims", "rank", "size"))
+@jax.jit(static_argnames=("dims", "rank", "size"))
 def random_density_matrix(rank: int, dims: tuple[int, ...], key: Array, size: tuple[int, ...] = ()) -> DensityMatrix:
     dim = reduce(mul, dims, 1)
     if rank > dim:

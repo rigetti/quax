@@ -14,6 +14,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.6] - 2026-09-22
+
+### Added
+
+- `to_pauli_vector` for representing `DensityMatrix`, `StateVector` and `Observable` as vectors of
+  Pauli coefficients.
+- `linear_inversion_process(states, observables, expectations)` and `linear_inversion_state`: the
+  minimum-norm least-squares channel (or state) behind a table of expectation values.
+- `project_to_cptp`, `project_to_cp` and `project_to_tp`: the closest completely positive and/or
+  trace-preserving map in Frobenius norm on the Choi matrix, by Dykstra's alternating projections.
+- `integer_power_superop`, `integer_power_choi`, `integer_power_kraus` and
+  `integer_power_pauli_liouville`. `**` picks this path
+  for a concrete integer exponent and the fractional `power_*` otherwise.
+- `lindbladians.conditional_relaxation(decay, dephasing)`: two-qubit decay and dephasing whose
+  rates depend on the partner's state.
+
+### Deprecated
+
+- `compute_superop_observables_from_states` and its Kraus, Choi and Pauli-Liouville siblings: apply
+  the channel and use `estimate(superop @ states[:, None], observables[None])`.
+
+### Changed
+
+- The quantum-object constructors (`from_matrix`, `from_pauli_vector`, `from_bloch_vector`,
+  `from_superop`) are annotated `Self`, so they keep the subclass they are called on.
+
 ## [0.7.5] - 2026-09-19
 
 ### Added
