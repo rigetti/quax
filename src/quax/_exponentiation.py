@@ -37,7 +37,7 @@ All power implementations use eigendecomposition matching scipy.linalg.fractiona
   scale the time: ``evolve(L, s·t)`` is CPTP for ``s·t ≥ 0``.
 """
 
-from functools import partial, singledispatch
+from functools import singledispatch
 from typing import overload
 
 import jax
@@ -213,7 +213,7 @@ def _matrix_power_via_eig(matrix: Array, power: float) -> Array:
     return V_scaled @ V_inv
 
 
-@partial(jax.jit, static_argnames=("power",))
+@jax.jit(static_argnames=("power",))
 def integer_power_superop(superop: SuperOp, power: int) -> SuperOp:
     """Compose a channel superoperator with itself ``power`` times, by exact repeated multiplication.
 
@@ -229,19 +229,19 @@ def integer_power_superop(superop: SuperOp, power: int) -> SuperOp:
     return SuperOp.from_matrix(jnp.linalg.matrix_power(superop.matrix, power), superop.dims)
 
 
-@partial(jax.jit, static_argnames=("power",))
+@jax.jit(static_argnames=("power",))
 def integer_power_choi(choi: Choi, power: int) -> Choi:
     """Compose a Choi channel with itself ``power`` times; see :func:`integer_power_superop`."""
     return superop_to_choi(integer_power_superop(choi_to_superop(choi), power))
 
 
-@partial(jax.jit, static_argnames=("power",))
+@jax.jit(static_argnames=("power",))
 def integer_power_pauli_liouville(pauli_liouville: PauliLiouville, power: int) -> PauliLiouville:
     """Compose a Pauli-Liouville matrix with itself ``power`` times; see :func:`integer_power_superop`."""
     return PauliLiouville.from_matrix(jnp.linalg.matrix_power(pauli_liouville.matrix, power), pauli_liouville.dims)
 
 
-@partial(jax.jit, static_argnames=("power",))
+@jax.jit(static_argnames=("power",))
 def integer_power_kraus(kraus_map: KrausMap, power: int) -> KrausMap:
     """Compose a Kraus map with itself ``power`` times; see :func:`integer_power_superop`."""
     return superop_to_kraus(integer_power_superop(kraus_to_superop(kraus_map), power))
@@ -409,4 +409,4 @@ def _fractional_power_unitary_bwd(residuals, g: Unitary):
 
 
 fractional_power_unitary.defvjp(_fractional_power_unitary_fwd, _fractional_power_unitary_bwd)
-fractional_power_unitary = partial(jax.jit, static_argnames=("exponent",))(fractional_power_unitary)  # type: ignore[assignment]
+fractional_power_unitary = jax.jit(static_argnames=("exponent",))(fractional_power_unitary)  # type: ignore[assignment]

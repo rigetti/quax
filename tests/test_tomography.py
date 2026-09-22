@@ -150,7 +150,10 @@ def test_jit_and_grad():
     states, observables = _input_states(dims), _traceless_observables(dims)
     truth = qx.choi_to_superop(qx.random_choi((dims, dims), rank=2, key=jax.random.key(20)))
     table = _expectation_table(truth @ states, observables)
-    jitted = jax.jit(qx.linear_inversion_process, static_argnames="trace_preserving")(states, observables, table)
+    # The function carries jax.jit itself; calling it inside another jitted function still traces.
+    assert isinstance(qx.linear_inversion_process, jax.stages.Wrapped)
+    assert isinstance(qx.linear_inversion_state, jax.stages.Wrapped)
+    jitted = jax.jit(lambda t: qx.linear_inversion_process(states, observables, t))(table)
     assert jnp.allclose(jitted.matrix, truth.matrix, atol=1e-10)
 
     def distance(values):

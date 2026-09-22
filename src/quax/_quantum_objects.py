@@ -497,7 +497,7 @@ class StateVector(State):
         return self.data.reshape(ensemble_shape + (d,))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> "StateVector":
+    def from_matrix(cls, matrix: Array, dims: tuple[int, ...]) -> Self:
         """Construct from vector representation.
 
         :param matrix: Array with shape ``(*ensemble, d)`` where d = prod(dims)
@@ -1561,7 +1561,7 @@ class KrausMap(SuperOperator):
         return self.data.reshape(ensemble_shape + (n_kraus, d_out, d_in))
 
     @classmethod
-    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> "KrausMap":
+    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Self:
         """Construct from matrix representation.
 
         :param matrix: Array with shape ``(*ensemble, n_kraus, d_out, d_in)``
@@ -2443,7 +2443,7 @@ class QuantumInstrument(QuantumObject):
         matrix: Array,
         dims: tuple[tuple[int, ...], tuple[int, ...]],
         measured_qudits: tuple[int, ...],
-    ) -> "QuantumInstrument":
+    ) -> Self:
         """Construct from flattened superoperator matrices.
 
         :param matrix: ``(*ensemble, num_outcomes, d_out², d_in²)``
@@ -2505,7 +2505,7 @@ class QuantumInstrument(QuantumObject):
         cls,
         superop_matrices: Sequence["SuperOp"],
         measured_qudits: tuple[int, ...],
-    ) -> "QuantumInstrument":
+    ) -> Self:
         """Construct from a sequence of superoperator matrices (one per outcome).
 
         :param superop_matrices: CP maps, one per measurement outcome.  Their

@@ -124,10 +124,24 @@ def test_ensembles_are_projected_together():
         assert qx.is_cptp(together[k], atol=1e-8)
 
 
-def test_jit():
+def test_the_projections_are_jitted_and_nest_inside_jit():
+    """All three carry ``jax.jit``; calling one inside another jitted function still traces."""
     choi = _perturbed_choi((2, 2), jax.random.key(10))
-    projected = jax.jit(qx.project_to_cptp)(choi)
-    assert jnp.allclose(projected.matrix, qx.project_to_cptp(choi).matrix, atol=1e-10)
+    for project in (qx.project_to_cp, qx.project_to_tp, qx.project_to_cptp):
+        assert isinstance(project, jax.stages.Wrapped)
+        assert jnp.allclose(jax.jit(lambda c, f=project: f(c))(choi).matrix, project(choi).matrix, atol=1e-10)
+
+
+def test_cp_and_tp_projections_are_differentiable():
+    """``project_to_cptp`` stops at a data-dependent ``while_loop``; the single projections do not."""
+    choi = _perturbed_choi((2,), jax.random.key(21))
+
+    for project in (qx.project_to_cp, qx.project_to_tp):
+
+        def norm(matrix, f=project):
+            return jnp.sum(jnp.abs(f(qx.Choi.from_matrix(matrix, choi.dims)).matrix) ** 2)
+
+        assert jnp.all(jnp.isfinite(jax.grad(norm)(choi.matrix)))
 
 
 def test_iteration_cap_is_respected():

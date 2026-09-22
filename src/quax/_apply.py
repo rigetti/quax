@@ -419,7 +419,7 @@ _ESTIMATE_INSTEAD = (
 )
 
 
-@deprecated(version="0.8.0", reason=_ESTIMATE_INSTEAD)
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
 def compute_kraus_observables_from_states(
     kraus_map: KrausMap, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
@@ -427,7 +427,7 @@ def compute_kraus_observables_from_states(
     return _compute_kraus_observables_from_states(kraus_map, input_states, observables)
 
 
-@deprecated(version="0.8.0", reason=_ESTIMATE_INSTEAD)
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
 def compute_choi_observables_from_states(
     choi: Choi, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
@@ -435,7 +435,7 @@ def compute_choi_observables_from_states(
     return _compute_choi_observables_from_states(choi, input_states, observables)
 
 
-@deprecated(version="0.8.0", reason=_ESTIMATE_INSTEAD)
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
 def compute_superop_observables_from_states(
     superop: SuperOp, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:
@@ -443,7 +443,7 @@ def compute_superop_observables_from_states(
     return _compute_superop_observables_from_states(superop, input_states, observables)
 
 
-@deprecated(version="0.8.0", reason=_ESTIMATE_INSTEAD)
+@deprecated(version="0.7.6", reason=_ESTIMATE_INSTEAD)
 def compute_pauli_liouville_observables_from_states(
     pauli_liouville: PauliLiouville, input_states: DensityMatrix, observables: Observable | Unitary
 ) -> Array:

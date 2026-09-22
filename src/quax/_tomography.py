@@ -32,6 +32,7 @@ about, so that row is fixed and only the others are fit.
 from functools import reduce
 from operator import mul
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -47,6 +48,7 @@ def _square_dims(observables: Observable) -> tuple[int, ...]:
     return tuple(dims_out)
 
 
+@jax.jit(static_argnames=("trace_preserving",))
 def linear_inversion_process(
     states: DensityMatrix,
     observables: Observable,
@@ -59,6 +61,9 @@ def linear_inversion_process(
     settings are informationally complete the solution is unique and exact for exact data; otherwise
     it is the minimum-norm solution.  The result is not projected onto the physical channels; compose
     with :func:`~quax.project_to_cptp` for that.
+
+    The function is under ``jax.jit`` and differentiable in ``expectations``; ``trace_preserving``
+    selects the solve, so it is a static argument.
 
     :param states: The ``n`` input states, ``ensemble_size == (n,)``.
     :param observables: The ``m`` measured observables, ``ensemble_size == (m,)``.
@@ -94,11 +99,15 @@ def linear_inversion_process(
     return pauli_liouville_to_superop(PauliLiouville.from_matrix(pauli_liouville, (dims, dims)))
 
 
+@jax.jit(static_argnames=("unit_trace",))
 def linear_inversion_state(observables: Observable, expectations: Array, unit_trace: bool = True) -> DensityMatrix:
     r"""The state whose expectation values best match the measured ones, by linear inversion.
 
     Solves :math:`e_j = \mathrm{Tr}[O_j\,\rho]` for :math:`\rho` in the minimum-norm least-squares sense.
     The result is Hermitian but not necessarily positive.
+
+    The function is under ``jax.jit`` and differentiable in ``expectations``; ``unit_trace`` selects
+    the solve, so it is a static argument.
 
     :param observables: The ``m`` measured observables, ``ensemble_size == (m,)``.
     :param expectations: The measured values, shape ``(*batch, m)``; a batch gives an ensemble of states.

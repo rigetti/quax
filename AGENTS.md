@@ -170,6 +170,14 @@ by registering rather than by editing an `if`/`elif` chain.  A union type hint
 (`DensityMatrix | StateVector | Observable`) with a body that branches on which one it got is the
 shape to avoid.
 
+### Constructors Return `Self`
+
+Alternative constructors — `from_matrix`, `from_pauli_vector`, `from_bloch_vector`,
+`from_superop` — are `@classmethod`s that build through `cls(...)`, so they are annotated
+`-> Self` (from `typing`), never with the quoted name of the class they are defined on.  A quoted
+name lies about a subclass: `Involution.from_matrix(...)` really returns an `Involution`, and
+`Self` is what tells a type checker so.
+
 ### Naming Conventions
 
 - **Functions**: `snake_case` (e.g., `apply_unitary_to_state_vector`)
@@ -181,9 +189,28 @@ shape to avoid.
 
 1. **Pure Functions**: All functions should be JAX-compatible (pure, no side effects)
 2. **Array Operations**: Use `jax.numpy` instead of `numpy`
-3. **JIT Compilation**: Functions should be compatible with `jax.jit`
+3. **JIT Compilation**: Functions should be compatible with `jax.jit`, and public array-valued
+   functions should carry the decorator rather than leave jitting to the caller.
 4. **PRNG Keys**: Use `jax.random.PRNGKey` for randomness. Use the more modern `jax.random.key(seed)` for initializing keys.
 5. **Shape Handling**: Use `dims` tuples to specify system dimensions
+
+#### Decorating with static arguments
+
+`jax.jit` takes its options directly as a decorator — **do not wrap it in `functools.partial`**:
+
+```python
+@jax.jit(static_argnames=("power",))
+def integer_power_superop(superop: SuperOp, power: int) -> SuperOp: ...
+```
+
+not `@partial(jax.jit, static_argnames=("power",))`.  An argument is static when it selects the
+computation rather than feeding it: a shape, a dimension, an iteration cap, a flag that picks
+between two solves, or an exponent that `jnp.linalg.matrix_power` needs concretely.
+
+A quantum object is a pytree, so its Python type is part of the tracer's structure: a function may
+branch on `isinstance(channel, Choi)` or dispatch on the type and still be jitted, and it can return
+a different representation for a different input type.  What it cannot do is branch on an array
+*value*; a data-dependent loop (`lax.while_loop`) is jittable but not reverse-mode differentiable.
 
 ### Quantum Computing Conventions
 

@@ -36,7 +36,6 @@ The algorithm follows [PGDB]_, equations 8 and 12.
          https://doi.org/10.1007/978-0-387-74759-0_143
 """
 
-from functools import partial
 from typing import TypeVar, cast
 
 import jax
@@ -82,7 +81,7 @@ def _inner(a: Array, b: Array) -> Array:
     return jnp.sum(jnp.conj(a) * b, axis=(-2, -1))
 
 
-@partial(jax.jit, static_argnames=("d", "max_iterations"))
+@jax.jit(static_argnames=("d", "max_iterations"))
 def _project_cptp(choi: Array, d: int, max_iterations: int, tolerance: float) -> Array:
     """Dykstra's alternating projections onto the CP and TP sets, on ``(..., d², d²)`` Choi matrices."""
     zeros = jnp.zeros_like(choi)
@@ -132,10 +131,12 @@ def _same_representation(result: Choi, like: SuperOperator | Unitary) -> SuperOp
             raise NotImplementedError(f"Projection is not implemented for {type(like).__name__}.")
 
 
+@jax.jit
 def project_to_cp(channel: ChannelT) -> ChannelT:
     """The closest completely positive map, by clipping the negative eigenvalues of the Choi matrix.
 
-    Equation 8 of [PGDB]_.  Ensembles are supported; the result has the representation of the input.
+    Equation 8 of [PGDB]_.  Ensembles are supported; the result has the representation of the input,
+    which the tracer carries as part of the pytree structure, so the whole function is under ``jax.jit``.
 
     :param channel: A ``Choi``, ``SuperOp``, ``PauliLiouville`` or ``KrausMap``.
     :return: The projected channel, in the same representation.
@@ -144,10 +145,12 @@ def project_to_cp(channel: ChannelT) -> ChannelT:
     return cast(ChannelT, _same_representation(Choi.from_matrix(_project_cp(choi.matrix), choi.dims), channel))
 
 
+@jax.jit
 def project_to_tp(channel: ChannelT) -> ChannelT:
     """The closest trace-preserving map, an affine projection of the Choi matrix.
 
-    Equation 12 of [PGDB]_.  Ensembles are supported; the result has the representation of the input.
+    Equation 12 of [PGDB]_.  Ensembles are supported; the result has the representation of the input,
+    which the tracer carries as part of the pytree structure, so the whole function is under ``jax.jit``.
 
     :param channel: A ``Choi``, ``SuperOp``, ``PauliLiouville`` or ``KrausMap``.
     :return: The projected channel, in the same representation.
@@ -158,12 +161,14 @@ def project_to_tp(channel: ChannelT) -> ChannelT:
     )
 
 
+@jax.jit(static_argnames=("max_iterations",))
 def project_to_cptp(channel: ChannelT, max_iterations: int = 10_000, tolerance: float = 1e-16) -> ChannelT:
     """The closest completely positive, trace-preserving map in Frobenius norm on the Choi matrix.
 
     Dykstra's alternating projections between the CP and TP sets ([PGDB]_), stopped by the criterion of
     [DYKSTOP]_ or at ``max_iterations``.  A channel that is already CPTP comes back unchanged after one
-    iteration.  Ensembles are supported and projected together; the whole loop runs under ``jax.jit``.
+    iteration.  Ensembles are supported and projected together; the whole function is under ``jax.jit``,
+    with ``max_iterations`` a static argument (``tolerance`` may be traced).
 
     :param channel: A ``Choi``, ``SuperOp``, ``PauliLiouville`` or ``KrausMap``.
     :param max_iterations: The cap on the number of alternating projections.
@@ -172,6 +177,12 @@ def project_to_cptp(channel: ChannelT, max_iterations: int = 10_000, tolerance: 
         eigenvalues above about ``-1e-9`` after a few dozen iterations.  Round-off puts the floor of the
         criterion near ``1e-18``; below that the loop runs to ``max_iterations``.
     :return: The projected channel, in the same representation.
+
+    .. note::
+        The data-dependent stopping rule makes this a ``lax.while_loop``, which JAX cannot
+        differentiate in reverse mode.  :func:`project_to_cp` and :func:`project_to_tp` are
+        differentiable; to put a CPTP projection inside a loss, use one of those or parameterize the
+        channel so that it is CPTP by construction.
     """
     choi = to_choi(channel)
     projected = _project_cptp(choi.matrix, choi.d[0], max_iterations, tolerance)
