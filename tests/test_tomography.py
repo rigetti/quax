@@ -151,14 +151,18 @@ def test_jit_and_grad():
 
     def distance(values):
         estimate = qx.linear_inversion_process(states, observables, values)
-        return jnp.sum(jnp.abs(estimate.matrix - truth.matrix) ** 2)
+        difference = estimate.matrix - truth.matrix
+        # |z|**2 as z z*, whose gradient is finite at the exactly-zero entries of the superoperator
+        # (the identity row structure), where d|z| is not.
+        return jnp.real(jnp.sum(difference * jnp.conj(difference)))
 
     noisy = table + 0.01 * jax.random.normal(jax.random.key(24), table.shape)
     gradient = jax.grad(distance)(noisy)
     assert jnp.all(jnp.isfinite(gradient))
-    # Linear inversion is linear in the table, so following the gradient back reaches the truth.
+    # Linear inversion is linear in the table, so one Newton step reaches the truth; the Hessian is
+    # singular (more table entries than channel parameters), so take the minimum-norm step.
     hessian = jax.hessian(distance)(noisy).reshape(noisy.size, noisy.size)
-    corrected = noisy.reshape(-1) - jnp.linalg.solve(hessian, gradient.reshape(-1))
+    corrected = noisy.reshape(-1) - jnp.linalg.lstsq(hessian, gradient.reshape(-1))[0]
     assert distance(corrected.reshape(noisy.shape)) < 1e-20
 
 
