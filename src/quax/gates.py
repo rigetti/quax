@@ -45,11 +45,11 @@ Currently includes:
     :math:`\begin{pmatrix} \cos(\phi/2) - i \sin(\phi/2) & 0 \\ 0 & \cos(\phi/2) + i \sin(\phi/2) \end{pmatrix}`
 
     PHASEDRX(:math:`\theta, \phi`) - PHASEDRX
-    :math:`\begin{pmatrix} e^{i \theta / 2} \cos\left(\frac{\theta}{2}\right) & -i, e^{i\left(\frac{\theta}{2} - \phi\right)} \sin\left(\frac{\theta}{2}\right) \
--i, e^{i\left(\frac{\theta}{2} + \phi\right)} \sin\left(\frac{\theta}{2}\right) & e^{i \theta / 2} \cos\left(\frac{\theta}{2}\right) \end{pmatrix}`
+    :math:`\begin{pmatrix} e^{i \theta / 2} \cos\left(\frac{\theta}{2}\right) & -i e^{i\left(\frac{\theta}{2} - \phi\right)} \sin\left(\frac{\theta}{2}\right) \\
+-i e^{i\left(\frac{\theta}{2} + \phi\right)} \sin\left(\frac{\theta}{2}\right) & e^{i \theta / 2} \cos\left(\frac{\theta}{2}\right) \end{pmatrix}`
 
     U(:math:`\theta, \phi, \lambda`) - U3
-    :math:`\begin{pmatrix} \cos(\theta/2) & - \exp{i\lambda} \sin(\theta/2) \\ \exp{i\phi} \sin(\theta/2) & \exp{i\phi + \lambda} \cos(\theta/2) \end{pmatrix}`
+    :math:`\begin{pmatrix} \cos(\theta/2) & - e^{i\lambda} \sin(\theta/2) \\ e^{i\phi} \sin(\theta/2) & e^{i(\phi + \lambda)} \cos(\theta/2) \end{pmatrix}`
 
     CZ - controlled-Z
     :math:`P_0 \otimes I + P_1 \otimes Z = \begin{pmatrix} 1&0&0&0 \\ 0&1&0&0 \\ 0&0&1&0 \\ 0&0&0&-1 \end{pmatrix}`
@@ -87,8 +87,8 @@ Currently includes:
     XY(:math:`\phi`) - XY-interaction
     :math:`\begin{pmatrix} 1&0&0&0 \\ 0&\cos(\phi/2)&i\sin(\phi/2)&0 \\ 0&i\sin(\phi/2)&\cos(\phi/2)&0 \\  0&0&0&1 \end{pmatrix}`
 
-    SQISW - XY(:math: `\pi/2`)-interaction
-    :math:`\begin{pmatrix} 1&0&0&0 \\ 0&\frac{1}{\sqrt{2}}&\frac{i}{\sqrt{2}}&0 \\ \frac{i}{\sqrt{2}}&\frac{1}{\sqrt{2}} \\  0&0&0&1 \end{pmatrix}`
+    SQISW - XY(:math:`\pi/2`)-interaction
+    :math:`\begin{pmatrix} 1&0&0&0 \\ 0&\frac{1}{\sqrt{2}}&\frac{i}{\sqrt{2}}&0 \\ 0&\frac{i}{\sqrt{2}}&\frac{1}{\sqrt{2}}&0 \\  0&0&0&1 \end{pmatrix}`
 
     FSIM(:math:`\theta, \phi`) - XX+YY interaction with conditional phase on \|11\>
     :math:`\begin{pmatrix} 1&0&0&0 \\ 0&\cos(\frac{\theta}{2})&i\sin(\frac{\theta}{2})&0 \\ 0&i\sin(\frac{\theta}{2})&\cos(\frac{\theta}{2})&0 \\  0&0&0&e^{i \phi} \end{pmatrix}`
@@ -103,8 +103,11 @@ Currently includes:
     :math:`\begin{pmatrix} \cos(\phi/2)&0&0&i\sin(\phi/2) \\ 0&\cos(\phi/2)&-i\sin(\phi/2)&0 \\ 0&-i\sin(\phi/2)&\cos(\phi/2)&0 \\  i\sin(\phi/2)&0&0&cos(\phi/2) \end{pmatrix}`
 
     RZZ(:math:`\phi`) - ZZ-interaction
-    :math:`\begin{pmatrix} 1&0&0&0 \\ 0&\cos(\phi/2)&-i\sin(\phi/2)&0 \\ 0&-i\sin(\phi/2)&\cos(\phi/2)&0 \\  0&0&0&1 \end{pmatrix}`
+    :math:`\text{diag}(e^{-i\phi/2}, e^{i\phi/2}, e^{i\phi/2}, e^{-i\phi/2})`
 
+
+Each parametric gate's docstring gives its Hamiltonian generator :math:`H`, with the gate equal to
+:math:`e^{-iH}` (the convention of :func:`quax.evolve`).
 
 Specialized gates / internal utility gates:
     BARENCO(:math:`\alpha, \phi, \theta`) - Barenco gate
@@ -117,10 +120,27 @@ Specialized gates / internal utility gates:
     :math:`\begin{pmatrix} 0 & 0 \\ 0 & 1 \end{pmatrix}`
 """
 
+import jax
 import jax.numpy as jnp
+from jax import Array
 
-from ._exponentiation import evolve
 from ._quantum_objects import Involution, Observable, Operator, QuantumInstrument, SuperOp, Unitary
+
+# Parametric gates are written out as closed-form matrices rather than as ``evolve(H)``: a matrix exponential is far
+# slower than a handful of trigonometric entries, especially over an ensemble of angles.  Each docstring records the
+# Hamiltonian generator ``H`` in the Schrödinger convention of :func:`quax.evolve`, i.e. the gate is ``exp(-i H)``.
+
+
+def _matrix(rows: list[list]) -> Array:
+    """``jnp.array(rows, dtype=complex)``, for entries that may be ensembles of values.
+
+    Entries broadcast against each other and the ensemble dimensions lead, so with ``c`` of shape ``(n,)`` the matrix
+    ``_matrix([[c, 0], [0, c]])`` has shape ``(n, 2, 2)``.
+    """
+    size = len(rows)
+    entries = jnp.broadcast_arrays(*(jnp.asarray(entry, dtype=complex) for row in rows for entry in row))
+    return jnp.stack(entries, axis=-1).reshape(entries[0].shape + (size, size))
+
 
 I = Involution.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=complex), ((2,), (2,)))
 
@@ -137,31 +157,116 @@ S = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, 1.0j]], dtype=complex), ((2
 T = Unitary.from_matrix(jnp.array([[1.0, 0.0], [0.0, jnp.exp(1.0j * jnp.pi / 4.0)]], dtype=complex), ((2,), (2,)))
 
 
+@jax.jit
 def PHASE(phi: float) -> Unitary:
-    return evolve((I - Z) * (-0.5 * phi))
+    r"""Phase shift of :math:`|1\rangle` by :math:`e^{i\phi}`.
+
+    Generator: :math:`H = -\phi\,|1\rangle\langle 1| = -\frac{\phi}{2}(I - Z)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0],
+                [0, jnp.exp(1j * phi)],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
-def RX(phi) -> Unitary:
-    return evolve(X * (0.5 * phi))
+@jax.jit
+def RX(phi: float) -> Unitary:
+    r"""Rotation by :math:`\phi` about the X axis.
+
+    Generator: :math:`H = \frac{\phi}{2} X`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, -1j * s],
+                [-1j * s, c],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
+@jax.jit
 def RY(phi: float) -> Unitary:
-    return evolve(Y * (0.5 * phi))
+    r"""Rotation by :math:`\phi` about the Y axis.
+
+    Generator: :math:`H = \frac{\phi}{2} Y`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, -s],
+                [s, c],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
+@jax.jit
 def RZ(phi: float) -> Unitary:
-    result = PHASE(phi) * jnp.exp(-1j * phi / 2.0)
-    return Unitary(result.data, result.num_qubits)
+    r"""Rotation by :math:`\phi` about the Z axis.
+
+    Generator: :math:`H = \frac{\phi}{2} Z`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [jnp.exp(-0.5j * phi), 0],
+                [0, jnp.exp(0.5j * phi)],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
+@jax.jit
 def PHASEDRX(theta: float, phi: float) -> Unitary:
-    result = jnp.exp(1j * theta / 2.0) * (RZ(phi) @ RX(theta) @ RZ(-phi))
-    return Unitary(result.data, result.num_qubits)
+    r"""Rotation by :math:`\theta` about the equatorial axis at azimuth :math:`\phi`, with a global phase
+    :math:`e^{i\theta/2}`, i.e. :math:`e^{i\theta/2}\, RZ(\phi)\, RX(\theta)\, RZ(-\phi)`.
+
+    Generator: :math:`H = \frac{\theta}{2}\left(\cos\phi\, X + \sin\phi\, Y - I\right)`.
+    """
+    c, s = jnp.cos(theta / 2.0), jnp.sin(theta / 2.0)
+    return Unitary.from_matrix(
+        jnp.exp(0.5j * theta)[..., None, None]
+        * _matrix(
+            [
+                [c, -1j * jnp.exp(-1j * phi) * s],
+                [-1j * jnp.exp(1j * phi) * s, c],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
+@jax.jit
 def U(theta: float, phi: float, lam: float) -> Unitary:
-    result = jnp.exp(1j * (phi + lam) / 2.0) * (RZ(phi) @ RY(theta) @ RZ(lam))
-    return Unitary(result.data, result.num_qubits)
+    r"""General single-qubit gate :math:`e^{i(\phi + \lambda)/2}\, RZ(\phi)\, RY(\theta)\, RZ(\lambda)`.
+
+    Generators: a product of three evolutions (applied right to left)
+
+    .. math::
+        U(\theta, \phi, \lambda) = e^{i(\phi + \lambda)/2}\, e^{-i \frac{\phi}{2} Z}\, e^{-i \frac{\theta}{2} Y}\,
+        e^{-i \frac{\lambda}{2} Z}.
+    """
+    c, s = jnp.cos(theta / 2.0), jnp.sin(theta / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, -jnp.exp(1j * lam) * s],
+                [jnp.exp(1j * phi) * s, jnp.exp(1j * (phi + lam)) * c],
+            ]
+        ),
+        ((2,), (2,)),
+    )
 
 
 CZ = Involution.from_matrix(
@@ -189,21 +294,80 @@ CCNOT = Involution.from_matrix(
 )
 
 
+@jax.jit
 def CPHASE00(phi: float) -> Unitary:
-    result = jnp.exp(0.5j * phi) * evolve((((I | I) - (Z | I) - (I | Z)) - (Z | Z)) * (0.25 * phi))
-    return Unitary(result.data, result.num_qubits)
+    r"""Phase shift of :math:`|00\rangle` by :math:`e^{i\phi}`.
+
+    Generator: :math:`H = -\phi\,|00\rangle\langle 00| = -\frac{\phi}{4}(II + ZI + IZ + ZZ)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [jnp.exp(1j * phi), 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def CPHASE01(phi: float) -> Unitary:
-    return evolve((((I | I) + (Z | I) - (I | Z)) - (Z | Z)) * (-0.25 * phi))
+    r"""Phase shift of :math:`|01\rangle` by :math:`e^{i\phi}`.
+
+    Generator: :math:`H = -\phi\,|01\rangle\langle 01| = -\frac{\phi}{4}(II + ZI - IZ - ZZ)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, jnp.exp(1j * phi), 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def CPHASE10(phi: float) -> Unitary:
-    return evolve((((I | I) - (Z | I) + (I | Z)) - (Z | Z)) * (-0.25 * phi))
+    r"""Phase shift of :math:`|10\rangle` by :math:`e^{i\phi}`.
+
+    Generator: :math:`H = -\phi\,|10\rangle\langle 10| = -\frac{\phi}{4}(II - ZI + IZ - ZZ)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, jnp.exp(1j * phi), 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def CPHASE(phi: float) -> Unitary:
-    return evolve((((I | I) - (Z | I) - (I | Z)) + (Z | Z)) * (-0.25 * phi))
+    r"""Phase shift of :math:`|11\rangle` by :math:`e^{i\phi}`.
+
+    Generator: :math:`H = -\phi\,|11\rangle\langle 11| = -\frac{\phi}{4}(II - ZI - IZ + ZZ)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, 1, 0, 0],
+                [0, 0, 1, 0],
+                [0, 0, 0, jnp.exp(1j * phi)],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
 SWAP = Involution.from_matrix(
@@ -232,42 +396,151 @@ ISWAP = Unitary.from_matrix(
 )
 
 
+@jax.jit
 def PSWAP(phi: float) -> Unitary:
-    return evolve(((I | I) - (Z | Z)) * (-0.5 * (phi - jnp.pi / 2.0))) @ evolve(((X | X) + (Y | Y)) * (-jnp.pi / 4.0))
+    r"""SWAP with a phase :math:`e^{i\phi}` on the swapped :math:`|01\rangle, |10\rangle` amplitudes.
+
+    Generator: :math:`H = \left(\frac{\pi}{4} - \frac{\phi}{2}\right)(II - ZZ) - \frac{\pi}{4}(XX + YY)`
+    (the two terms commute).
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, 0, jnp.exp(1j * phi), 0],
+                [0, jnp.exp(1j * phi), 0, 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def XY(phi: float) -> Unitary:
-    return evolve(((X | X) + (Y | Y)) * (-phi / 4.0))
+    r"""XY (iSWAP-family) interaction by angle :math:`\phi` in the :math:`|01\rangle, |10\rangle` subspace.
+
+    Generator: :math:`H = -\frac{\phi}{4}(XX + YY)`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, c, 1j * s, 0],
+                [0, 1j * s, c, 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def FSIM(theta: float, phi: float) -> Unitary:
-    return CPHASE(phi) @ XY(theta)
+    r"""XY interaction by :math:`\theta` followed by a conditional phase :math:`e^{i\phi}` on :math:`|11\rangle`,
+    i.e. :math:`CPHASE(\phi)\, XY(\theta)`.
+
+    Generator: :math:`H = -\frac{\theta}{4}(XX + YY) - \phi\,|11\rangle\langle 11|` (the two terms commute).
+    """
+    c, s = jnp.cos(theta / 2.0), jnp.sin(theta / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, c, 1j * s, 0],
+                [0, 1j * s, c, 0],
+                [0, 0, 0, jnp.exp(1j * phi)],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def PHASEDFSIM(theta: float, zeta: float, chi: float, gamma: float, phi: float) -> Unitary:
-    diagonal_generator = (
-        (I | I) * ((phi / 4.0) - gamma) + ((Z | I) + (I | Z)) * ((2.0 * gamma - phi) / 4.0) + (Z | Z) * (phi / 4.0)
-    )
-    zeta_generator = ((Z | I) - (I | Z)) * (-zeta / 4.0)
-    interaction_generator = (((X | X) + (Y | Y)) * (theta / 4.0) * jnp.cos(chi)) - (
-        ((Y | X) - (X | Y)) * (theta / 4.0) * jnp.sin(chi)
+    r"""FSIM with additional single-qubit phases :math:`\zeta, \chi, \gamma`.
+
+    Generators: a product of evolutions (applied right to left)
+    :math:`e^{-i H_\text{diag}}\, e^{-i H_\zeta}\, e^{-i H_\text{int}}\, e^{-i H_\zeta}` with
+
+    .. math::
+        H_\text{diag} &= \left(\gamma - \frac{\phi}{4}\right) II - \frac{2\gamma - \phi}{4}(ZI + IZ)
+            - \frac{\phi}{4} ZZ, \\
+        H_\zeta &= \frac{\zeta}{4}(ZI - IZ), \\
+        H_\text{int} &= -\frac{\theta}{4}\left[\cos\chi\,(XX + YY) - \sin\chi\,(YX - XY)\right].
+    """
+    c, s = jnp.cos(theta / 2.0), jnp.sin(theta / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, jnp.exp(-1j * (gamma + zeta)) * c, 1j * jnp.exp(-1j * (gamma - chi)) * s, 0],
+                [0, 1j * jnp.exp(-1j * (gamma + chi)) * s, jnp.exp(-1j * (gamma - zeta)) * c, 0],
+                [0, 0, 0, jnp.exp(1j * (phi - 2.0 * gamma))],
+            ]
+        ),
+        ((2, 2), (2, 2)),
     )
 
-    return (
-        evolve(-diagonal_generator) @ evolve(-zeta_generator) @ evolve(-interaction_generator) @ evolve(-zeta_generator)
-    )
 
-
+@jax.jit
 def RZZ(phi: float) -> Unitary:
-    return evolve((Z | Z) * (0.5 * phi))
+    r"""ZZ interaction by angle :math:`\phi`.
+
+    Generator: :math:`H = \frac{\phi}{2} ZZ`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [jnp.exp(-0.5j * phi), 0, 0, 0],
+                [0, jnp.exp(0.5j * phi), 0, 0],
+                [0, 0, jnp.exp(0.5j * phi), 0],
+                [0, 0, 0, jnp.exp(-0.5j * phi)],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def RXX(phi: float) -> Unitary:
-    return evolve((X | X) * (0.5 * phi))
+    r"""XX interaction by angle :math:`\phi`.
+
+    Generator: :math:`H = \frac{\phi}{2} XX`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, 0, 0, -1j * s],
+                [0, c, -1j * s, 0],
+                [0, -1j * s, c, 0],
+                [-1j * s, 0, 0, c],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
+@jax.jit
 def RYY(phi: float) -> Unitary:
-    return evolve((Y | Y) * (0.5 * phi))
+    r"""YY interaction by angle :math:`\phi`.
+
+    Generator: :math:`H = \frac{\phi}{2} YY`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, 0, 0, 1j * s],
+                [0, c, -1j * s, 0],
+                [0, -1j * s, c, 0],
+                [1j * s, 0, 0, c],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
 SQISWAP = SQISW = Unitary.from_matrix(
@@ -321,23 +594,72 @@ def BARENCO(alpha: float, phi: float, theta: float) -> Unitary:
     )
 
 
+@jax.jit
 def CAN(tx: float, ty: float, tz: float) -> Unitary:
-    """Canonical gate."""
-    return evolve((X | X) * (-0.5 * tx) + (Y | Y) * (-0.5 * ty) + (Z | Z) * (-0.5 * tz))
+    r"""Canonical gate.
+
+    Generator: :math:`H = -\frac{1}{2}\left(t_x XX + t_y YY + t_z ZZ\right)` (the three terms commute).
+    """
+    # The |00>, |11> block rotates by tx - ty and the |01>, |10> block by tx + ty; ZZ phases the blocks oppositely.
+    c_m, s_m = jnp.cos((tx - ty) / 2.0), jnp.sin((tx - ty) / 2.0)
+    c_p, s_p = jnp.cos((tx + ty) / 2.0), jnp.sin((tx + ty) / 2.0)
+    e_p, e_m = jnp.exp(0.5j * tz), jnp.exp(-0.5j * tz)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [e_p * c_m, 0, 0, 1j * e_p * s_m],
+                [0, e_m * c_p, 1j * e_m * s_p, 0],
+                [0, 1j * e_m * s_p, e_m * c_p, 0],
+                [1j * e_p * s_m, 0, 0, e_p * c_m],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
 B = CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0)
+r"""Berkeley gate :math:`CAN(\pi/2, \pi/4, 0)`."""
 
 
-ECR = evolve((-jnp.pi / 4.0) * (Z | X)) @ (X | I)
+ECR = Unitary.from_matrix(
+    (1.0 / jnp.sqrt(2.0))
+    * jnp.array(
+        [
+            [0, 0, 1, 1j],
+            [0, 0, 1j, 1],
+            [1, -1j, 0, 0],
+            [-1j, 1, 0, 0],
+        ],
+        dtype=complex,
+    ),
+    ((2, 2), (2, 2)),
+)
+r"""Echoed cross-resonance gate :math:`e^{-iH}\, (X \otimes I)` with generator :math:`H = -\frac{\pi}{4} ZX`."""
 
 
+@jax.jit
 def GIVENS(theta: float) -> Unitary:
-    """Givens rotation on the subspace spanned by |01> and |10>."""
-    return evolve(((Y | X) - (X | Y)) * (0.5 * theta))
+    r"""Givens rotation by :math:`\theta` on the subspace spanned by :math:`|01\rangle` and :math:`|10\rangle`.
+
+    Generator: :math:`H = \frac{\theta}{2}(YX - XY)`.
+    """
+    c, s = jnp.cos(theta), jnp.sin(theta)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0, 0],
+                [0, c, -s, 0],
+                [0, s, c, 0],
+                [0, 0, 0, 1],
+            ]
+        ),
+        ((2, 2), (2, 2)),
+    )
 
 
-SYCAMORE = CPHASE(-jnp.pi / 6.0) @ XY(-jnp.pi)
+SYCAMORE = FSIM(-jnp.pi, -jnp.pi / 6.0)
+r"""Sycamore gate :math:`FSIM(-\pi, -\pi/6)`, with generator
+:math:`H = \frac{\pi}{4}(XX + YY) + \frac{\pi}{6}\,|11\rangle\langle 11|`."""
 
 
 # =============================================================================
@@ -530,60 +852,183 @@ WEYLS3 = Unitary.from_matrix(
 """All nine qutrit Weyl operators as an ensemble, ordered (0,0), (0,1), …, (2,2)."""
 
 # =============================================================================
-# Qutrit rotation gates (built from Gell-Mann generators)
+# Qutrit rotation gates (qubit rotations embedded in a two-level subspace)
 # =============================================================================
 # The Gell-Mann matrices directly provide X and Y generators for each 2-level
 # subspace.  The Z generators for (0,2) and (1,2) are linear combinations of
 # λ₃ and λ₈:
 #   Z₀₂ = diag(1,0,−1) = ½λ₃ + (√3/2)λ₈
 #   Z₁₂ = diag(0,1,−1) = (√3/2)λ₈ − ½λ₃
-_Z02 = GELLMANN3 * 0.5 + GELLMANN8 * (jnp.sqrt(3.0) * 0.5)
-_Z12 = GELLMANN8 * (jnp.sqrt(3.0) * 0.5) - GELLMANN3 * 0.5
 
 
-def TRX01(phi) -> Unitary:
-    """Qutrit X-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN1 * (0.5 * phi))
+@jax.jit
+def TRX01(phi: float) -> Unitary:
+    r"""Qutrit X-rotation in the |0⟩–|1⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_1`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, -1j * s, 0],
+                [-1j * s, c, 0],
+                [0, 0, 1],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRY01(phi) -> Unitary:
-    """Qutrit Y-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN2 * (0.5 * phi))
+@jax.jit
+def TRY01(phi: float) -> Unitary:
+    r"""Qutrit Y-rotation in the |0⟩–|1⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_2`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, -s, 0],
+                [s, c, 0],
+                [0, 0, 1],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRZ01(phi) -> Unitary:
-    """Qutrit Z-rotation in the |0⟩–|1⟩ subspace."""
-    return evolve(GELLMANN3 * (0.5 * phi))
+@jax.jit
+def TRZ01(phi: float) -> Unitary:
+    r"""Qutrit Z-rotation in the |0⟩–|1⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_3 = \frac{\phi}{2} \operatorname{diag}(1, -1, 0)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [jnp.exp(-0.5j * phi), 0, 0],
+                [0, jnp.exp(0.5j * phi), 0],
+                [0, 0, 1],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRX02(phi) -> Unitary:
-    """Qutrit X-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(GELLMANN4 * (0.5 * phi))
+@jax.jit
+def TRX02(phi: float) -> Unitary:
+    r"""Qutrit X-rotation in the |0⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_4`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, 0, -1j * s],
+                [0, 1, 0],
+                [-1j * s, 0, c],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRY02(phi) -> Unitary:
-    """Qutrit Y-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(GELLMANN5 * (0.5 * phi))
+@jax.jit
+def TRY02(phi: float) -> Unitary:
+    r"""Qutrit Y-rotation in the |0⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_5`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [c, 0, -s],
+                [0, 1, 0],
+                [s, 0, c],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRZ02(phi) -> Unitary:
-    """Qutrit Z-rotation in the |0⟩–|2⟩ subspace."""
-    return evolve(_Z02 * (0.5 * phi))
+@jax.jit
+def TRZ02(phi: float) -> Unitary:
+    r"""Qutrit Z-rotation in the |0⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \operatorname{diag}(1, 0, -1)
+    = \frac{\phi}{2}\left(\frac{1}{2}\lambda_3 + \frac{\sqrt{3}}{2}\lambda_8\right)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [jnp.exp(-0.5j * phi), 0, 0],
+                [0, 1, 0],
+                [0, 0, jnp.exp(0.5j * phi)],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRX12(phi) -> Unitary:
-    """Qutrit X-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(GELLMANN6 * (0.5 * phi))
+@jax.jit
+def TRX12(phi: float) -> Unitary:
+    r"""Qutrit X-rotation in the |1⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_6`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0],
+                [0, c, -1j * s],
+                [0, -1j * s, c],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRY12(phi) -> Unitary:
-    """Qutrit Y-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(GELLMANN7 * (0.5 * phi))
+@jax.jit
+def TRY12(phi: float) -> Unitary:
+    r"""Qutrit Y-rotation in the |1⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \lambda_7`.
+    """
+    c, s = jnp.cos(phi / 2.0), jnp.sin(phi / 2.0)
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0],
+                [0, c, -s],
+                [0, s, c],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
-def TRZ12(phi) -> Unitary:
-    """Qutrit Z-rotation in the |1⟩–|2⟩ subspace."""
-    return evolve(_Z12 * (0.5 * phi))
+@jax.jit
+def TRZ12(phi: float) -> Unitary:
+    r"""Qutrit Z-rotation in the |1⟩–|2⟩ subspace.
+
+    Generator: :math:`H = \frac{\phi}{2} \operatorname{diag}(0, 1, -1)
+    = \frac{\phi}{2}\left(\frac{\sqrt{3}}{2}\lambda_8 - \frac{1}{2}\lambda_3\right)`.
+    """
+    return Unitary.from_matrix(
+        _matrix(
+            [
+                [1, 0, 0],
+                [0, jnp.exp(-0.5j * phi), 0],
+                [0, 0, jnp.exp(0.5j * phi)],
+            ]
+        ),
+        ((3,), (3,)),
+    )
 
 
 # Convenience aliases

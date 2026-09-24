@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.7] - 2026-09-24
+
+### Changed
+
+- Gates are defined via closed-form expression rather than matrix exponentials for performance reasons.
+
+
 ## [0.7.6] - 2026-09-22
 
 ### Added
