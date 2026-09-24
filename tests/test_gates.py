@@ -1,8 +1,10 @@
 # This file checks our gate definitions against pyquil
 import inspect
 
+import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 from pyquil.simulation import matrices
 
 import quax as qx
@@ -228,14 +230,11 @@ def test_qutrit_TH_cubed_is_identity():
 
 def test_qutrit_rotations_are_unitary():
     """Qutrit rotations TRX, TRY, TRZ are unitary for various angles and subspaces."""
-    rx_gates = [qx.gates.TRX01, qx.gates.TRX02, qx.gates.TRX12]
-    ry_gates = [qx.gates.TRY01, qx.gates.TRY02, qx.gates.TRY12]
-    rz_gates = [qx.gates.TRZ01, qx.gates.TRZ02, qx.gates.TRZ12]
     for phi in [0.0, 0.5, jnp.pi, 2.3]:
-        for rx, ry, rz in zip(rx_gates, ry_gates, rz_gates):
-            assert is_unitary(rx(phi).matrix), f"{rx.__name__}({phi}) not unitary"
-            assert is_unitary(ry(phi).matrix), f"{ry.__name__}({phi}) not unitary"
-            assert is_unitary(rz(phi).matrix), f"{rz.__name__}({phi}) not unitary"
+        for axis in "XYZ":
+            for subspace in ("01", "02", "12"):
+                name = f"TR{axis}{subspace}"
+                assert is_unitary(getattr(qx.gates, name)(phi).matrix), f"{name}({phi}) not unitary"
 
 
 def test_qutrit_rotations_identity_at_zero():
@@ -390,3 +389,107 @@ def test_tensor_product_of_unitaries_is_unitary():
     phi, lam = 0.3, 0.7
     result = qx.gates.RY(phi) | qx.gates.RZ(lam)
     assert isinstance(result, qx.Unitary)
+
+
+# =============================================================================
+# Closed forms against the Hamiltonian generators in the gate docstrings
+# =============================================================================
+
+_I, _X, _Y, _Z = qx.gates.I, qx.gates.X, qx.gates.Y, qx.gates.Z
+_II, _ZZ = _I | _I, _Z | _Z
+_ZI, _IZ = _Z | _I, _I | _Z
+_XX_YY = (_X | _X) + (_Y | _Y)
+_YX_XY = (_Y | _X) - (_X | _Y)
+_PROJ00 = (_II + _ZI + _IZ + _ZZ) * 0.25
+_PROJ01 = (_II + _ZI - _IZ - _ZZ) * 0.25
+_PROJ10 = (_II - _ZI + _IZ - _ZZ) * 0.25
+_PROJ11 = (_II - _ZI - _IZ + _ZZ) * 0.25
+_Z02 = qx.Observable.from_matrix(jnp.diag(jnp.array([1.0, 0.0, -1.0], dtype=complex)), ((3,), (3,)))
+_Z12 = qx.Observable.from_matrix(jnp.diag(jnp.array([0.0, 1.0, -1.0], dtype=complex)), ((3,), (3,)))
+
+
+def _phasedfsim_reference(theta, zeta, chi, gamma, phi):
+    diagonal = _II * (gamma - phi / 4.0) - (_ZI + _IZ) * ((2.0 * gamma - phi) / 4.0) - _ZZ * (phi / 4.0)
+    zeta_term = (_ZI - _IZ) * (zeta / 4.0)
+    interaction = (_XX_YY * jnp.cos(chi) - _YX_XY * jnp.sin(chi)) * (-theta / 4.0)
+    return qx.evolve(diagonal) @ qx.evolve(zeta_term) @ qx.evolve(interaction) @ qx.evolve(zeta_term)
+
+
+# Each reference builds the gate from the generator(s) documented in its docstring, as exp(-iH).
+_GENERATOR_REFERENCES = {
+    "PHASE": lambda phi: qx.evolve((_I - _Z) * (-phi / 2.0)),
+    "RX": lambda phi: qx.evolve(_X * (phi / 2.0)),
+    "RY": lambda phi: qx.evolve(_Y * (phi / 2.0)),
+    "RZ": lambda phi: qx.evolve(_Z * (phi / 2.0)),
+    "PHASEDRX": lambda theta, phi: qx.evolve((_X * jnp.cos(phi) + _Y * jnp.sin(phi) - _I) * (theta / 2.0)),
+    "U": lambda theta, phi, lam: (
+        jnp.exp(0.5j * (phi + lam))
+        * (qx.evolve(_Z * (phi / 2.0)) @ qx.evolve(_Y * (theta / 2.0)) @ qx.evolve(_Z * (lam / 2.0)))
+    ),
+    "CPHASE00": lambda phi: qx.evolve(_PROJ00 * -phi),
+    "CPHASE01": lambda phi: qx.evolve(_PROJ01 * -phi),
+    "CPHASE10": lambda phi: qx.evolve(_PROJ10 * -phi),
+    "CPHASE": lambda phi: qx.evolve(_PROJ11 * -phi),
+    "PSWAP": lambda phi: qx.evolve((_II - _ZZ) * (jnp.pi / 4.0 - phi / 2.0) - _XX_YY * (jnp.pi / 4.0)),
+    "XY": lambda phi: qx.evolve(_XX_YY * (-phi / 4.0)),
+    "FSIM": lambda theta, phi: qx.evolve(_XX_YY * (-theta / 4.0) - _PROJ11 * phi),
+    "PHASEDFSIM": _phasedfsim_reference,
+    "RXX": lambda phi: qx.evolve((_X | _X) * (phi / 2.0)),
+    "RYY": lambda phi: qx.evolve((_Y | _Y) * (phi / 2.0)),
+    "RZZ": lambda phi: qx.evolve(_ZZ * (phi / 2.0)),
+    "CAN": lambda tx, ty, tz: qx.evolve(((_X | _X) * tx + (_Y | _Y) * ty + _ZZ * tz) * -0.5),
+    "GIVENS": lambda theta: qx.evolve(_YX_XY * (theta / 2.0)),
+    "TRX01": lambda phi: qx.evolve(qx.gates.GELLMANN1 * (phi / 2.0)),
+    "TRY01": lambda phi: qx.evolve(qx.gates.GELLMANN2 * (phi / 2.0)),
+    "TRZ01": lambda phi: qx.evolve(qx.gates.GELLMANN3 * (phi / 2.0)),
+    "TRX02": lambda phi: qx.evolve(qx.gates.GELLMANN4 * (phi / 2.0)),
+    "TRY02": lambda phi: qx.evolve(qx.gates.GELLMANN5 * (phi / 2.0)),
+    "TRZ02": lambda phi: qx.evolve(_Z02 * (phi / 2.0)),
+    "TRX12": lambda phi: qx.evolve(qx.gates.GELLMANN6 * (phi / 2.0)),
+    "TRY12": lambda phi: qx.evolve(qx.gates.GELLMANN7 * (phi / 2.0)),
+    "TRZ12": lambda phi: qx.evolve(_Z12 * (phi / 2.0)),
+}
+
+
+@pytest.mark.parametrize("gate_name", sorted(_GENERATOR_REFERENCES))
+def test_closed_form_matches_generator(gate_name):
+    """Each closed-form gate equals the evolution of the Hamiltonian generator documented in its docstring."""
+    gate = getattr(qx.gates, gate_name)
+    reference = _GENERATOR_REFERENCES[gate_name]
+    num_parameters = _num_required_positional_params(gate)
+    params = np.random.default_rng(1234).uniform(-2.0 * np.pi, 2.0 * np.pi, (num_parameters, 5))
+    for index in range(params.shape[1]):
+        args = params[:, index]
+        assert jnp.allclose(gate(*args).matrix, reference(*args).matrix, atol=1e-10), f"{gate_name}{tuple(args)}"
+
+
+def test_constant_gates_match_generators():
+    """The fixed two-qubit gates match their documented generators."""
+    assert jnp.allclose(qx.gates.ECR.matrix, (qx.evolve((_Z | _X) * (-jnp.pi / 4.0)) @ (_X | _I)).matrix, atol=1e-10)
+    sycamore = qx.evolve(_XX_YY * (jnp.pi / 4.0) + _PROJ11 * (jnp.pi / 6.0))
+    assert jnp.allclose(qx.gates.SYCAMORE.matrix, sycamore.matrix, atol=1e-10)
+    assert jnp.allclose(qx.gates.B.matrix, qx.gates.CAN(jnp.pi / 2.0, jnp.pi / 4.0, 0.0).matrix, atol=1e-10)
+
+
+def test_parametric_gate_ensembles_broadcast():
+    """Parameters of different ensemble shapes broadcast against each other."""
+    theta = jnp.linspace(0.1, 0.9, 3)[:, None]
+    phi = jnp.linspace(-0.5, 0.5, 4)
+    gates = qx.gates.FSIM(theta, phi)
+    assert gates.ensemble_size == (3, 4)
+    assert jnp.allclose(gates.matrix[2, 1], qx.gates.FSIM(theta[2, 0], phi[1]).matrix, atol=1e-12)
+
+
+def test_parametric_gates_are_differentiable():
+    """Closed forms are differentiable in their angles, matching the generator-based reference."""
+
+    def loss(gate, *args):
+        return jnp.abs(gate(*args).matrix[..., 1, 2]) ** 2 + gate(*args).matrix.real.sum()
+
+    for gate_name in ("RX", "PHASEDFSIM", "CAN", "TRY12"):
+        gate = getattr(qx.gates, gate_name)
+        args = tuple(jnp.linspace(0.2, 0.8, _num_required_positional_params(gate)))
+        argnums = tuple(range(len(args)))
+        grads = jax.grad(lambda *a: loss(gate, *a), argnums=argnums)(*args)
+        reference = jax.grad(lambda *a: loss(_GENERATOR_REFERENCES[gate_name], *a), argnums=argnums)(*args)
+        assert jnp.allclose(jnp.array(grads), jnp.array(reference), atol=1e-8), gate_name
