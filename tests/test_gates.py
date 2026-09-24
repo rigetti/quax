@@ -1,5 +1,6 @@
 # This file checks our gate definitions against pyquil
 import inspect
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -490,6 +491,6 @@ def test_parametric_gates_are_differentiable():
         gate = getattr(qx.gates, gate_name)
         args = tuple(jnp.linspace(0.2, 0.8, _num_required_positional_params(gate)))
         argnums = tuple(range(len(args)))
-        grads = jax.grad(lambda *a: loss(gate, *a), argnums=argnums)(*args)
-        reference = jax.grad(lambda *a: loss(_GENERATOR_REFERENCES[gate_name], *a), argnums=argnums)(*args)
+        grads = jax.grad(partial(loss, gate), argnums=argnums)(*args)
+        reference = jax.grad(partial(loss, _GENERATOR_REFERENCES[gate_name]), argnums=argnums)(*args)
         assert jnp.allclose(jnp.array(grads), jnp.array(reference), atol=1e-8), gate_name
