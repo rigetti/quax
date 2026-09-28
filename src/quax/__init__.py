@@ -52,6 +52,7 @@ from ._compose import (
     compose_superop,
     compose_unitary,
 )
+from ._error_generators import elementary_error_generator, error_generator
 from ._exponentiation import (
     cis,
     evolve,
@@ -106,6 +107,7 @@ from ._promotion import (
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
+    ErrorGenerator,
     Involution,
     KrausMap,
     Lindbladian,
@@ -196,6 +198,7 @@ from .channels import (
 __all__ = [
     "Choi",
     "DensityMatrix",
+    "ErrorGenerator",
     "Involution",
     "KrausMap",
     "Lindbladian",
@@ -247,8 +250,10 @@ __all__ = [
     "depolarizing_constant_to_average_fidelity",
     "depolarizing_constant_to_process_fidelity",
     # Promotion functions
+    "elementary_error_generator",
     "embed",
     "ensembles",
+    "error_generator",
     "estimate",
     "evolve",
     "exp",

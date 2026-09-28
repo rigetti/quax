@@ -14,6 +14,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [Unreleased]
+
+### Added
+
+- `ErrorGenerator`: the error generator of a channel (Blume-Kohout et al., arXiv:2103.01928), stored
+  as its generator matrix. Its Hamiltonian, stochastic, correlation and active rates are derived
+  coordinates. It supports vector-space arithmetic (`+`, `-`, real scalars), `is_completely_positive`,
+  `to_lindbladian`, leading-order metrics (`generator_infidelity`, `total_hamiltonian_error`,
+  `total_stochastic_error`), `evolve` and `plot`.
+- `error_generator(channel)`: the principal logarithm of a `SuperOp`, `PauliLiouville`, `Choi` or
+  `KrausMap` (exact for a `Lindbladian`).
+- `elementary_error_generator(kind, p, q)`: the H, S, C and A elementary error generators.
+
+
 ## [0.7.7] - 2026-09-24
 
 ### Changed

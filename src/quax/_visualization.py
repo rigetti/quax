@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from ._operator_basis import _xz_pairs
 from ._quantum_objects import (
     DensityMatrix,
+    ErrorGenerator,
     Operator,
     PauliLiouville,
     QuantumInstrument,
@@ -284,6 +285,8 @@ def plot(obj: QuantumObject, **kwargs) -> Figure:  # type: ignore[type-arg]
       magnitude → opacity).
     * :class:`QuantumInstrument` – subplot grid of per-outcome computational-basis
       heatmaps.
+    * :class:`ErrorGenerator` – Hamiltonian and stochastic rates as bars, with the correlation
+      and active rates as heatmaps.
 
     :param obj: Any supported quantum object.
     :param kwargs: Forwarded to the type-specific plotting function.
@@ -777,4 +780,61 @@ def _plot_quantum_instrument(
         height=cell_size * n,
     )
 
+    return fig
+
+
+@plot.register(ErrorGenerator)
+def _plot_error_generator(generator: ErrorGenerator) -> Figure:
+    """Plot the elementary error generator rates of an :class:`ErrorGenerator`.
+
+    The top panel shows the Hamiltonian rates :math:`h_P` and stochastic rates :math:`s_P` as
+    grouped bars per basis label. The bottom panels show the correlation rates :math:`c_{PQ}` and
+    active rates :math:`a_{PQ}` as heatmaps on a shared, zero-centred colour scale.
+
+    :param generator: An un-ensembled error generator.
+    """
+    _require_plotly()
+    if generator.ensemble_size != ():
+        raise ValueError("plot() needs a single ErrorGenerator; index the ensemble first.")
+    labels = list(generator.labels)
+    correlation = jnp.asarray(generator.correlation_rates)
+    active = jnp.asarray(generator.active_rates)
+    abs_max = max(float(jnp.max(jnp.abs(correlation))), float(jnp.max(jnp.abs(active))), 1e-12)
+
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        specs=[[{"colspan": 2}, None], [{}, {}]],
+        subplot_titles=("Hamiltonian and stochastic rates", "Correlation rates c", "Active rates a"),
+        row_heights=[0.4, 0.6],
+        vertical_spacing=0.12,
+    )
+    fig.add_trace(
+        go.Bar(x=labels, y=jnp.asarray(generator.hamiltonian_rates).tolist(), name="H (h)", marker_color="#00b5ad"),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Bar(x=labels, y=jnp.asarray(generator.stochastic_rates).tolist(), name="S (s)", marker_color="#ef476f"),
+        row=1,
+        col=1,
+    )
+    for col, (name, rates) in enumerate((("C", correlation), ("A", active)), start=1):
+        fig.add_trace(
+            go.Heatmap(
+                z=rates.tolist(),
+                x=labels,
+                y=labels,
+                name=name,
+                colorscale=_COLORSCALE,
+                zmin=-abs_max,
+                zmax=abs_max,
+                showscale=col == 2,
+                colorbar={"thickness": 10, "len": 0.5, "y": 0.3},
+            ),
+            row=2,
+            col=col,
+        )
+        fig.update_yaxes(autorange="reversed", row=2, col=col)
+    fig.update_layout(barmode="group", width=800, height=750, font={"size": 12})
     return fig

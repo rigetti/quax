@@ -32,7 +32,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._quantum_objects import Involution, Lindbladian, Observable, Operator, QuantumObject, Unitary
+from ._quantum_objects import ErrorGenerator, Involution, Lindbladian, Observable, Operator, QuantumObject, Unitary
 
 # --------------------------------------------------------------------------- #
 # Broadcasting helper (JIT-compiled)
@@ -154,3 +154,18 @@ def _mul_lindbladian(op: Lindbladian, scalar: complex | Array) -> Lindbladian:
     # Real scalar ⇒ Observable * scalar stays an Observable (see :func:`_mul_observable`).
     scaled_hamiltonian = cast(Observable, op.hamiltonian * scalar) if op.hamiltonian is not None else None
     return Lindbladian(hamiltonian=scaled_hamiltonian, jump_operators=scaled_jumps)
+
+
+@mul.register(ErrorGenerator)
+def _mul_error_generator(op: ErrorGenerator, scalar: complex | Array) -> ErrorGenerator:
+    """Scale an error generator by a real ``scalar``.
+
+    Error generators form a real vector space, so any real scalar (including a negative one) is
+    allowed. A complex scalar is rejected because it breaks Hermiticity preservation.
+    """
+    if not _is_real_type(scalar):
+        raise NotImplementedError(
+            "Scaling an ErrorGenerator by a complex scalar is not supported: the result is not Hermiticity preserving."
+        )
+    new_data = _broadcast_scalar_data(scalar, op.data, op.ensemble_size, op.num_ensemble_dims)
+    return ErrorGenerator(new_data, op.num_qubits)

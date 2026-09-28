@@ -2342,6 +2342,193 @@ class Lindbladian(QuantumObject):
 
 
 # ======================================================================
+# ErrorGenerator
+# ======================================================================
+
+
+@jax.tree_util.register_pytree_node_class
+@dataclass(frozen=True, eq=False)
+class ErrorGenerator(QuantumObject):
+    r"""Error generator :math:`\mathcal{L}` of a quantum channel, :math:`\mathcal{E} = e^{\mathcal{L}}`.
+
+    The error generator of Blume-Kohout et al., *A taxonomy of small Markovian errors*
+    (`arXiv:2103.01928 <https://arxiv.org/abs/2103.01928>`_): the logarithm of an error channel.
+    Obtain one from a channel with :func:`~quax.error_generator` and map back with
+    :func:`~quax.evolve`.
+
+    The generator matrix is the fundamental object. Its coordinates in the basis of *elementary
+    error generators* (see :func:`~quax.elementary_error_generator`) are derived from it. Writing
+    :math:`F_i` for the Hermitian operator basis (the Paulis for qubits, with :math:`F_0 = I`),
+    every Hermiticity- and trace-preserving generator has the unique form
+
+    .. math::
+
+        \mathcal{L}[\rho] = -i[H, \rho]
+            + \sum_{i,j \geq 1} K_{ij} \left(F_i \rho F_j - \tfrac{1}{2}\{F_j F_i, \rho\}\right),
+
+    with :math:`H = \sum_i h_i F_i` traceless (:attr:`hamiltonian`) and :math:`K` Hermitian
+    (:attr:`dissipator_matrix`). The paper's four sectors are views of these:
+
+    - Hamiltonian rates :math:`h_P` (:attr:`hamiltonian_rates`),
+    - Pauli-stochastic rates :math:`s_P = K_{PP}` (:attr:`stochastic_rates`),
+    - Pauli-correlation rates :math:`c_{PQ} = \mathrm{Re}\,K_{PQ}` (:attr:`correlation_rates`),
+    - active rates :math:`a_{PQ} = \mathrm{Im}\,K_{PQ}` (:attr:`active_rates`).
+
+    Unlike :class:`Lindbladian`, which can only hold completely positive generators, an
+    ``ErrorGenerator`` is any Hermiticity- and trace-preserving generator: :math:`K` need not be
+    positive semidefinite (see :meth:`is_completely_positive`). These generators form a real vector
+    space, so ``+``, ``-``, negation and multiplication by a *real* scalar are supported, and a
+    complex scalar is rejected because it breaks Hermiticity preservation.
+
+    Tensor shape: ``(*ensemble, out_bra…, out_ket…, in_bra…, in_ket…)``, the same layout as a
+    :class:`SuperOperator`. Matrix shape: ``(*ensemble, d², d²)``, in the same (column-stacking)
+    convention as :class:`SuperOp` and :attr:`Lindbladian.matrix`.
+    """
+
+    # ----- representation -----
+
+    @property
+    def num_ensemble_dims(self) -> int:
+        """The number of leading ensemble dimensions, derived from data shape and num_qubits."""
+        return self.data.ndim - 4 * self.num_qubits
+
+    @property
+    def dims(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """The (output, input) qudit dimensions, inferred from data shape."""
+        qudit_shape = self.data.shape[self.num_ensemble_dims :]
+        n_qudits = len(qudit_shape) // 4
+        return (qudit_shape[:n_qudits], qudit_shape[2 * n_qudits : 3 * n_qudits])
+
+    @property
+    def matrix(self) -> Array:
+        """The generator matrix ``(*ensemble, d², d²)`` acting on column-stacked ``vec(ρ)``."""
+        dims_out, dims_in = self.dims
+        d_out = reduce(mul, dims_out, 1)
+        d_in = reduce(mul, dims_in, 1)
+        return self.data.reshape(self.ensemble_size + (d_out * d_out, d_in * d_in))
+
+    @classmethod
+    def from_matrix(cls, matrix: Array, dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Self:
+        """Construct from a generator matrix of shape ``(*ensemble, d², d²)``.
+
+        :param matrix: The generator matrix, in the :class:`SuperOp` convention.
+        :param dims: Tuple of (dims_out, dims_in), each a tuple of qudit dimensions.
+        """
+        tensor_shape = dims[0] + dims[0] + dims[1] + dims[1]
+        return cls(data=matrix.reshape(matrix.shape[:-2] + tensor_shape), num_qubits=len(dims[0]))
+
+    # ----- vector-space algebra -----
+
+    def __add__(self, other: Any) -> "ErrorGenerator":
+        """Sum of two error generators on the same subsystems."""
+        if not isinstance(other, ErrorGenerator):
+            return NotImplemented
+        if self.dims != other.dims:
+            raise ValueError(f"Cannot add error generators on {self.dims} and {other.dims}.")
+        return ErrorGenerator(data=self.data + other.data, num_qubits=self.num_qubits)
+
+    def __sub__(self, other: Any) -> "ErrorGenerator":
+        """Difference of two error generators on the same subsystems."""
+        if not isinstance(other, ErrorGenerator):
+            return NotImplemented
+        return self + (-other)
+
+    # ----- coordinates -----
+
+    @cached_property
+    def _hamiltonian_and_dissipator(self) -> tuple[Array, Array]:
+        from ._error_generators import hamiltonian_and_dissipator
+
+        return hamiltonian_and_dissipator(self)
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """Labels of the non-identity basis elements, indexing every rate array (e.g. ``"IX"``)."""
+        from ._error_generators import error_generator_labels
+
+        return error_generator_labels(self.dims[0])
+
+    @property
+    def hamiltonian(self) -> "Observable":
+        """The traceless Hamiltonian :math:`H` of the coherent part :math:`-i[H, \\cdot]`."""
+        from ._error_generators import hamiltonian_from_rates
+
+        return hamiltonian_from_rates(self.hamiltonian_rates, self.dims[0])
+
+    @property
+    def hamiltonian_rates(self) -> Array:
+        """Hamiltonian rates :math:`h_P`, the coordinates of :attr:`hamiltonian`: ``(*ensemble, d² - 1)``."""
+        return self._hamiltonian_and_dissipator[0]
+
+    @property
+    def dissipator_matrix(self) -> Array:
+        """The Hermitian dissipator (Kossakowski) matrix :math:`K`: ``(*ensemble, d² - 1, d² - 1)``."""
+        return self._hamiltonian_and_dissipator[1]
+
+    @property
+    def stochastic_rates(self) -> Array:
+        """Pauli-stochastic rates :math:`s_P = K_{PP}`: ``(*ensemble, d² - 1)``."""
+        return jnp.real(jnp.diagonal(self.dissipator_matrix, axis1=-2, axis2=-1))
+
+    @property
+    def correlation_rates(self) -> Array:
+        """Pauli-correlation rates :math:`c_{PQ} = \\mathrm{Re}\\,K_{PQ}` (symmetric, zero diagonal)."""
+        real = jnp.real(self.dissipator_matrix)
+        return real - jnp.eye(real.shape[-1]) * real
+
+    @property
+    def active_rates(self) -> Array:
+        """Active rates :math:`a_{PQ} = \\mathrm{Im}\\,K_{PQ}` (antisymmetric)."""
+        return jnp.imag(self.dissipator_matrix)
+
+    # ----- metrics -----
+
+    @property
+    def total_hamiltonian_error(self) -> Array:
+        """Total Hamiltonian error :math:`\\theta = \\sqrt{\\sum_P h_P^2}`."""
+        return jnp.linalg.norm(self.hamiltonian_rates, axis=-1)
+
+    @property
+    def total_stochastic_error(self) -> Array:
+        """Total stochastic error :math:`\\sum_P s_P`."""
+        return jnp.sum(self.stochastic_rates, axis=-1)
+
+    @property
+    def generator_infidelity(self) -> Array:
+        """Generator infidelity :math:`\\sum_P s_P + \\sum_P h_P^2`.
+
+        This is the leading-order approximation of the process (entanglement) infidelity of
+        :math:`e^{\\mathcal{L}}`: stochastic terms enter at first order and Hamiltonian terms at
+        second order, while correlation and active terms do not contribute at leading order.
+        """
+        return self.total_stochastic_error + self.total_hamiltonian_error**2
+
+    # ----- physics -----
+
+    def is_completely_positive(self, atol: float = 1e-8) -> Array:
+        """Whether :math:`e^{t\\mathcal{L}}` is completely positive for all :math:`t \\geq 0`.
+
+        This is the case exactly when :attr:`dissipator_matrix` is positive semidefinite.
+        """
+        return jnp.all(jnp.linalg.eigvalsh(self.dissipator_matrix) >= -atol)
+
+    def to_lindbladian(self, atol: float = 1e-8) -> "Lindbladian":
+        """The equivalent :class:`Lindbladian`, with jump operators from diagonalizing :math:`K`.
+
+        :param atol: Tolerance on negative eigenvalues of :attr:`dissipator_matrix`.
+        :raises ValueError: If the generator is not completely positive.
+        """
+        from ._error_generators import error_generator_to_lindbladian
+
+        return error_generator_to_lindbladian(self, atol)
+
+    def __str__(self) -> str:
+        if self.ensemble_size != ():
+            return f"ErrorGenerator(dims={self.dims}, ensemble_size={self.ensemble_size})"
+        return f"ErrorGenerator(dims={self.dims})"
+
+
+# ======================================================================
 # QuantumInstrument
 # ======================================================================
 

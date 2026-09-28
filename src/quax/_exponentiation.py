@@ -48,6 +48,7 @@ from jax import Array
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
+    ErrorGenerator,
     KrausMap,
     Lindbladian,
     Observable,
@@ -121,6 +122,10 @@ def evolve(operator: Observable, t: float = 1.0) -> Unitary: ...
 def evolve(operator: Lindbladian, t: float = 1.0) -> SuperOp: ...
 
 
+@overload
+def evolve(operator: ErrorGenerator, t: float = 1.0) -> SuperOp: ...
+
+
 @singledispatch
 def evolve(operator, t: float = 1.0) -> "Unitary | SuperOp":
     """Evolve a quantum generator for time ``t``, returning the corresponding quantum object.
@@ -129,6 +134,9 @@ def evolve(operator, t: float = 1.0) -> "Unitary | SuperOp":
 
     - :class:`Observable` (Hamiltonian) → :class:`Unitary` via ``exp(-i·t·H)``
     - :class:`Lindbladian` (open-system generator) → :class:`SuperOp` via ``exp(t·L)``
+    - :class:`ErrorGenerator` → :class:`SuperOp` via ``exp(t·L)``, the inverse of
+      :func:`~quax.error_generator` at ``t = 1``. It is CPTP for ``t ≥ 0`` only when the generator
+      is completely positive (:meth:`ErrorGenerator.is_completely_positive`).
 
     The Hamiltonian branch follows the standard Schrödinger convention
     ``U(t) = exp(-i·t·H)``, consistent with the coherent term ``-i[H, ρ]`` of the
@@ -186,6 +194,16 @@ def _evolve_lindbladian(generator: Lindbladian, t: float = 1.0) -> SuperOp:
         flat = matrix.reshape(-1, shape[-2], shape[-1])
         result = jax.vmap(lambda m: jax.scipy.linalg.expm(t * m))(flat).reshape(shape)
 
+    return SuperOp.from_matrix(result, generator.dims)
+
+
+@evolve.register(ErrorGenerator)
+@jax.jit
+def _evolve_error_generator(generator: ErrorGenerator, t: float = 1.0) -> SuperOp:
+    """Compute exp(t·L) for an error generator, returning a SuperOp."""
+    matrix = generator.matrix  # (*ensemble, d², d²)
+    flat = matrix.reshape((-1,) + matrix.shape[-2:])
+    result = jax.vmap(lambda m: jax.scipy.linalg.expm(t * m))(flat).reshape(matrix.shape)
     return SuperOp.from_matrix(result, generator.dims)
 
 
