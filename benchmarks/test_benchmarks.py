@@ -377,3 +377,14 @@ def test_instrument_diagnostic(benchmark, name, diagnostic, n_qubits):
     instrument = reduce(lambda a, b: a | b, [make_noisy_instrument(dim=2)] * n_qubits)
     jax.block_until_ready(diagnostic(instrument))
     benchmark(lambda: jax.block_until_ready(diagnostic(instrument)))
+
+
+# ---------------------------------------------------------------------------
+# n-qubit Pauli ensemble
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (2, 4, 5)])
+def test_n_qubit_pauli_operators(benchmark, n_qubits):
+    """Benchmark building the 4^n n-qubit Pauli operators."""
+    benchmark(lambda: qx.ensembles.n_qubit_pauli_operators(n_qubits).data.block_until_ready())
