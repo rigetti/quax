@@ -25,11 +25,14 @@ which is the standard normalization used for the Pauli-Liouville
 """
 
 from functools import lru_cache
+from typing import overload
 
 import numpy as np
+import numpy.typing as npt
 from jax import Array
 
 from ._quantum_objects import Observable, Unitary
+from ._typing import ArrayT
 
 # The basis builders below are pure functions of static integer dimensions, and their results are
 # cached with ``lru_cache``.  They are deliberately built with NumPy rather than ``jax.numpy``: a
@@ -41,7 +44,11 @@ from ._quantum_objects import Observable, Unitary
 # single ``jnp`` conversion inside ``from_matrix`` bakes them in as constants.
 
 
-def _batched_kron(a: Array, b: Array) -> Array:
+@overload
+def _batched_kron(a: npt.NDArray[np.number], b: npt.NDArray[np.number]) -> npt.NDArray[np.complex128]: ...
+@overload
+def _batched_kron(a: Array, b: Array) -> Array: ...
+def _batched_kron(a: ArrayT, b: ArrayT) -> ArrayT:
     """Batched Kronecker product of two ensembles of square matrices.
 
     Operates elementwise, so it stays on whatever array type it is given (the basis builders
@@ -53,11 +60,15 @@ def _batched_kron(a: Array, b: Array) -> Array:
     """
     n, p, _ = a.shape
     m, q, _ = b.shape
-    # outer product over ensemble dims, kronecker over matrix dims
-    # a[:, None, :, None, :, None] * b[None, :, None, :, None, :]
-    # -> (n, m, p, q, p, q) -> (n*m, p*q, p*q)
-    result = (a[:, None, :, None, :, None] * b[None, :, None, :, None, :]).reshape(n * m, p * q, p * q)
-    return result.astype(complex)
+    # Outer product over ensemble dims; kronecker over matrix dims
+    product = a[:, None, :, None, :, None] * b[None, :, None, :, None, :]
+
+    # (n, m, p, q, p, q) -> (n*m, p*q, p*q)
+    reshaped = product.reshape(n * m, p * q, p * q)
+
+    # The result is always complex128. ``copy=False`` returns the product itself when it already is,
+    # instead of a second full-size copy, which halves peak memory; other dtypes are cast as before.
+    return reshaped.astype(complex, copy=False)
 
 
 @lru_cache(maxsize=32)
