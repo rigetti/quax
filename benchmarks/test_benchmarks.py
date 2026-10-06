@@ -60,6 +60,15 @@ DM_SYSTEMS = [
 
 ENSEMBLE_SIZES = [(), (4,), (8,), (16,)]
 
+# (label, dims) for building the tensor-product operator bases (D**4 entries each)
+BASIS_SYSTEMS = [
+    ("2Q", (2, 2)),
+    ("4Q", (2,) * 4),
+    ("6Q", (2,) * 6),
+    ("3Qt", (3,) * 3),
+    ("2Qt2Q", (3, 3, 2, 2)),
+]
+
 
 def _subsystem_patterns(dims: tuple[int, ...]) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
     """Return applicable (label, gate_dims, subsystem) tuples for given system dims."""
@@ -246,5 +255,22 @@ def test_instrument_sv(benchmark, dims, ensemble_size, inst_type):
         r, o = qx.targeted_apply_instrument_to_state_vector(inst, psi, key, subsystem)
         r.data.block_until_ready()
         o.block_until_ready()
+
+    benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# 6. n_qudit_basis / n_qudit_herm_basis  (cold-cache construction)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in BASIS_SYSTEMS])
+@pytest.mark.parametrize("build", [qx.n_qudit_basis, qx.n_qudit_herm_basis], ids=["weyl", "hermitian"])
+def test_tensor_basis_build(benchmark, build, dims):
+    """Benchmark building n_qudit_basis / n_qudit_herm_basis from a cold cache."""
+
+    def fn():
+        build.cache_clear()
+        build(dims)
 
     benchmark(fn)
