@@ -25,6 +25,7 @@ from itertools import product
 from operator import mul
 
 import jax
+import jax.numpy as jnp
 import pytest
 
 import quax as qx
@@ -388,3 +389,20 @@ def test_instrument_diagnostic(benchmark, name, diagnostic, n_qubits):
 def test_n_qubit_pauli_operators(benchmark, n_qubits):
     """Benchmark building the 4^n n-qubit Pauli operators."""
     benchmark(lambda: qx.ensembles.n_qubit_pauli_operators(n_qubits).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Instrument construction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (1, 2, 3)])
+def test_instrument_from_confusion_and_transition(benchmark, n_qubits):
+    """Benchmark building an instrument of every qubit from random stochastic matrices."""
+    dims = (2,) * n_qubits
+    d = 2**n_qubits
+    confusion = jax.random.dirichlet(jax.random.key(4), jnp.ones(d), (d,)).T
+    transition = jax.random.dirichlet(jax.random.key(5), jnp.ones(d), (d,)).T
+    build = qx.channels.instrument_from_confusion_and_transition
+    build(confusion, transition, dims).data.block_until_ready()
+    benchmark(lambda: build(confusion, transition, dims).data.block_until_ready())

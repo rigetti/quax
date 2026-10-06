@@ -93,6 +93,21 @@ def thermal_relaxation(t1: float | Array, tphi: float | Array, p1: float | Array
 # ---------------------------------------------------------------------------
 
 
+@jax.jit
+def _diagonal_instrument(confusion: Array, transition: Array) -> Array:
+    """Superoperators with ``S_i[k(d+1), j(d+1)] = confusion[i, j] * transition[k, j]``, zero elsewhere.
+
+    :param confusion: ``(num_outcomes, d)``, the confusion matrix indexed by full basis state.
+    :param transition: ``(d, d)`` transition matrix.
+    :return: ``(num_outcomes, d**2, d**2)`` complex array.
+    """
+    n, d = confusion.shape
+    weights = jnp.clip(confusion[:, None, :] * transition[None, :, :], min=0.0)  # [i, k, j]
+    diag_idx = jnp.arange(d) * (d + 1)
+    matrices = jnp.zeros((n, d * d, d * d), dtype=complex)
+    return matrices.at[:, diag_idx[:, None], diag_idx[None, :]].set(weights)
+
+
 def instrument_from_confusion_and_transition(
     confusion_matrix: Array,
     transition_matrix: Array,
@@ -107,8 +122,22 @@ def instrument_from_confusion_and_transition(
     The transition matrix describes the measurement backaction on the post-measurement state,
     ``T_{ij} = P(post-measurement state i | pre-measurement state j)`` (column-stochastic).
 
-    Each Kraus operator is :math:`K_{i,j,k} = \sqrt{C_{i, j} T_{k, j}} |k\rangle\langle j|`, giving
-    the instrument :math:`\mathcal{M}_i(\rho) = \sum_{j, k} C_{i,j} T_{k, j} \langle j|\rho|k\rangle |k\rangle\langle k|`.
+    Each Kraus operator is :math:`K_{i,j,k} = \sqrt{C_{i, m(j)} T_{k, j}} |k\rangle\langle j|`, with
+    :math:`m(j)` the index of basis state :math:`j` on the measured qudits, giving the instrument
+
+    .. math::
+
+        \mathcal{M}_i(\rho) = \sum_{j, k} C_{i, m(j)} T_{k, j} \langle j|\rho|j\rangle\, |k\rangle\langle k|.
+
+    Its superoperator :math:`S_i` therefore maps the diagonal of :math:`\rho` to the diagonal of the
+    output and is zero elsewhere.  :math:`\operatorname{vec}(|j\rangle\langle j|)` is the unit vector
+    at position :math:`j(d+1)`, so the only non-zero entries are
+
+    .. math::
+
+        S_i[k(d+1),\, j(d+1)] = C_{i, m(j)}\, T_{k, j},
+
+    which are written directly; no Kraus operator is built.
 
     :param confusion_matrix: ``(num_outcomes, d_measured)`` column-stochastic matrix.
     :param transition_matrix: ``(d_total, d_total)`` column-stochastic matrix.
@@ -142,25 +171,8 @@ def instrument_from_confusion_and_transition(
             if not bool(jnp.allclose(jnp.sum(m, axis=0), 1.0, atol=1e-6)):
                 raise ValueError(f"{label} matrix columns must sum to 1.")
 
-    superop_list: list[Array] = []
-    for i in range(num_outcomes):
-        kraus_ops: list[Array] = []
-        for j_full in range(d_total):
-            j_meas = _extract_measured_index(j_full, dims, measured_qudits)
-            p_measure = confusion_matrix[i, j_meas]
-            for k in range(d_total):
-                p_transition = transition_matrix[k, j_full]
-                amplitude = jnp.sqrt(jnp.clip(p_measure * p_transition, min=0.0))
-                K = jnp.zeros((d_total, d_total), dtype=jnp.complex128)
-                K = K.at[k, j_full].set(amplitude)
-                kraus_ops.append(K)
-        # SuperOp = Σ conj(K_i) ⊗ K_i
-        kraus_stack = jnp.stack(kraus_ops, axis=0)  # (n_kraus, d, d)
-        superop_mat = jnp.einsum("iab,icd->acbd", jnp.conj(kraus_stack), kraus_stack)
-        superop_mat = superop_mat.reshape(d_total * d_total, d_total * d_total)
-        superop_list.append(superop_mat)
-
-    matrices = jnp.stack(superop_list, axis=0)
+    j_meas = [_extract_measured_index(j, dims, measured_qudits) for j in range(d_total)]
+    matrices = _diagonal_instrument(jnp.asarray(confusion_matrix)[:, j_meas], jnp.asarray(transition_matrix))
     return QuantumInstrument.from_matrix(matrices, (dims, dims), measured_qudits)
 
 
