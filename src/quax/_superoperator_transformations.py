@@ -12,12 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from functools import lru_cache, reduce, singledispatch
-from operator import mul
+from functools import lru_cache, singledispatch
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
@@ -80,98 +78,93 @@ def superop_to_choi(superop: SuperOp) -> Choi:
 
 
 @lru_cache(maxsize=32)
-def _pauli2computational_basis_matrix(dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Array:
+def _hermitian_basis_rows(dims: tuple[int, ...]) -> Array:
+    """The Hermitian operator basis as a ``(d², d²)`` matrix whose row ``i`` is ``B_i.ravel()``.
+
+    This one matrix gives both changes of basis.  Each ``B_i`` is Hermitian, so
+    ``conj(vec(B_i)) = conj(B_i.T).ravel() = B_i.ravel()`` for the column-stacking ``vec``: the
+    computational-to-Pauli matrix is ``rows / d`` and the Pauli-to-computational matrix, whose
+    column ``i`` is ``vec(B_i)``, is ``rows^†``.  The rows are a reshape of the cached basis, so
+    building them costs one device copy and no transpose or conjugate.
+
+    The matrix is a data-independent constant, assembled with NumPy and handed to JAX once.
+    Building it with a Python loop over ``jnp`` slices instead produced a jaxpr with one operation
+    per basis element (d^4 of them for a d-dim joint system, e.g. 1296 for a tensored
+    qubit-qutrit), whose XLA compilation was pathologically slow.
     """
-    Produce basis transform matrix from Hermitian operator basis to computational basis.
+    basis = n_qudit_herm_basis(dims).matrix  # (d², d, d)
+    # ensure_compile_time_eval keeps the cached value concrete when the first call is under a trace
+    with jax.ensure_compile_time_eval():
+        return jnp.asarray(basis.reshape(basis.shape[0], -1))
 
-    For qubits this is the Pauli-to-computational transform.
-    For general qudits this is the Hermitian-Weyl-to-computational transform.
 
-    Returns a d^2 by d^2 matrix where column i is vec(B_i).
+@jax.jit(static_argnames=("to_superop",))
+def _into_pauli_basis(operator, rows: Array, to_superop=None) -> PauliLiouville:
+    """``c2p @ S @ c2p^† * d`` with ``c2p = rows / d``, for ``S = to_superop(operator)``.
 
-    The change-of-basis matrix is a data-independent constant, so it is assembled with NumPy and
-    handed to JAX as a single constant.  Building it with a Python loop over ``jnp`` slices instead
-    produced a jaxpr with one operation per basis element (d^4 of them for a d-dim joint system,
-    e.g. 1296 for a tensored qubit-qutrit), whose XLA compilation was pathologically slow.
+    Taking the conversion to ``SuperOp`` as a static argument keeps each public conversion to one
+    jitted call.
     """
-    basis_mats = np.asarray(n_qudit_herm_basis(dims[0]).matrix)  # (d², d, d)
-    n = basis_mats.shape[0]
-    # Column i is vec(B_i) = B_i.T.ravel(); stack those columns -> (d², d²).
-    return jnp.asarray(basis_mats.transpose(0, 2, 1).reshape(n, -1).T)
+    superop = operator if to_superop is None else to_superop(operator)
+    d_out, d_in = superop.d
+    assert d_in == d_out, "Superoperator to Pauli-Liouville conversion only supports square operators"
+    # The Hermitian operator basis guarantees real PL matrices for CP maps.
+    data = (rows @ superop.matrix @ jnp.conj(rows).T / d_in).real
+    return PauliLiouville.from_matrix(data, superop.dims)
 
 
-@lru_cache(maxsize=32)
-def _computational2pauli_basis_matrix(dims: tuple[tuple[int, ...], tuple[int, ...]]) -> Array:
-    """
-    Produce basis transform matrix from computational basis to Hermitian operator basis.
-
-    This is (1/dim) * conjugate transpose of _pauli2computational_basis_matrix.
-    """
-    d = int(reduce(mul, dims[0]))
-    p2c = np.asarray(_pauli2computational_basis_matrix(dims))
-    return jnp.asarray(np.conj(p2c).T / d)
+@jax.jit(static_argnames=("from_superop",))
+def _out_of_pauli_basis(pauli_liouville: PauliLiouville, rows: Array, from_superop=None):
+    """``p2c @ R @ p2c^† / d`` with ``p2c = rows^†``, converted by ``from_superop`` when given."""
+    d_out, d_in = pauli_liouville.d
+    assert d_in == d_out, "Pauli-Liouville to Superoperator conversion only supports square operators"
+    data = jnp.conj(rows).T @ pauli_liouville.matrix @ rows / d_in
+    superop = SuperOp.from_matrix(data, pauli_liouville.dims)
+    return superop if from_superop is None else from_superop(superop)
 
 
-@jax.jit
+# The conversions below that reach the change-of-basis matrix are not decorated with ``jax.jit``:
+# they pass the matrix as an argument to the jitted kernels above.  Under a jitted caller the
+# matrix would be a closure constant, and XLA embeds a copy of it (d^4 entries) in every compiled
+# executable.  The work is still jitted, and the conversions remain jittable and differentiable.
+
+
 def superop_to_pauli_liouville(superop: SuperOp) -> PauliLiouville:
     """
     Convert superoperator to Pauli-Liouville matrix.
 
     This is achieved by a linear change of basis.
     """
-    d_out, d_in = superop.d
-    assert d_in == d_out, "Superoperator to Pauli-Liouville conversion only supports square operators"
-
-    # ensure_compile_time_eval forces eager evaluation so that the @lru_cache
-    # in _operator_basis stores concrete arrays, not JIT tracers that would
-    # leak across compilation scopes.
-    with jax.ensure_compile_time_eval():
-        c2p = _computational2pauli_basis_matrix(superop.dims)
-    data = c2p @ superop.matrix @ jnp.conj(c2p).T * d_in
-    # The Hermitian operator basis guarantees real PL matrices for CP maps.
-    data = data.real
-    return PauliLiouville.from_matrix(data, superop.dims)
+    return _into_pauli_basis(superop, _hermitian_basis_rows(superop.dims[0]))
 
 
-@jax.jit
 def pauli_liouville_to_superop(pauli_liouville: PauliLiouville) -> SuperOp:
     """
     Convert Pauli-Liouville matrix to superoperator.
 
     This is achieved by a linear change of basis.
     """
-    d_out, d_in = pauli_liouville.d
-    assert d_in == d_out, "Pauli-Liouville to Superoperator conversion only supports square operators"
-
-    # ensure_compile_time_eval forces eager evaluation so that the @lru_cache
-    # in _operator_basis stores concrete arrays, not JIT tracers that would
-    # leak across compilation scopes.
-    with jax.ensure_compile_time_eval():
-        p2c = _pauli2computational_basis_matrix(pauli_liouville.dims)
-    data = p2c @ pauli_liouville.matrix @ jnp.conj(p2c).T / d_in
-    return SuperOp.from_matrix(data, pauli_liouville.dims)
+    return _out_of_pauli_basis(pauli_liouville, _hermitian_basis_rows(pauli_liouville.dims[0]))
 
 
-@jax.jit
 def choi_to_pauli_liouville(choi: Choi) -> PauliLiouville:
     """
     Convert Choi matrix to Pauli-Liouville matrix.
 
     Composed transformation: Choi -> Superop -> Pauli-Liouville
     """
-    S = choi_to_superop(choi)
-    return superop_to_pauli_liouville(S)
+    return _into_pauli_basis(choi, _hermitian_basis_rows(choi.dims[0]), to_superop=choi_to_superop)
 
 
-@jax.jit
 def pauli_liouville_to_choi(pauli_liouville: PauliLiouville) -> Choi:
     """
     Convert Pauli-Liouville matrix to Choi matrix.
 
     Composed transformation: Pauli-Liouville -> Superop -> Choi
     """
-    S = pauli_liouville_to_superop(pauli_liouville)
-    return superop_to_choi(S)
+    return _out_of_pauli_basis(
+        pauli_liouville, _hermitian_basis_rows(pauli_liouville.dims[0]), from_superop=superop_to_choi
+    )
 
 
 # ============================================================================
@@ -235,15 +228,13 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
     return SuperOp.from_matrix(S, kraus_map.dims)
 
 
-@jax.jit
 def kraus_to_pauli_liouville(kraus_ops: KrausMap) -> PauliLiouville:
     """
     Convert Kraus operators to Pauli-Liouville matrix.
 
     Composed transformation: Kraus -> Superop -> Pauli-Liouville
     """
-    S = kraus_to_superop(kraus_ops)
-    return superop_to_pauli_liouville(S)
+    return _into_pauli_basis(kraus_ops, _hermitian_basis_rows(kraus_ops.dims[0]), to_superop=kraus_to_superop)
 
 
 @jax.jit
@@ -447,7 +438,6 @@ def unitary_to_superop(unitary: Unitary) -> SuperOp:
     return SuperOp.from_matrix(superop_data, unitary.dims)
 
 
-@jax.jit
 def unitary_to_pauli_liouville(unitary: Unitary) -> PauliLiouville:
     """
     Convert unitary operator to Pauli-Liouville matrix.
@@ -460,8 +450,7 @@ def unitary_to_pauli_liouville(unitary: Unitary) -> PauliLiouville:
     Returns:
         PauliLiouville object
     """
-    S = unitary_to_superop(unitary)
-    return superop_to_pauli_liouville(S)
+    return _into_pauli_basis(unitary, _hermitian_basis_rows(unitary.dims[0]), to_superop=unitary_to_superop)
 
 
 @jax.jit
