@@ -170,3 +170,6 @@ pyrightconfig.json
 
 # GitLab pages
 public/
+
+tests/fixtures/superops/
+scratch/*
