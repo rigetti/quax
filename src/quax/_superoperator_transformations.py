@@ -213,18 +213,13 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
     d_out, d_in = kraus_map.d
 
     ensemble_size = kraus_map.ensemble_size
-    N = K.shape[-3]
 
-    # Build each kron term as a matrix of shape (d_out*d_out, d_in*d_in) or (d_out*d_in, d_out*d_in)
-    # depending on convention. For the expression conj(K) ⊗ K with K:(d_out,d_in),
-    # the kron is (d_out*d_out, d_in*d_in).
-    #
-    # Compute kron for each i via einsum:
-    # (a,b) x (c,d) -> (a,c,b,d) then reshape -> (a*c, b*d)
-    terms = jnp.einsum("...iab,...icd->...iacbd", jnp.conj(K), K)
-    terms = terms.reshape(*ensemble_size, N, d_out * d_out, d_in * d_in)
-
-    S = jnp.sum(terms, axis=-3)  # (d_out^2, d_in^2)
+    # For the expression conj(K) ⊗ K with K:(d_out,d_in), the kron is (d_out*d_out, d_in*d_in):
+    # (a,b) x (c,d) -> (a,c,b,d) then reshape -> (a*c, b*d).  The sum over Kraus operators i is
+    # contracted inside the einsum; keeping i in the output and summing afterwards materializes
+    # every term, N times the size of the result, because XLA does not fuse the sum into the dot.
+    S = jnp.einsum("...iab,...icd->...acbd", jnp.conj(K), K)
+    S = S.reshape(*ensemble_size, d_out * d_out, d_in * d_in)
     return SuperOp.from_matrix(S, kraus_map.dims)
 
 
