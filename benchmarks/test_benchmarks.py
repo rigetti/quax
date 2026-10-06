@@ -354,3 +354,26 @@ def test_unitary_entanglement_fidelity(benchmark, dims):
     unitary_f = qx.random_unitary(dims=(dims, dims), key=jax.random.key(7))
     qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready()
     benchmark(lambda: qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Instrument diagnostics: basis-state transitions per outcome
+# ---------------------------------------------------------------------------
+
+INSTRUMENT_DIAGNOSTIC_QUBITS = [1, 2, 4]
+
+INSTRUMENT_DIAGNOSTICS = [
+    ("confusion_matrix", lambda instrument: instrument.confusion_matrix),
+    ("transition_matrix", lambda instrument: instrument.transition_matrix),
+    ("non_demolition_fidelity", qx.non_demolition_fidelity),
+    ("instrument_fidelity", qx.instrument_fidelity),
+]
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in INSTRUMENT_DIAGNOSTIC_QUBITS])
+@pytest.mark.parametrize(("name", "diagnostic"), [pytest.param(name, f, id=name) for name, f in INSTRUMENT_DIAGNOSTICS])
+def test_instrument_diagnostic(benchmark, name, diagnostic, n_qubits):
+    """Benchmark the instrument diagnostics on a noisy measurement of every qubit."""
+    instrument = reduce(lambda a, b: a | b, [make_noisy_instrument(dim=2)] * n_qubits)
+    jax.block_until_ready(diagnostic(instrument))
+    benchmark(lambda: jax.block_until_ready(diagnostic(instrument)))
