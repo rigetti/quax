@@ -20,8 +20,11 @@ Run with:
 These benchmarks are NOT included in the default test suite (``make test-package``).
 """
 
+from functools import reduce
 from itertools import product
+from operator import mul
 
+import jax
 import pytest
 
 import quax as qx
@@ -309,3 +312,45 @@ def test_pauli_liouville_conversion(benchmark, name, make_input, dims):
     operator = make_input(make_unitary(dims))
     convert(operator).data.block_until_ready()
     benchmark(lambda: convert(operator).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Kraus to superoperator
+# ---------------------------------------------------------------------------
+
+KRAUS_TO_SUPEROP_SYSTEMS = [
+    ("1Q", (2,)),
+    ("3Q", (2,) * 3),
+    ("4Q", (2,) * 4),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in KRAUS_TO_SUPEROP_SYSTEMS])
+@pytest.mark.parametrize("full_rank", [True, False], ids=["full_rank", "rank1"])
+def test_kraus_to_superop(benchmark, dims, full_rank):
+    """Benchmark kraus_to_superop with D² Kraus operators (full rank) and with a single one."""
+    d = reduce(mul, dims)
+    kraus_map = make_kraus_map(dims, rank=d * d if full_rank else 1, truncate=not full_rank)
+    qx.kraus_to_superop(kraus_map).data.block_until_ready()
+    benchmark(lambda: qx.kraus_to_superop(kraus_map).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Unitary entanglement fidelity
+# ---------------------------------------------------------------------------
+
+ENTANGLEMENT_FIDELITY_SYSTEMS = [
+    ("1Q", (2,)),
+    ("6Q", (2,) * 6),
+    ("9Q", (2,) * 9),
+    ("11Q", (2,) * 11),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in ENTANGLEMENT_FIDELITY_SYSTEMS])
+def test_unitary_entanglement_fidelity(benchmark, dims):
+    """Benchmark unitary_entanglement_fidelity, which also backs ``Unitary.__eq__``."""
+    unitary_e = make_unitary(dims)
+    unitary_f = qx.random_unitary(dims=(dims, dims), key=jax.random.key(7))
+    qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready()
+    benchmark(lambda: qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready())

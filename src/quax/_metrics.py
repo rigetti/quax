@@ -105,12 +105,9 @@ def unitary_entanglement_fidelity(unitary_e: Unitary, unitary_f: Unitary) -> Arr
     :return: Entanglement fidelity in [0, 1]
     """
     d = unitary_f.d[0]
-    # Compute Tr[E^† F] = Tr[E^H F] using einsum
-    # For matrices: einsum('...ij,...jk->...ik', E^H, F) then trace with '...ii'
-    trace = jnp.einsum(
-        "...ii",
-        jnp.einsum("...ij,...jk->...ik", jnp.moveaxis(unitary_e.matrix.conj(), -1, -2), unitary_f.matrix),
-    )
+    # Tr[E^† F] = sum_ij conj(E_ij) F_ij: an elementwise product and a sum, not a matrix product
+    # whose diagonal alone is used.
+    trace = jnp.sum(jnp.conj(unitary_e.matrix) * unitary_f.matrix, axis=(-2, -1))
     return jnp.abs(trace / d) ** 2
 
 
