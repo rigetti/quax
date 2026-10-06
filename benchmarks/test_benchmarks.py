@@ -274,3 +274,38 @@ def test_tensor_basis_build(benchmark, build, dims):
         build(dims)
 
     benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# Pauli-Liouville change of basis
+# ---------------------------------------------------------------------------
+
+PAULI_LIOUVILLE_SYSTEMS = [
+    ("1Q", (2,)),
+    ("3Q", (2,) * 3),
+    ("5Q", (2,) * 5),
+    ("2Qt", (3, 3)),
+]
+
+
+# Each conversion with the representation it takes, built from a random unitary channel.
+PAULI_LIOUVILLE_CONVERSIONS = [
+    ("superop_to_pauli_liouville", qx.to_superop),
+    ("pauli_liouville_to_superop", qx.to_pauli_liouville),
+    ("choi_to_pauli_liouville", qx.to_choi),
+    ("pauli_liouville_to_choi", qx.to_pauli_liouville),
+    ("kraus_to_pauli_liouville", lambda unitary: qx.truncate_kraus(qx.to_kraus(unitary))),
+    ("unitary_to_pauli_liouville", lambda unitary: unitary),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in PAULI_LIOUVILLE_SYSTEMS])
+@pytest.mark.parametrize(
+    ("name", "make_input"), [pytest.param(name, make, id=name) for name, make in PAULI_LIOUVILLE_CONVERSIONS]
+)
+def test_pauli_liouville_conversion(benchmark, name, make_input, dims):
+    """Benchmark the conversions that change to or from the Pauli-Liouville basis."""
+    convert = getattr(qx, name)
+    operator = make_input(make_unitary(dims))
+    convert(operator).data.block_until_ready()
+    benchmark(lambda: convert(operator).data.block_until_ready())
