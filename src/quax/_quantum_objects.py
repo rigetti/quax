@@ -2554,15 +2554,8 @@ class QuantumInstrument(QuantumObject):
         d_measured = self.d_measured
         dims = self.dims[0]
 
-        # Diagonal positions in the d_total^2-dimensional Liouville space.
-        # vec(|j><j|) is non-zero only at index j*(d_total+1).
-        diag_idx = jnp.arange(d_total) * (d_total + 1)  # (d_total,)
-
-        # raw_probs[..., i, j_full] = Tr[E_i(|j_full><j_full|)]
-        # self.matrix: (*ensemble, n_outcomes, d^2, d^2)
-        # submatrix at diagonal rows and cols: (*ensemble, n_outcomes, d_total, d_total)
-        # sum over k (output diagonal): (*ensemble, n_outcomes, d_total)
-        raw_probs = jnp.real(self.matrix[..., diag_idx[:, None], diag_idx[None, :]].sum(axis=-2))
+        # raw_probs[..., i, j_full] = Tr[E_i(|j_full><j_full|)], summing over the output state k
+        raw_probs = self._basis_state_transitions.sum(axis=-2)  # (*ensemble, n_outcomes, d_total)
 
         # Map each full-space index j_full to its measured-subsystem index j_meas.
         j_meas_array = jnp.array(
@@ -2576,27 +2569,65 @@ class QuantumInstrument(QuantumObject):
         return raw_probs @ one_hot / n_per_meas  # (*ensemble, n_outcomes, d_measured)
 
     @property
-    def transition_matrix(self) -> Array:
-        """Extract the transition matrix over the full Hilbert space.
+    def _basis_state_transitions(self) -> Array:
+        r"""Probability of each outcome taking each basis state to each basis state.
 
-        Shape ``(d_total, d_total)``.  Entry ``[k, j]`` is the probability of
-        ending in computational basis state *k* given input *j*, marginalised
-        over all measurement outcomes.
+        Shape ``(*ensemble, num_outcomes, d_total, d_total)``, entry ``[i, k, j]`` being
+
+        .. math::
+
+            T_i[k, j] = \langle k | \mathcal{E}_i(|j\rangle\langle j|) | k \rangle.
+
+        Let :math:`S_i` be the :math:`d^2 \times d^2` matrix of :math:`\mathcal{E}_i`, so that
+        :math:`\operatorname{vec}(\mathcal{E}_i(\rho)) = S_i \operatorname{vec}(\rho)`.  The diagonal
+        entry :math:`(j, j)` of a :math:`d \times d` matrix sits at position :math:`jd + j = j(d+1)`
+        of its vectorization, under row- and column-stacking alike, so
+
+        .. math::
+
+            \operatorname{vec}(|j\rangle\langle j|) = e_{j(d+1)},
+            \qquad
+            \langle k | \rho | k \rangle = e_{k(d+1)}^{\mathsf{T}} \operatorname{vec}(\rho),
+
+        with :math:`e_m` the :math:`m`-th standard basis vector of :math:`\mathbb{C}^{d^2}`.  Hence
+
+        .. math::
+
+            T_i[k, j] = e_{k(d+1)}^{\mathsf{T}}\, S_i\, e_{j(d+1)} = S_i[k(d+1),\, j(d+1)],
+
+        and the whole array is a gather of :math:`n d^2` entries of the instrument, for :math:`n`
+        outcomes.  Building each :math:`|j\rangle\langle j|` and applying each :math:`S_i` to it
+        instead costs :math:`n d` products of a :math:`d^2 \times d^2` matrix with a vector,
+        :math:`O(n d^5)` in all.
+
+        Each :math:`\mathcal{E}_i` is completely positive, so
+        :math:`\mathcal{E}_i(|j\rangle\langle j|) \succeq 0` and every :math:`T_i[k, j]` is real and
+        non-negative.  The real part only discards rounding.
         """
-        from ._apply import apply_superop_to_density_matrix
+        d_total = self.d[0]
+        # Diagonal positions in the d_total^2-dimensional Liouville space.
+        diag_idx = jnp.arange(d_total) * (d_total + 1)  # (d_total,)
+        # self.matrix: (*ensemble, n_outcomes, d^2, d^2)
+        return jnp.real(self.matrix[..., diag_idx[:, None], diag_idx[None, :]])
 
-        d = self.d[0]
-        dims = self.dims[0]
-        total_superop = SuperOp.from_matrix(jnp.sum(self.matrix, axis=-3), self.dims)
+    @property
+    def transition_matrix(self) -> Array:
+        r"""Extract the transition matrix over the full Hilbert space.
 
-        transition = jnp.zeros((d, d))
-        for j in range(d):
-            rho_j = DensityMatrix.from_matrix(jnp.zeros((d, d), dtype=jnp.complex128).at[j, j].set(1.0), dims)
-            rho_out = apply_superop_to_density_matrix(total_superop, rho_j)
-            for k in range(d):
-                transition = transition.at[k, j].set(jnp.real(rho_out.matrix[k, k]))
+        Shape ``(*ensemble, d_total, d_total)``.  Entry ``[k, j]`` is the probability of
+        ending in computational basis state *k* given input *j*, marginalised
+        over all measurement outcomes:
 
-        return transition
+        .. math::
+
+            T[k, j] = \langle k | \mathcal{E}(|j\rangle\langle j|) | k \rangle
+                    = \sum_i \langle k | \mathcal{E}_i(|j\rangle\langle j|) | k \rangle,
+            \qquad \mathcal{E} = \sum_i \mathcal{E}_i,
+
+        by linearity of :math:`\rho \mapsto \langle k|\rho|k\rangle`.  Each term of the sum is read
+        from the superoperator diagonal (``_basis_state_transitions``).
+        """
+        return self._basis_state_transitions.sum(axis=-3)
 
     # ------------------------------------------------------------------
     # Composition and tensor product operators

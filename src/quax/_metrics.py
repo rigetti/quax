@@ -19,10 +19,10 @@ for use in differentiable quantum algorithms and high-performance computing.
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
-from ._apply import apply_superop_to_density_matrix
 from ._promotion import promote_hilbert_space
 from ._quantum_objects import (
     Choi,
@@ -372,95 +372,114 @@ def classification_fidelity(instrument: QuantumInstrument) -> Array:
     return jnp.sum(jnp.diagonal(cm, axis1=-2, axis2=-1)[..., :d], axis=-1) / d
 
 
+@jax.jit
 def non_demolition_fidelity(instrument: QuantumInstrument) -> Array:
-    """
+    r"""
     Quantum non-demolition (QND) fidelity of a quantum instrument.
 
-    For each input basis state :math:`|j\\rangle` and *every* outcome *i*, we apply the
-    corresponding instrument branch superoperator :math:`\\mathcal{E}_i` to
-    :math:`|j\\rangle\\langle j|` and extract two quantities from the (unnormalized)
-    output :math:`\\tilde{\\rho}_{ij} = \\mathcal{E}_i(|j\\rangle\\langle j|)`:
+    For each input basis state :math:`|j\rangle` and *every* outcome *i*, consider the
+    (unnormalized) output :math:`\tilde{\rho}_{ij} = \mathcal{E}_i(|j\rangle\langle j|)` of the
+    instrument branch :math:`\mathcal{E}_i`, and two quantities derived from it:
 
-    - :math:`p(i \\mid j) = \\operatorname{Tr}(\\tilde{\\rho}_{ij})` — probability of outcome *i*.
-    - :math:`p(\\text{post} = j \\mid i, j) = \\langle j | \\tilde{\\rho}_{ij} | j \\rangle \\,/\\, p(i \\mid j)` — probability that the post-measurement state is still :math:`|j\\rangle`, given outcome *i*.
+    - :math:`p(i \mid j) = \operatorname{Tr}(\tilde{\rho}_{ij})` — probability of outcome *i*.
+    - :math:`p(\text{post} = j \mid i, j) = \langle j | \tilde{\rho}_{ij} | j \rangle \,/\, p(i \mid j)` — probability that the post-measurement state is still :math:`|j\rangle`, given outcome *i*.
 
     The QND fidelity accumulates these joint contributions over **all** outcomes and input
     states:
 
     .. math::
 
-        F_\\text{QND} = \\frac{1}{d} \\sum_j \\sum_i p(i \\mid j) \\cdot p(\\text{post} = j \\mid i,\\, j)
+        F_\text{QND} = \frac{1}{d} \sum_j \sum_i p(i \mid j) \cdot p(\text{post} = j \mid i,\, j)
 
     Unlike :func:`instrument_fidelity`, wrong outcomes can contribute as long as the
     post-measurement state is preserved.  This makes the QND fidelity sensitive to
     state preservation independent of readout accuracy.
     Supports ensembles — returns a scalar per ensemble element.
 
+    **Computation.**  With :math:`T_i[k, j] = \langle k | \tilde{\rho}_{ij} | k \rangle`, a gather
+    from the superoperator diagonal (see ``QuantumInstrument._basis_state_transitions``), both
+    quantities are entries of :math:`T`:
+
+    .. math::
+
+        p(i \mid j) = \sum_k T_i[k, j],
+        \qquad
+        p(i \mid j) \cdot p(\text{post} = j \mid i, j) = T_i[j, j].
+
+    The conditional probability is undefined where :math:`p(i \mid j) = 0`; such terms are dropped
+    below the threshold :math:`\varepsilon = 10^{-12}`, giving
+
+    .. math::
+
+        F_\text{QND} = \frac{1}{d} \sum_j \sum_i \bigl[\, p(i \mid j) > \varepsilon \,\bigr]\, T_i[j, j].
+
+    Since :math:`\tilde{\rho}_{ij} \succeq 0`, every :math:`T_i[k, j] \ge 0`, so each dropped term
+    satisfies :math:`T_i[j, j] \le p(i \mid j) \le \varepsilon`, and the threshold moves
+    :math:`F_\text{QND}` by at most :math:`n \varepsilon` for :math:`n` outcomes.  The product is
+    evaluated as the single entry :math:`T_i[j, j]`, with no division by :math:`p(i \mid j)`, so
+    the gradient stays finite where an outcome is impossible.
+
     See :cite:`DICQI`.
     """
-    d_total = instrument.d[0]
-    n_outcomes = instrument.num_outcomes
-    dims = instrument.dims[0]
-
-    # TODO: Replace Python loops with vectorised implementation for large systems.
-    total = jnp.array(0.0)
-    count = 0
-    for j_full in range(d_total):
-        rho_j_mat = jnp.zeros((d_total, d_total), dtype=jnp.complex128).at[j_full, j_full].set(1.0)
-        rho_j = DensityMatrix.from_matrix(rho_j_mat, dims)
-
-        for i in range(n_outcomes):
-            superop_i, _ = instrument.outcome_superop(i)
-            rho_out = apply_superop_to_density_matrix(superop_i, rho_j)
-            prob = jnp.real(jnp.trace(rho_out.matrix, axis1=-2, axis2=-1))
-            fid = jnp.where(prob > 1e-12, jnp.real(rho_out.matrix[..., j_full, j_full]) / prob, 0.0)
-            total = total + prob * fid
-        count += 1
-
-    return total / count
+    # transitions[..., i, k, j] = <k|E_i(|j><j|)|k>
+    transitions = instrument._basis_state_transitions
+    prob = transitions.sum(axis=-2)  # p(i | j), (*ensemble, n_outcomes, d)
+    stay = jnp.diagonal(transitions, axis1=-2, axis2=-1)  # <j|E_i(|j><j|)|j>, (*ensemble, n_outcomes, d)
+    # p(i | j) * p(post = j | i, j) = stay, counted where outcome i is possible for input j
+    return jnp.sum(jnp.where(prob > 1e-12, stay, 0.0), axis=(-2, -1)) / instrument.d[0]
 
 
+@jax.jit
 def instrument_fidelity(instrument: QuantumInstrument) -> Array:
     r"""
     Overall instrument fidelity w.r.t. ideal QND measurement.
 
-    For each input basis state, j, we apply the conditional instrument superoperator to the state |j⟩⟨j|.
-
-    We compute the probability, p, of the correct outcome which is just the trace of the un-normalized output state
-    and the fidelity, f, of the post-measurement state with the input state |j⟩⟨j|, normalized by p.
-
-    The instrument fidelity is the cumulative sum of the product of p and f for each input state.
+    For each input basis state :math:`|j\rangle`, let :math:`j_\text{meas}` be its index on the
+    measured subsystem, which names the correct outcome.  Apply that outcome's branch to
+    :math:`|j\rangle\langle j|`: the probability :math:`p` of the correct outcome is the trace of the
+    unnormalized output, and the fidelity :math:`f` of the post-measurement state with
+    :math:`|j\rangle\langle j|` is normalized by :math:`p`.  The instrument fidelity is the average of
+    :math:`p f` over input states:
 
     .. math::
 
         F_\text{inst} = \frac{1}{d} \sum_j \underbrace{p(j_\text{meas} \mid j)}_{\text{correct outcome}} \cdot \underbrace{p(\text{post} = j \mid j_\text{meas},\, j)}_{\text{state preserved}}
-
 
     Only "correct" outcomes (outcome *i* matches input basis state *j*
     on the measured subsystem) contribute.
 
     Supports ensembles — returns a scalar per ensemble element.
 
+    **Computation.**  As in :func:`non_demolition_fidelity`, with
+    :math:`T_i[k, j] = \langle k | \mathcal{E}_i(|j\rangle\langle j|) | k \rangle`,
+
+    .. math::
+
+        p(j_\text{meas} \mid j) = \sum_k T_{j_\text{meas}}[k, j],
+        \qquad
+        p(j_\text{meas} \mid j) \cdot p(\text{post} = j \mid j_\text{meas}, j) = T_{j_\text{meas}}[j, j].
+
+    Inputs whose :math:`j_\text{meas}` is not an outcome of the instrument contribute nothing but
+    still count in :math:`d`.  With :math:`J` the remaining inputs and the same threshold
+    :math:`\varepsilon = 10^{-12}`,
+
+    .. math::
+
+        F_\text{inst} = \frac{1}{d} \sum_{j \in J} \bigl[\, p(j_\text{meas} \mid j) > \varepsilon \,\bigr]\, T_{j_\text{meas}}[j, j].
+
     See :cite:`DICQI`.
     """
     d_total = instrument.d[0]
-    n_outcomes = instrument.num_outcomes
     dims = instrument.dims[0]
 
-    # TODO: Replace Python loops with vectorised implementation for large systems.
-    total = jnp.array(0.0)
-    count = 0
-    for j_full in range(d_total):
-        j_meas = _extract_measured_index(j_full, dims, instrument.measured_qudits)
-        rho_j_mat = jnp.zeros((d_total, d_total), dtype=jnp.complex128).at[j_full, j_full].set(1.0)
-        rho_j = DensityMatrix.from_matrix(rho_j_mat, dims)
+    # The correct outcome for each input basis state j; inputs without one contribute nothing.
+    j_meas = np.array([_extract_measured_index(j, dims, instrument.measured_qudits) for j in range(d_total)])
+    j_full = np.flatnonzero(j_meas < instrument.num_outcomes)
+    outcome = j_meas[j_full]
 
-        if j_meas < n_outcomes:
-            superop_i, _ = instrument.outcome_superop(j_meas)
-            rho_out = apply_superop_to_density_matrix(superop_i, rho_j)
-            prob = jnp.real(jnp.trace(rho_out.matrix, axis1=-2, axis2=-1))
-            fid = jnp.where(prob > 1e-12, jnp.real(rho_out.matrix[..., j_full, j_full]) / prob, 0.0)
-            total = total + prob * fid
-        count += 1
-
-    return total / count
+    # transitions[..., i, k, j] = <k|E_i(|j><j|)|k>
+    transitions = instrument._basis_state_transitions
+    prob = transitions.sum(axis=-2)[..., outcome, j_full]  # p(j_meas | j)
+    stay = transitions[..., outcome, j_full, j_full]  # <j|E_{j_meas}(|j><j|)|j>
+    # p(j_meas | j) * p(post = j | j_meas, j) = stay, counted where the outcome is possible
+    return jnp.sum(jnp.where(prob > 1e-12, stay, 0.0), axis=-1) / d_total
