@@ -406,3 +406,12 @@ def test_instrument_from_confusion_and_transition(benchmark, n_qubits):
     build = qx.channels.instrument_from_confusion_and_transition
     build(confusion, transition, dims).data.block_until_ready()
     benchmark(lambda: build(confusion, transition, dims).data.block_until_ready())
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (2, 4, 5)])
+def test_tensor_instrument(benchmark, n_qubits):
+    """Benchmark tensoring a noisy measurement of n - 1 qubits with one more."""
+    single = make_noisy_instrument(dim=2)
+    rest = reduce(lambda a, b: a | b, [single] * (n_qubits - 1))
+    qx.tensor_instrument(rest, single).data.block_until_ready()
+    benchmark(lambda: qx.tensor_instrument(rest, single).data.block_until_ready())
