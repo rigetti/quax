@@ -14,6 +14,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [Unreleased]
+
+### Added
+
+- `lindbladians.transition(gamma, final, initial, dims)`: an incoherent transition between any two basis states
+  of a register of qudits, e.g. a CZ's |11> -> |20>. `lindbladians.leakage` and `seepage` are its qutrit cases.
+- `leakage_rate` and `seepage_rate`: the leakage and seepage rates L1 and L2 of a channel on qudits
+  (Wood and Gambetta, PRA 97, 032306), overall or resolved by which qudits are leaked (`leaked=`), with the
+  computational subspace of each qudit its lowest `subspace_dims` levels (two by default).
+
+
+### Changed
+
+- `process_fidelity` to a unitary target on fewer levels than the channel (a qubit gate against a qutrit channel)
+  is the fidelity on the computational subspace the target acts on (Wood and Gambetta), in which the population the
+  channel leaks counts as error, rather than the fidelity to the target promoted to the whole space. A target that
+  is not a unitary must have the channel's dims; it is no longer promoted, which is not unique. `==` still compares
+  on the larger space.
+
+
 ## [0.7.7] - 2026-09-24
 
 ### Changed

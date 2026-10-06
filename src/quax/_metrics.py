@@ -23,6 +23,7 @@ from jax import Array
 from jax.typing import ArrayLike
 
 from ._apply import apply_superop_to_density_matrix
+from ._leakage import _subspace_process_fidelity
 from ._promotion import promote_hilbert_space
 from ._quantum_objects import (
     Choi,
@@ -136,10 +137,35 @@ def process_fidelity(
     It is the square of the one implemented in Nielsen & Chuang,
     "Quantum Computation and Quantum Information"
 
+    **Leaky channels.** A unitary target on fewer levels than the channel defines the computational
+    subspace: the lowest levels of each qudit, as many as the target acts on. The fidelity is then
+    that of :cite:`WG18`, averaged over the computational subspace,
+    :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2` with
+    :math:`\mathcal{S}` the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}`
+    and the target promoted as the identity on the levels above, so the population the channel
+    leaks counts against it. On equal dims this is the usual process fidelity to a unitary. For the
+    fidelity of an error channel on qutrits pass the qubit identity, e.g.
+    ``qx.process_fidelity(error, qx.gates.I | qx.gates.I)``; a target already promoted to the
+    channel's dims gives the fidelity on the whole space.
+
+    A target that is not a unitary must have the channel's dims: promoting a channel to more levels
+    is not unique, so it is not done implicitly.
+
     :param superoperator_0: Any superoperator type (SuperOperator, Unitary).
-    :param superoperator_1: Optional second operator. If None, identity channel is assumed.
+    :param superoperator_1: Optional second operator. If None, the identity channel on the dims of
+        ``superoperator_0`` is assumed.
     :return: Process fidelity in [0, 1]
+    :raises TypeError: If a target that is not a unitary has different dims from the channel.
+    :raises ValueError: If a unitary target does not fit in the channel's dims.
     """
+    if superoperator_1 is not None and tuple(superoperator_1.dims) != tuple(superoperator_0.dims):
+        if not isinstance(superoperator_1, Unitary):
+            raise TypeError(
+                f"A {type(superoperator_1).__name__} target on dims {superoperator_1.dims} does not match the "
+                f"channel's {superoperator_0.dims}. Only a unitary target may act on fewer levels, which defines "
+                "the computational subspace; promote the target explicitly to compare on the whole space."
+            )
+        return _subspace_process_fidelity(superoperator_0, superoperator_1)
 
     # Convert inputs to Choi representation
     choi_0 = to_choi(superoperator_0)
@@ -157,9 +183,6 @@ def process_fidelity(
         choi_1 = Choi.from_matrix(id_choi_data, choi_0.dims)
     else:
         choi_1 = to_choi(superoperator_1)
-        if choi_1.dims != choi_0.dims:
-            choi_0, choi_1 = promote_hilbert_space(choi_0, choi_1)
-            d2 = choi_0.d2[0]
 
     # The definition of fidelity assumes trace 1 states. Choi matrices have trace d.
     # So we should normalize them before passing to fidelity.
@@ -174,6 +197,14 @@ def process_fidelity(
     state_fid = fidelity(rho, sigma)
 
     return state_fid / d2
+
+
+def _promoted_process_fidelity(superoperator_0: SuperOperator | Unitary, superoperator_1: SuperOperator) -> Array:
+    """The process fidelity on the larger of the two spaces, each promoted to it; for ``__eq__`` only."""
+    choi_0, choi_1 = to_choi(superoperator_0), to_choi(superoperator_1)
+    if choi_0.dims != choi_1.dims:
+        choi_0, choi_1 = promote_hilbert_space(choi_0, choi_1)
+    return process_fidelity(choi_0, choi_1)
 
 
 # Convert between process fidelity, average fidelity and depolarizing constant

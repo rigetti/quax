@@ -207,6 +207,9 @@ first**:
    )
    noisy_rx = qx.gates.RX(theta) + noise
 
+   # CZ whose |11> exchanges population with |20>, on two qutrits
+   noisy_cz = qx.gates.CZ + qx.lindbladians.transition(0.01, (2, 0), (1, 1), (3, 3))
+
 All of these are CPTP :class:`~quax.SuperOp` objects, and gradients flow through both the gate
 parameters and the noise rates.
 

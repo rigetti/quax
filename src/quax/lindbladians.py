@@ -44,17 +44,11 @@ from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
 from ._quantum_objects import Lindbladian, Operator
-from .gates import GELLMANN6, GELLMANN7, P0, P1, X, Y, Z
+from .gates import P0, P1, X, Y, Z
 
 # Qubit lowering/raising operators |0⟩⟨1| = (X + iY)/2 and |1⟩⟨0| = (X − iY)/2.
 _SIGMA_MINUS = Operator.from_matrix((X.matrix + 1j * Y.matrix) / 2, ((2,), (2,)))
 _SIGMA_PLUS = Operator.from_matrix((X.matrix - 1j * Y.matrix) / 2, ((2,), (2,)))
-
-# Qutrit transition operators from the Gell-Mann generators:
-#   |2⟩⟨1| = (λ₆ − iλ₇)/2  (leakage out of the computational subspace),
-#   |1⟩⟨2| = (λ₆ + iλ₇)/2  (seepage back into it).
-_SIGMA_12 = Operator.from_matrix((GELLMANN6.matrix - 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
-_SIGMA_21 = Operator.from_matrix((GELLMANN6.matrix + 1j * GELLMANN7.matrix) / 2, ((3,), (3,)))
 
 
 def amplitude_damping(gamma: float | Array, dims: tuple[int, ...] = (2,)) -> Lindbladian:
@@ -199,19 +193,59 @@ def phase_flip(gamma: float | Array) -> Lindbladian:
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((2,), (2,))))
 
 
+def transition(
+    gamma: float | Array, final: tuple[int, ...], initial: tuple[int, ...], dims: tuple[int, ...]
+) -> Lindbladian:
+    """Lindbladian generator for an incoherent transition between two basis states.
+
+    Models population moving from the basis state :math:`|\\text{initial}\\rangle` to
+    :math:`|\\text{final}\\rangle` of a register of qudits:
+
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|\\text{final}\\rangle\\langle\\text{initial}|`.
+
+    Each basis state is labelled by the level of every qudit, so on two qutrits
+    ``transition(gamma, (2, 0), (1, 1), (3, 3))`` moves :math:`|11\\rangle` to :math:`|20\\rangle`.
+    :func:`leakage` and :func:`seepage` are the single-qutrit cases. A process with several
+    transitions is the sum of their generators.
+
+    :param gamma: Transition rate. Must be non-negative. Arrays produce an ensemble.
+    :param final: The level of each qudit after the transition.
+    :param initial: The level of each qudit before it.
+    :param dims: The dimension of each qudit.
+    :return: Lindbladian generator for the transition on ``dims``.
+    :raises ValueError: If a label does not match *dims*, or the two states are the same.
+    """
+    for label in (final, initial):
+        if len(label) != len(dims) or any(not 0 <= level < d for level, d in zip(label, dims)):
+            raise ValueError(f"basis state {label} is not a basis state of qudits with dims {dims}")
+    if tuple(final) == tuple(initial):
+        raise ValueError(f"a transition needs two different basis states, got {final} twice")
+    d = reduce(mul, dims, 1)
+    matrix = jnp.zeros((d, d), dtype=complex).at[_flat_index(final, dims), _flat_index(initial, dims)].set(1.0)
+    scale = jnp.sqrt(gamma)
+    L = scale[..., None, None, None] * matrix
+    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, (tuple(dims), tuple(dims))))
+
+
+def _flat_index(levels: tuple[int, ...], dims: tuple[int, ...]) -> int:
+    """The big-endian index of a basis state in the tensor product of qudits with *dims*."""
+    index = 0
+    for level, d in zip(levels, dims):
+        index = index * d + level
+    return index
+
+
 def leakage(gamma: float | Array) -> Lindbladian:
     """Lindbladian generator for leakage out of the computational subspace (qutrit).
 
     Models population loss from :math:`|1\\rangle` to the leakage state :math:`|2\\rangle`:
 
-    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|2\\rangle\\langle 1|`.
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|2\\rangle\\langle 1|`, i.e. ``transition(gamma, (2,), (1,), (3,))``.
 
     :param gamma: Leakage rate. Must be non-negative. Arrays produce an ensemble.
     :return: Lindbladian generator for the leakage channel (qutrit space).
     """
-    scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * _SIGMA_12.matrix
-    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
+    return transition(gamma, (2,), (1,), (3,))
 
 
 def seepage(gamma: float | Array) -> Lindbladian:
@@ -219,14 +253,12 @@ def seepage(gamma: float | Array) -> Lindbladian:
 
     Models population return from the leakage state :math:`|2\\rangle` to :math:`|1\\rangle`:
 
-    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|1\\rangle\\langle 2|`.
+    Jump operator: :math:`L = \\sqrt{\\gamma}\\,|1\\rangle\\langle 2|`, i.e. ``transition(gamma, (1,), (2,), (3,))``.
 
     :param gamma: Seepage rate. Must be non-negative. Arrays produce an ensemble.
     :return: Lindbladian generator for the seepage channel (qutrit space).
     """
-    scale = jnp.sqrt(gamma)
-    L = scale[..., None, None, None] * _SIGMA_21.matrix
-    return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, ((3,), (3,))))
+    return transition(gamma, (1,), (2,), (3,))
 
 
 @jax.jit

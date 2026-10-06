@@ -1023,10 +1023,10 @@ class Unitary(Operator):
                 return bool(jnp.allclose(unitary_entanglement_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | PauliLiouville() | KrausMap():
                 # Promote self to superoperator and compare using process fidelity
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
                 from ._superoperator_transformations import unitary_to_superop
 
-                return bool(jnp.allclose(process_fidelity(unitary_to_superop(self), other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(unitary_to_superop(self), other), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1500,20 +1500,20 @@ class SuperOp(SuperOperator):
         match other:
             case SuperOp():
                 # Compare two superoperators using process fidelity
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case Choi() | PauliLiouville() | KrausMap():
                 # Convert other to SuperOp and compare
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to SuperOp and compare
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
                 from ._superoperator_transformations import unitary_to_superop
 
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_superop(other)), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, unitary_to_superop(other)), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1688,20 +1688,20 @@ class KrausMap(SuperOperator):
         match other:
             case KrausMap():
                 # Compare two KrausMaps using process fidelity
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | PauliLiouville():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to KrausMap and compare
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
                 from ._superoperator_transformations import unitary_to_kraus_map
 
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_kraus_map(other)), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, unitary_to_kraus_map(other)), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1860,20 +1860,20 @@ class Choi(SuperOperator):
         match other:
             case Choi():
                 # Compare two Choi matrices using process fidelity
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case SuperOp() | PauliLiouville() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to Choi and compare
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
                 from ._superoperator_transformations import unitary_to_choi
 
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_choi(other)), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, unitary_to_choi(other)), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -2130,20 +2130,20 @@ class PauliLiouville(SuperOperator):
         match other:
             case PauliLiouville():
                 # Compare two PauliLiouville matrices using process fidelity
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case SuperOp() | Choi() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
 
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, other), 1.0))
             case Unitary():
                 # Promote Unitary to PauliLiouville and compare
-                from ._metrics import process_fidelity
+                from ._metrics import _promoted_process_fidelity
                 from ._superoperator_transformations import unitary_to_pauli_liouville
 
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_pauli_liouville(other)), 1.0))
+                return bool(jnp.allclose(_promoted_process_fidelity(self, unitary_to_pauli_liouville(other)), 1.0))
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
