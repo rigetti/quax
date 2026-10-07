@@ -42,7 +42,6 @@ import numpy as np
 from jax import Array
 
 from ._apply import apply_superop_to_density_matrix
-from ._promotion import promote
 from ._quantum_objects import DensityMatrix, SuperOperator, Unitary
 from ._superoperator_transformations import to_superop
 
@@ -152,20 +151,3 @@ def seepage_rate(
     if not leakage.any():
         raise ValueError(f"qudits with dims {dims} have no leakage subspace, so no seepage rate")
     return _population(channel, leakage, _subspace_projector(dims, subspace_dims), dims)
-
-
-def _subspace_process_fidelity(channel: SuperOperator | Unitary, target: Unitary) -> Array:
-    r"""The process fidelity of a channel to a unitary on fewer levels, on its computational subspace :cite:`WG18`.
-
-    :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2`, with :math:`\mathcal{S}`
-    the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}` and the computational
-    subspace the levels the target acts on.
-    """
-    dims = _dims(channel)
-    subspace_dims = tuple(int(d) for d in target.dims[0])
-    if len(subspace_dims) != len(dims) or any(s > d for s, d in zip(subspace_dims, dims)):
-        raise ValueError(f"a target on dims {subspace_dims} does not fit in a channel on dims {dims}")
-    error = to_superop(promote(target, dims).h).matrix @ to_superop(channel).matrix
-    computational = _subspace_projector(dims, subspace_dims)
-    weights = jnp.asarray(np.kron(computational, computational))
-    return jnp.real(jnp.einsum("...ii,i->...", error, weights)) / computational.sum() ** 2

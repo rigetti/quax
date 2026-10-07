@@ -17,13 +17,16 @@ This module provides JIT-compiled implementations of quantum fidelity measures
 for use in differentiable quantum algorithms and high-performance computing.
 """
 
+from functools import reduce
+
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
 from ._apply import apply_superop_to_density_matrix
-from ._leakage import _subspace_process_fidelity
+from ._promotion import promote
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -206,23 +209,21 @@ def _fits(dims: tuple[int, ...], into: tuple[int, ...]) -> bool:
     return len(dims) == len(into) and all(d <= t for d, t in zip(dims, into))
 
 
-def _processes_equal(process_0: SuperOperator | Unitary, process_1: SuperOperator | Unitary) -> bool:
-    """
-    Whether two processes are equal, by process fidelity; for ``__eq__``.
+def _subspace_process_fidelity(channel: SuperOperator | Unitary, target: Unitary) -> Array:
+    r"""The process fidelity of a channel to a unitary on fewer levels, on its computational subspace :cite:`WG18`.
 
-    A :class:`Unitary` on fewer levels than the other process is compared on the computational subspace it
-    defines, as in :func:`process_fidelity`: the two are equal if the other acts as the unitary there and leaks
-    nothing out of it, whatever it does to the levels above. Superoperators on different dims are unequal.
+    :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2`, with :math:`\mathcal{S}`
+    the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}` and the computational
+    subspace the levels the target acts on. The target must fit in the channel's dims.
     """
-    dims_0, dims_1 = tuple(process_0.dims[0]), tuple(process_1.dims[0])
-    if dims_0 != dims_1 and not (
-        (isinstance(process_0, Unitary) and _fits(dims_0, dims_1))
-        or (isinstance(process_1, Unitary) and _fits(dims_1, dims_0))
-    ):
-        return False
-    if dims_0 == dims_1 and isinstance(process_0, Unitary) and isinstance(process_1, Unitary):
-        return bool(jnp.allclose(unitary_entanglement_fidelity(process_0, process_1), 1.0))
-    return bool(jnp.allclose(process_fidelity(process_0, process_1), 1.0))
+    dims_out, dims_in = (tuple(int(d) for d in dims) for dims in channel.dims)
+    if dims_out != dims_in:
+        raise NotImplementedError("Process fidelity only implemented for dimension-preserving operators.")
+    # The diagonal of the projector onto the computational subspace, a constant under jit.
+    computational = reduce(np.kron, [(np.arange(d) < s).astype(float) for d, s in zip(dims_out, target.dims[0])])
+    error = to_superop(promote(target, dims_out).h).matrix @ to_superop(channel).matrix
+    weights = jnp.asarray(np.kron(computational, computational))
+    return jnp.real(jnp.einsum("...ii,i->...", error, weights)) / computational.sum() ** 2
 
 
 # Convert between process fidelity, average fidelity and depolarizing constant
