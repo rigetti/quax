@@ -18,23 +18,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Added
 
-- `lindbladians.transition(gamma, final, initial, dims)`: an incoherent transition between any two basis states
-  of a register of qudits, e.g. a CZ's |11> -> |20>. `lindbladians.leakage` and `seepage` are its qutrit cases.
-- `leakage_rate` and `seepage_rate`: the leakage and seepage rates L1 and L2 of a channel on qudits
-  (Wood and Gambetta, PRA 97, 032306), overall or resolved by which qudits are leaked (`leaked=`), with the
-  computational subspace of each qudit its lowest `subspace_dims` levels (two by default).
+- `lindbladians.transition`: an incoherent jump between two basis states of a register of qudits.
+- `leakage_rate` and `seepage_rate` (Wood and Gambetta, PRA 97, 032306), optionally per leaked qudit set.
 
 
 ### Changed
 
-- `process_fidelity` with a unitary on fewer levels than the other argument (a qubit gate against a qutrit
-  channel) is the fidelity on the computational subspace the unitary acts on (Wood and Gambetta), in which the
-  population the channel leaks counts as error, rather than the fidelity to the unitary promoted to the whole space.
-  Only a `Unitary` defines the subspace. **Breaking:** superoperators on different dims are no longer promoted
-  implicitly; `process_fidelity` raises a `ValueError` for them (promote one explicitly).
-- `==` compares a `Unitary` on fewer levels than the other side on the computational subspace it defines, as
-  `process_fidelity` does, and finds superoperators on different dims unequal; it used to promote both sides, and
-  raised for two unitaries on different dims.
+- **Breaking:** `process_fidelity` to a smaller `Unitary` is the fidelity on its computational subspace, where
+  leakage counts as error. Superoperators on different dims are no longer promoted and raise `ValueError`.
+- `==` follows `process_fidelity` for a smaller `Unitary`; superoperators on different dims are unequal.
 
 
 ## [0.7.7] - 2026-09-24
