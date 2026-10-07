@@ -162,19 +162,44 @@ class TestCZLeakage:
         expected = (3 + amplitude) ** 2 / 16
         assert float(qx.process_fidelity(noisy, qx.gates.CZ)) == pytest.approx(expected, rel=1e-6)
 
-    def test_rejects_a_smaller_non_unitary_target(self):
-        """Promoting a channel to more levels is not unique, so a smaller channel target is not promoted."""
+    def test_a_unitary_on_fewer_levels_defines_the_subspace_on_either_side(self):
         noisy = _noisy(qx.gates.CZ, _exchange(self.RATE_20, self.RATE_02))
-        with pytest.raises(TypeError, match="Only a unitary target"):
+        assert float(qx.process_fidelity(qx.gates.CZ, noisy)) == pytest.approx(
+            float(qx.process_fidelity(noisy, qx.gates.CZ)), abs=1e-12
+        )
+
+    def test_rejects_a_smaller_superoperator(self):
+        """Promoting a channel to more levels is not unique, so a smaller superoperator is never promoted."""
+        noisy = _noisy(qx.gates.CZ, _exchange(self.RATE_20, self.RATE_02))
+        with pytest.raises(TypeError, match="never promoted"):
             qx.process_fidelity(noisy, qx.to_superop(qx.gates.CZ))
 
-    def test_rejects_a_target_on_more_levels(self):
-        with pytest.raises(ValueError, match="does not fit"):
+    def test_rejects_a_superoperator_on_fewer_levels_than_a_unitary(self):
+        with pytest.raises(TypeError, match="never promoted"):
             qx.process_fidelity(qx.channels.depolarizing(0.1), qx.promote(qx.gates.X, (3,)))
 
-    def test_equality_still_promotes(self):
-        """``==`` compares on the larger space, as before: a qubit gate equals its promotion."""
-        assert qx.to_superop(qx.promote(qx.gates.X, (3,))) == qx.to_superop(qx.gates.X)
+
+class TestEquality:
+    """``==`` promotes a unitary on fewer levels, whose matrix fixes the phase of the levels above; never a channel."""
+
+    RZ: qx.Unitary = qx.gates.RZ(np.pi / 2)
+    PHASE: qx.Unitary = qx.Unitary.from_matrix(jnp.diag(jnp.array([1.0, 1.0j])), ((2,), (2,)))
+    """The same qubit channel as ``RZ``, a global phase apart."""
+
+    def test_a_unitary_equals_its_promotion(self):
+        promoted = qx.promote(qx.gates.X, (3,))
+        assert qx.gates.X == promoted
+        assert qx.gates.X == qx.to_superop(promoted)
+        assert qx.to_superop(promoted) == qx.gates.X
+
+    def test_superoperators_on_different_dims_are_unequal(self):
+        assert qx.to_superop(qx.gates.X) != qx.to_superop(qx.promote(qx.gates.X, (3,)))
+
+    def test_a_unitary_channel_does_not_fix_the_phase_of_its_promotion(self):
+        """``RZ`` and the phase gate are the same qubit channel, but not the same qutrit gate once promoted."""
+        assert qx.to_superop(self.RZ) == qx.to_superop(self.PHASE)
+        assert self.RZ != qx.promote(self.PHASE, (3,))
+        assert self.RZ != qx.to_superop(qx.promote(self.PHASE, (3,)))
 
 
 class TestOneQutritLeakage:

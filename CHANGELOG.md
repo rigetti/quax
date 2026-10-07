@@ -27,11 +27,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 
 ### Changed
 
-- `process_fidelity` to a unitary target on fewer levels than the channel (a qubit gate against a qutrit channel)
-  is the fidelity on the computational subspace the target acts on (Wood and Gambetta), in which the population the
-  channel leaks counts as error, rather than the fidelity to the target promoted to the whole space. A target that
-  is not a unitary must have the channel's dims; it is no longer promoted, which is not unique. `==` still compares
-  on the larger space.
+- `process_fidelity` with a unitary on fewer levels than the other argument (a qubit gate against a qutrit
+  channel) is the fidelity on the computational subspace the unitary acts on (Wood and Gambetta), in which the
+  population the channel leaks counts as error, rather than the fidelity to the unitary promoted to the whole space.
+  Superoperators are never promoted: a non-unitary channel has no unique extension, and even a unitary channel's
+  promotion depends on the global phase it has lost. A `Unitary`, whose matrix fixes that phase, is the only object
+  promoted implicitly; superoperators on different dims raise in `process_fidelity`.
+- `==` promotes a `Unitary` on fewer levels, as the identity on the levels above, and finds superoperators on
+  different dims unequal; it used to promote both sides, and raised for two unitaries on different dims.
 
 
 ## [0.7.7] - 2026-09-24
