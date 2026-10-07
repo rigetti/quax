@@ -166,8 +166,9 @@ Leakage
 
 The leakage and seepage rates of a channel on qudits :cite:`WG18`, overall or resolved by which
 qudits are leaked; ``process_fidelity`` to a unitary target on fewer levels than the channel gives
-its fidelity on the computational subspace the target acts on. ``qx.lindbladians.transition`` generates an incoherent transition between
-any two basis states, of which ``leakage`` and ``seepage`` are the single-qutrit cases.
+its fidelity on the computational subspace the target acts on. ``qx.lindbladians.transition``
+generates an incoherent transition between any two basis states, of which ``leakage`` and
+``seepage`` are the single-qutrit cases.
 
 .. autosummary::
    :toctree: generated/

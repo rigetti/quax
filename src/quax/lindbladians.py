@@ -40,6 +40,7 @@ from operator import mul
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ._operator_basis import n_qudit_herm_basis
@@ -221,18 +222,11 @@ def transition(
     if tuple(final) == tuple(initial):
         raise ValueError(f"a transition needs two different basis states, got {final} twice")
     d = reduce(mul, dims, 1)
-    matrix = jnp.zeros((d, d), dtype=complex).at[_flat_index(final, dims), _flat_index(initial, dims)].set(1.0)
+    row, column = np.ravel_multi_index(final, dims), np.ravel_multi_index(initial, dims)
+    matrix = jnp.zeros((d, d), dtype=complex).at[row, column].set(1.0)
     scale = jnp.sqrt(gamma)
     L = scale[..., None, None, None] * matrix
     return Lindbladian(hamiltonian=None, jump_operators=Operator.from_matrix(L, (tuple(dims), tuple(dims))))
-
-
-def _flat_index(levels: tuple[int, ...], dims: tuple[int, ...]) -> int:
-    """The big-endian index of a basis state in the tensor product of qudits with *dims*."""
-    index = 0
-    for level, d in zip(levels, dims):
-        index = index * d + level
-    return index
 
 
 def leakage(gamma: float | Array) -> Lindbladian:

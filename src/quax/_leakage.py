@@ -34,7 +34,7 @@ given set of qudits is leaked and the others are not, and the rates resolve into
 the others do, is the sum of :math:`L_1^{(\mathcal{Y})}` over the subspaces in which it is leaked.
 """
 
-from functools import partial, reduce
+from functools import reduce
 
 import jax
 import jax.numpy as jnp
@@ -105,7 +105,7 @@ def _population(
     return jnp.real(jnp.einsum("i,...ii->...", jnp.asarray(measured), output))
 
 
-@partial(jax.jit, static_argnames=("leaked", "subspace_dims"))
+@jax.jit(static_argnames=("leaked", "subspace_dims"))
 def leakage_rate(
     channel: SuperOperator | Unitary,
     leaked: tuple[int, ...] | None = None,
@@ -118,8 +118,8 @@ def leakage_rate(
     :math:`L_1^{(\mathcal{Y})}` into the subspace in which exactly those qudits are leaked.
 
     :param channel: The channel, on qudits.
-    :param leaked: The qudits leaked in the target subspace; all of the leakage subspace by default.
-    :param subspace_dims: The dimension of each qudit's computational subspace; two by default.
+    :param leaked: The qudits leaked in the target subspace, a tuple; all of the leakage subspace by default.
+    :param subspace_dims: The dimension of each qudit's computational subspace, a tuple; two by default.
     :return: The leakage rate, a scalar or an array over the channel's ensemble.
     """
     dims = _dims(channel)
@@ -127,7 +127,7 @@ def leakage_rate(
     return _population(channel, computational, _leakage_projector(dims, subspace_dims, leaked), dims)
 
 
-@partial(jax.jit, static_argnames=("leaked", "subspace_dims"))
+@jax.jit(static_argnames=("leaked", "subspace_dims"))
 def seepage_rate(
     channel: SuperOperator | Unitary,
     leaked: tuple[int, ...] | None = None,
@@ -137,11 +137,13 @@ def seepage_rate(
 
     :math:`L_2 = \mathrm{Tr}[\mathbb{1}_1\,\mathcal{E}(\mathbb{1}_2/d_2)]`: the population that returns
     to the computational subspace, averaged over the leaked states. With *leaked*, the rate
-    :math:`L_2^{(\mathcal{Y})}` out of the subspace in which exactly those qudits are leaked.
+    :math:`L_2^{(\mathcal{Y})}` out of the subspace in which exactly those qudits are leaked. Each is
+    averaged over its own subspace, so they combine into
+    :math:`L_2 = \sum_{\mathcal{Y}} (d_{\mathcal{Y}}/d_2)\,L_2^{(\mathcal{Y})}`, a weighted sum, unlike :math:`L_1`.
 
     :param channel: The channel, on qudits.
-    :param leaked: The qudits leaked in the source subspace; all of the leakage subspace by default.
-    :param subspace_dims: The dimension of each qudit's computational subspace; two by default.
+    :param leaked: The qudits leaked in the source subspace, a tuple; all of the leakage subspace by default.
+    :param subspace_dims: The dimension of each qudit's computational subspace, a tuple; two by default.
     :return: The seepage rate, a scalar or an array over the channel's ensemble.
     :raises ValueError: If the qudits have no leakage subspace, so that the rate is undefined.
     """
