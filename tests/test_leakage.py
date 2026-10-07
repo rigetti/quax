@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 
 import quax as qx
-from quax import _leakage
 
 QUTRITS = (3, 3)
 
@@ -88,9 +87,10 @@ class TestQubitChannels:
     def test_reduce_to_the_usual_figures_of_merit(self, seed):
         channel = qx.random_choi(((2, 2), (2, 2)), rank=4, key=jax.random.key(seed))
         assert float(qx.leakage_rate(channel)) == pytest.approx(0.0, abs=1e-12)
-        # The usual fidelity takes a matrix square root (Jozsa), the subspace one a trace, so they agree to ~1e-9.
-        whole_space = qx.SuperOp.from_matrix(qx.to_superop(channel).matrix, ((2, 2), (2, 2)))
-        assert float(_leakage._subspace_process_fidelity(whole_space, qx.gates.I | qx.gates.I)) == pytest.approx(
+        # Promoted to qutrits it leaks nothing, so its fidelity on the qubit subspace is the usual one. The usual
+        # fidelity takes a matrix square root (Jozsa), the subspace one a trace, so they agree to ~1e-9.
+        promoted = qx.promote(channel, QUTRITS)
+        assert float(qx.process_fidelity(promoted, qx.gates.I | qx.gates.I)) == pytest.approx(
             float(qx.process_fidelity(channel)), abs=1e-7
         )
 
@@ -171,16 +171,16 @@ class TestCZLeakage:
     def test_rejects_a_smaller_superoperator(self):
         """Promoting a channel to more levels is not unique, so a smaller superoperator is never promoted."""
         noisy = _noisy(qx.gates.CZ, _exchange(self.RATE_20, self.RATE_02))
-        with pytest.raises(TypeError, match="never promoted"):
+        with pytest.raises(ValueError, match="cannot be compared"):
             qx.process_fidelity(noisy, qx.to_superop(qx.gates.CZ))
 
     def test_rejects_a_superoperator_on_fewer_levels_than_a_unitary(self):
-        with pytest.raises(TypeError, match="never promoted"):
+        with pytest.raises(ValueError, match="cannot be compared"):
             qx.process_fidelity(qx.channels.depolarizing(0.1), qx.promote(qx.gates.X, (3,)))
 
 
 class TestEquality:
-    """``==`` promotes a unitary on fewer levels, whose matrix fixes the phase of the levels above; never a channel."""
+    """``==`` compares a unitary on fewer levels on its computational subspace, as ``process_fidelity``; never a channel."""
 
     RZ: qx.Unitary = qx.gates.RZ(np.pi / 2)
     PHASE: qx.Unitary = qx.Unitary.from_matrix(jnp.diag(jnp.array([1.0, 1.0j])), ((2,), (2,)))
@@ -195,11 +195,24 @@ class TestEquality:
     def test_superoperators_on_different_dims_are_unequal(self):
         assert qx.to_superop(qx.gates.X) != qx.to_superop(qx.promote(qx.gates.X, (3,)))
 
-    def test_a_unitary_channel_does_not_fix_the_phase_of_its_promotion(self):
-        """``RZ`` and the phase gate are the same qubit channel, but not the same qutrit gate once promoted."""
+    def test_the_global_phase_of_a_promotion_does_not_matter(self):
+        """``RZ`` and the phase gate are the same qubit channel, and equal either one's promotion."""
         assert qx.to_superop(self.RZ) == qx.to_superop(self.PHASE)
-        assert self.RZ != qx.promote(self.PHASE, (3,))
-        assert self.RZ != qx.to_superop(qx.promote(self.PHASE, (3,)))
+        assert self.RZ == qx.promote(self.PHASE, (3,))
+        assert self.RZ == qx.to_superop(qx.promote(self.PHASE, (3,)))
+        minus_identity = qx.Unitary.from_matrix(-qx.gates.I.matrix, ((2,), (2,)))
+        assert minus_identity == qx.promote(qx.gates.I, (3,))
+
+    def test_the_levels_above_do_not_matter(self):
+        """Seepage from |2> to |0> leaves the computational subspace alone, so the channel equals the identity there."""
+        seeping = qx.evolve(qx.lindbladians.transition(0.5, (0,), (2,), (3,)), 1.0)
+        assert qx.gates.I == seeping
+        assert seeping == qx.gates.I
+
+    def test_a_leaking_channel_is_unequal(self):
+        leaking = qx.evolve(qx.lindbladians.leakage(0.5), 1.0)
+        assert qx.gates.I != leaking
+        assert leaking != qx.gates.I
 
 
 class TestOneQutritLeakage:

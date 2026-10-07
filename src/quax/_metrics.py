@@ -24,7 +24,6 @@ from jax.typing import ArrayLike
 
 from ._apply import apply_superop_to_density_matrix
 from ._leakage import _subspace_process_fidelity
-from ._promotion import promote
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -138,26 +137,25 @@ def process_fidelity(
     "Quantum Computation and Quantum Information"
 
     **Leaky channels.** A unitary on fewer levels than the other argument (either one, usually the
-    target) defines the computational subspace: the lowest levels of each qudit, as many as it acts on. The fidelity is then
-    that of :cite:`WG18`, averaged over the computational subspace,
+    target) defines the computational subspace: the lowest levels of each qudit, as many as it acts
+    on. The fidelity is then that of :cite:`WG18`, averaged over the computational subspace,
     :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2` with
-    :math:`\mathcal{S}` the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}`
-    and the target promoted as the identity on the levels above, so the population the channel
-    leaks counts against it. On equal dims this is the usual process fidelity to a unitary. For the
+    :math:`\mathcal{S}` the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}`,
+    so the population the channel leaks counts against it, and what it does to the leaked levels
+    does not count at all. On equal dims this is the usual process fidelity to a unitary. For the
     fidelity of an error channel on qutrits pass the qubit identity, e.g.
     ``qx.process_fidelity(error, qx.gates.I | qx.gates.I)``; a target already promoted to the
     channel's dims gives the fidelity on the whole space.
 
-    Superoperators on different dims cannot be compared. A superoperator is never promoted: a
-    non-unitary channel has no unique extension, and even a unitary channel's promotion depends on
-    the global phase it has lost, which becomes the relative phase of the levels above. Only a
-    :class:`Unitary` fixes that phase.
+    Only a :class:`Unitary` defines the computational subspace: the fidelity of :cite:`WG18` is to
+    a unitary target, and a superoperator is not known to be one. Superoperators on different dims
+    cannot be compared; promote one explicitly to compare them on the whole space.
 
     :param superoperator_0: Any superoperator type (SuperOperator, Unitary).
     :param superoperator_1: Optional second operator. If None, the identity channel on the dims of
         ``superoperator_0`` is assumed.
     :return: Process fidelity in [0, 1]
-    :raises TypeError: If the dims differ and neither argument is a unitary on fewer levels than the other.
+    :raises ValueError: If the dims differ and neither argument is a unitary on fewer levels than the other.
     """
     if superoperator_1 is not None and tuple(superoperator_1.dims) != tuple(superoperator_0.dims):
         dims_0, dims_1 = tuple(superoperator_0.dims[0]), tuple(superoperator_1.dims[0])
@@ -165,11 +163,10 @@ def process_fidelity(
             return _subspace_process_fidelity(superoperator_0, superoperator_1)
         if isinstance(superoperator_0, Unitary) and _fits(dims_0, dims_1):
             return _subspace_process_fidelity(superoperator_1, superoperator_0)
-        raise TypeError(
+        raise ValueError(
             f"A {type(superoperator_0).__name__} on dims {dims_0} and a {type(superoperator_1).__name__} on dims "
-            f"{dims_1} cannot be compared: only a unitary on fewer levels may be, and it defines the computational "
-            "subspace. A superoperator is never promoted, not even a unitary channel, whose promotion depends on "
-            "the global phase it has lost; promote a Unitary explicitly to compare on the whole space."
+            f"{dims_1} cannot be compared: only a Unitary on fewer levels than the other argument may be, and it "
+            "defines the computational subspace. Promote one explicitly to compare them on the whole space."
         )
 
     # Convert inputs to Choi representation
@@ -211,21 +208,19 @@ def _fits(dims: tuple[int, ...], into: tuple[int, ...]) -> bool:
 
 def _processes_equal(process_0: SuperOperator | Unitary, process_1: SuperOperator | Unitary) -> bool:
     """
-    Whether two processes are equal, by fidelity; for ``__eq__``.
+    Whether two processes are equal, by process fidelity; for ``__eq__``.
 
-    A :class:`Unitary` on fewer levels is promoted, as the identity on the levels above its own: its matrix fixes the
-    phase between them. A superoperator never is, not even a unitary channel, whose promotion depends on the global
-    phase it has lost; superoperators on different dims are unequal.
+    A :class:`Unitary` on fewer levels than the other process is compared on the computational subspace it
+    defines, as in :func:`process_fidelity`: the two are equal if the other acts as the unitary there and leaks
+    nothing out of it, whatever it does to the levels above. Superoperators on different dims are unequal.
     """
     dims_0, dims_1 = tuple(process_0.dims[0]), tuple(process_1.dims[0])
-    if dims_0 != dims_1:
-        if isinstance(process_0, Unitary) and _fits(dims_0, dims_1):
-            process_0 = promote(process_0, dims_1)
-        elif isinstance(process_1, Unitary) and _fits(dims_1, dims_0):
-            process_1 = promote(process_1, dims_0)
-        else:
-            return False
-    if isinstance(process_0, Unitary) and isinstance(process_1, Unitary):
+    if dims_0 != dims_1 and not (
+        (isinstance(process_0, Unitary) and _fits(dims_0, dims_1))
+        or (isinstance(process_1, Unitary) and _fits(dims_1, dims_0))
+    ):
+        return False
+    if dims_0 == dims_1 and isinstance(process_0, Unitary) and isinstance(process_1, Unitary):
         return bool(jnp.allclose(unitary_entanglement_fidelity(process_0, process_1), 1.0))
     return bool(jnp.allclose(process_fidelity(process_0, process_1), 1.0))
 

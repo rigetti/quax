@@ -1014,7 +1014,14 @@ class Unitary(Operator):
                 return NotImplemented
 
     def __eq__(self, other: object) -> bool:
-        """Check equality by fidelity; a unitary on fewer levels is promoted, as the identity above them."""
+        """
+        Check equality by fidelity.
+
+        A unitary on fewer levels than *other* is compared on the computational subspace it defines, as in
+        :func:`~quax.process_fidelity`: *other* equals it if it acts as the unitary there and leaks nothing, whatever
+        it does to the levels above. Across dims this is not transitive: the qubit identity equals both the qutrit
+        identity and ``diag(1, 1, -1)``, which differ from each other.
+        """
         match other:
             case Unitary():
                 # Compare two unitaries using entanglement fidelity
@@ -1022,7 +1029,7 @@ class Unitary(Operator):
 
                 return _processes_equal(self, other)
             case SuperOp() | Choi() | PauliLiouville() | KrausMap():
-                # Compare using process fidelity; only the unitary side may be promoted
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
                 from ._metrics import _processes_equal
 
                 return _processes_equal(self, other)
@@ -1508,7 +1515,7 @@ class SuperOp(SuperOperator):
 
                 return _processes_equal(self, other)
             case Unitary():
-                # Compare using process fidelity; only the unitary side may be promoted
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
                 from ._metrics import _processes_equal
 
                 return _processes_equal(self, other)
@@ -1695,7 +1702,7 @@ class KrausMap(SuperOperator):
 
                 return _processes_equal(self, other)
             case Unitary():
-                # Compare using process fidelity; only the unitary side may be promoted
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
                 from ._metrics import _processes_equal
 
                 return _processes_equal(self, other)
@@ -1866,7 +1873,7 @@ class Choi(SuperOperator):
 
                 return _processes_equal(self, other)
             case Unitary():
-                # Compare using process fidelity; only the unitary side may be promoted
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
                 from ._metrics import _processes_equal
 
                 return _processes_equal(self, other)
@@ -2135,7 +2142,7 @@ class PauliLiouville(SuperOperator):
 
                 return _processes_equal(self, other)
             case Unitary():
-                # Compare using process fidelity; only the unitary side may be promoted
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
                 from ._metrics import _processes_equal
 
                 return _processes_equal(self, other)
