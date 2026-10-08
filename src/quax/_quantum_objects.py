@@ -1014,19 +1014,21 @@ class Unitary(Operator):
                 return NotImplemented
 
     def __eq__(self, other: object) -> bool:
-        """Check equality using unitary entanglement fidelity."""
+        """
+        Check equality by fidelity.
+
+        A unitary on fewer levels than *other* is compared on the computational subspace it defines, as in
+        :func:`~quax.process_fidelity`: *other* equals it if it acts as the unitary there and leaks nothing, whatever
+        it does to the levels above. Across dims this is not transitive: the qubit identity equals both the qutrit
+        identity and ``diag(1, 1, -1)``, which differ from each other.
+        """
         match other:
             case Unitary():
-                # Compare two unitaries using entanglement fidelity
-                from ._metrics import unitary_entanglement_fidelity
-
-                return bool(jnp.allclose(unitary_entanglement_fidelity(self, other), 1.0))
+                # Compare two unitaries by fidelity; one on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case SuperOp() | Choi() | PauliLiouville() | KrausMap():
-                # Promote self to superoperator and compare using process fidelity
-                from ._metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_superop
-
-                return bool(jnp.allclose(process_fidelity(unitary_to_superop(self), other), 1.0))
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1500,20 +1502,13 @@ class SuperOp(SuperOperator):
         match other:
             case SuperOp():
                 # Compare two superoperators using process fidelity
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case Choi() | PauliLiouville() | KrausMap():
                 # Convert other to SuperOp and compare
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case Unitary():
-                # Promote Unitary to SuperOp and compare
-                from ._metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_superop
-
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_superop(other)), 1.0))
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1688,20 +1683,13 @@ class KrausMap(SuperOperator):
         match other:
             case KrausMap():
                 # Compare two KrausMaps using process fidelity
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case SuperOp() | Choi() | PauliLiouville():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case Unitary():
-                # Promote Unitary to KrausMap and compare
-                from ._metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_kraus_map
-
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_kraus_map(other)), 1.0))
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -1860,20 +1848,13 @@ class Choi(SuperOperator):
         match other:
             case Choi():
                 # Compare two Choi matrices using process fidelity
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case SuperOp() | PauliLiouville() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case Unitary():
-                # Promote Unitary to Choi and compare
-                from ._metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_choi
-
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_choi(other)), 1.0))
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -2130,20 +2111,13 @@ class PauliLiouville(SuperOperator):
         match other:
             case PauliLiouville():
                 # Compare two PauliLiouville matrices using process fidelity
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case SuperOp() | Choi() | KrausMap():
                 # Compare using process fidelity (handles conversions internally)
-                from ._metrics import process_fidelity
-
-                return bool(jnp.allclose(process_fidelity(self, other), 1.0))
+                return _equal_by_process_fidelity(self, other)
             case Unitary():
-                # Promote Unitary to PauliLiouville and compare
-                from ._metrics import process_fidelity
-                from ._superoperator_transformations import unitary_to_pauli_liouville
-
-                return bool(jnp.allclose(process_fidelity(self, unitary_to_pauli_liouville(other)), 1.0))
+                # Compare using process fidelity; a unitary on fewer levels defines the subspace
+                return _equal_by_process_fidelity(self, other)
             case StateVector() | DensityMatrix():
                 # States and operators are never equal
                 return False
@@ -2653,6 +2627,28 @@ class QuantumInstrument(QuantumObject):
         if self.data.shape != other.data.shape:
             return False
         return bool(jnp.allclose(self.data, other.data))
+
+
+# ======================================================================
+# Equality private helpers
+# ======================================================================
+
+
+def _equal_by_process_fidelity(process_0: Unitary | SuperOperator, process_1: Unitary | SuperOperator) -> bool:
+    """
+    Whether two processes have process fidelity one; for ``__eq__``.
+
+    Processes that :func:`~quax.process_fidelity` cannot compare, superoperators on different dims, are unequal.
+    A unitary on fewer levels than the other process is compared on the computational subspace it defines.
+    """
+    from ._metrics import process_fidelity, unitary_entanglement_fidelity
+
+    if isinstance(process_0, Unitary) and isinstance(process_1, Unitary) and process_0.dims == process_1.dims:
+        return bool(jnp.allclose(unitary_entanglement_fidelity(process_0, process_1), 1.0))
+    try:
+        return bool(jnp.allclose(process_fidelity(process_0, process_1), 1.0))
+    except ValueError:
+        return False
 
 
 # ======================================================================

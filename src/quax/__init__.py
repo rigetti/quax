@@ -67,6 +67,7 @@ from ._exponentiation import (
     power_unitary,
 )
 from ._generators import unitary_to_hamiltonian
+from ._leakage import leakage_rate, seepage_rate
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -281,6 +282,7 @@ __all__ = [
     "kraus_to_choi",
     "kraus_to_pauli_liouville",
     "kraus_to_superop",
+    "leakage_rate",
     "lindbladians",
     "linear_inversion_process",
     "linear_inversion_state",
@@ -319,6 +321,7 @@ __all__ = [
     "random_state_vector",
     "random_unitary",
     "sample_kraus_map_trajectory",
+    "seepage_rate",
     "select_outcome",
     "squeeze",
     "state_vector_reduced_density_matrix",

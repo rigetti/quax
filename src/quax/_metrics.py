@@ -17,13 +17,16 @@ This module provides JIT-compiled implementations of quantum fidelity measures
 for use in differentiable quantum algorithms and high-performance computing.
 """
 
+from functools import reduce
+
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
 from ._apply import apply_superop_to_density_matrix
-from ._promotion import promote_hilbert_space
+from ._promotion import promote
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
@@ -136,10 +139,38 @@ def process_fidelity(
     It is the square of the one implemented in Nielsen & Chuang,
     "Quantum Computation and Quantum Information"
 
+    **Leaky channels.** A unitary on fewer levels than the other argument (either one, usually the
+    target) defines the computational subspace: the lowest levels of each qudit, as many as it acts
+    on. The fidelity is then that of :cite:`WG18`, averaged over the computational subspace,
+    :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2` with
+    :math:`\mathcal{S}` the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}`,
+    so the population the channel leaks counts against it, and what it does to the leaked levels
+    does not count at all. On equal dims this is the usual process fidelity to a unitary. For the
+    fidelity of an error channel on qutrits pass the qubit identity, e.g.
+    ``qx.process_fidelity(error, qx.gates.I | qx.gates.I)``; a target already promoted to the
+    channel's dims gives the fidelity on the whole space.
+
+    Only a :class:`Unitary` defines the computational subspace: the fidelity of :cite:`WG18` is to
+    a unitary target, and a superoperator is not known to be one. Superoperators on different dims
+    cannot be compared; promote one explicitly to compare them on the whole space.
+
     :param superoperator_0: Any superoperator type (SuperOperator, Unitary).
-    :param superoperator_1: Optional second operator. If None, identity channel is assumed.
+    :param superoperator_1: Optional second operator. If None, the identity channel on the dims of
+        ``superoperator_0`` is assumed.
     :return: Process fidelity in [0, 1]
+    :raises ValueError: If the dims differ and neither argument is a unitary on fewer levels than the other.
     """
+    if superoperator_1 is not None and tuple(superoperator_1.dims) != tuple(superoperator_0.dims):
+        dims_0, dims_1 = tuple(superoperator_0.dims[0]), tuple(superoperator_1.dims[0])
+        if isinstance(superoperator_1, Unitary) and _fits(dims_1, dims_0):
+            return _subspace_process_fidelity(superoperator_0, superoperator_1)
+        if isinstance(superoperator_0, Unitary) and _fits(dims_0, dims_1):
+            return _subspace_process_fidelity(superoperator_1, superoperator_0)
+        raise ValueError(
+            f"A {type(superoperator_0).__name__} on dims {dims_0} and a {type(superoperator_1).__name__} on dims "
+            f"{dims_1} cannot be compared: only a Unitary on fewer levels than the other argument may be, and it "
+            "defines the computational subspace. Promote one explicitly to compare them on the whole space."
+        )
 
     # Convert inputs to Choi representation
     choi_0 = to_choi(superoperator_0)
@@ -157,9 +188,6 @@ def process_fidelity(
         choi_1 = Choi.from_matrix(id_choi_data, choi_0.dims)
     else:
         choi_1 = to_choi(superoperator_1)
-        if choi_1.dims != choi_0.dims:
-            choi_0, choi_1 = promote_hilbert_space(choi_0, choi_1)
-            d2 = choi_0.d2[0]
 
     # The definition of fidelity assumes trace 1 states. Choi matrices have trace d.
     # So we should normalize them before passing to fidelity.
@@ -174,6 +202,28 @@ def process_fidelity(
     state_fid = fidelity(rho, sigma)
 
     return state_fid / d2
+
+
+def _fits(dims: tuple[int, ...], into: tuple[int, ...]) -> bool:
+    """Whether qudits with *dims* are the lowest levels of qudits with *into*: as many, none larger."""
+    return len(dims) == len(into) and all(d <= t for d, t in zip(dims, into))
+
+
+def _subspace_process_fidelity(channel: SuperOperator | Unitary, target: Unitary) -> Array:
+    r"""The process fidelity of a channel to a unitary on fewer levels, on its computational subspace :cite:`WG18`.
+
+    :math:`F = \mathrm{Tr}[(\mathbb{1}_1 \otimes \mathbb{1}_1)\,\mathcal{S}]/d_1^2`, with :math:`\mathcal{S}`
+    the superoperator of the error channel :math:`\mathcal{U}^\dagger\circ\mathcal{E}` and the computational
+    subspace the levels the target acts on. The target must fit in the channel's dims.
+    """
+    dims_out, dims_in = (tuple(int(d) for d in dims) for dims in channel.dims)
+    if dims_out != dims_in:
+        raise NotImplementedError("Process fidelity only implemented for dimension-preserving operators.")
+    # The diagonal of the projector onto the computational subspace, a constant under jit.
+    computational = reduce(np.kron, [(np.arange(d) < s).astype(float) for d, s in zip(dims_out, target.dims[0])])
+    error = to_superop(promote(target, dims_out).h).matrix @ to_superop(channel).matrix
+    weights = jnp.asarray(np.kron(computational, computational))
+    return jnp.real(jnp.einsum("...ii,i->...", error, weights)) / computational.sum() ** 2
 
 
 # Convert between process fidelity, average fidelity and depolarizing constant

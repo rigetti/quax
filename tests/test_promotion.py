@@ -861,7 +861,8 @@ def test_promotion_preserves_self_fidelity(seed, current_dims, target_dims):
 
     for obj in [choi, kraus, superop, pauli_liouville]:
         promoted = qx.promote(obj, target_dims)
-        pf = float(qx.process_fidelity(obj, promoted))
+        # process_fidelity does not promote a channel implicitly, so bring both to the larger space first.
+        pf = float(qx.process_fidelity(*qx.promote_hilbert_space(obj, promoted)))
         assert pf == pytest.approx(1.0, abs=1e-6), (
             f"Self-fidelity after promotion failed for {type(obj).__name__}: {pf}"
         )
