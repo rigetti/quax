@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Performance benchmarks for targeted apply operations.
+"""Performance benchmarks for targeted applies and Pauli-vector conversions.
 
 Run with:
     make benchmark
@@ -72,6 +72,20 @@ BASIS_SYSTEMS = [
     ("3Qt", (3,) * 3),
     ("2Qt2Q", (3, 3, 2, 2)),
 ]
+
+# (label, dims) for Pauli-vector conversions: qubits past the old explicit-basis limit (~7Q), plus
+# odd, prime-power and mixed qudit dimensions.
+PAULI_VECTOR_SYSTEMS = [
+    ("2Q", (2, 2)),
+    ("4Q", (2,) * 4),
+    ("8Q", (2,) * 8),
+    ("10Q", (2,) * 10),
+    ("4Qt", (3,) * 4),
+    ("2Qq", (4, 4)),
+    ("3Qt2Q", (3, 3, 3, 2, 2)),
+]
+
+PAULI_VECTOR_ENSEMBLE_SIZES = [(), (8,)]
 
 
 def _subsystem_patterns(dims: tuple[int, ...]) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -281,7 +295,7 @@ def test_tensor_basis_build(benchmark, build, dims):
 
 
 # ---------------------------------------------------------------------------
-# Pauli-Liouville change of basis
+# 7. Pauli-Liouville change of basis
 # ---------------------------------------------------------------------------
 
 PAULI_LIOUVILLE_SYSTEMS = [
@@ -316,7 +330,7 @@ def test_pauli_liouville_conversion(benchmark, name, make_input, dims):
 
 
 # ---------------------------------------------------------------------------
-# Kraus to superoperator
+# 8. Kraus to superoperator
 # ---------------------------------------------------------------------------
 
 KRAUS_TO_SUPEROP_SYSTEMS = [
@@ -337,7 +351,7 @@ def test_kraus_to_superop(benchmark, dims, full_rank):
 
 
 # ---------------------------------------------------------------------------
-# Unitary entanglement fidelity
+# 9. Unitary entanglement fidelity
 # ---------------------------------------------------------------------------
 
 ENTANGLEMENT_FIDELITY_SYSTEMS = [
@@ -358,7 +372,7 @@ def test_unitary_entanglement_fidelity(benchmark, dims):
 
 
 # ---------------------------------------------------------------------------
-# Instrument diagnostics: basis-state transitions per outcome
+# 10. Instrument diagnostics: basis-state transitions per outcome
 # ---------------------------------------------------------------------------
 
 INSTRUMENT_DIAGNOSTIC_QUBITS = [1, 2, 4]
@@ -381,7 +395,7 @@ def test_instrument_diagnostic(benchmark, name, diagnostic, n_qubits):
 
 
 # ---------------------------------------------------------------------------
-# n-qubit Pauli ensemble
+# 11. n-qubit Pauli ensemble
 # ---------------------------------------------------------------------------
 
 
@@ -392,7 +406,7 @@ def test_n_qubit_pauli_operators(benchmark, n_qubits):
 
 
 # ---------------------------------------------------------------------------
-# Instrument construction
+# 12. Instrument construction
 # ---------------------------------------------------------------------------
 
 
@@ -415,3 +429,54 @@ def test_tensor_instrument(benchmark, n_qubits):
     rest = reduce(lambda a, b: a | b, [single] * (n_qubits - 1))
     qx.tensor_instrument(rest, single).data.block_until_ready()
     benchmark(lambda: qx.tensor_instrument(rest, single).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# 13. to_pauli_vector  (density matrices)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_to_pauli_vector(benchmark, dims, ensemble_size):
+    """Benchmark to_pauli_vector on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+
+    # JIT warmup
+    qx.to_pauli_vector(rho).block_until_ready()
+
+    def fn():
+        qx.to_pauli_vector(rho).block_until_ready()
+
+    benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# 14. DensityMatrix.from_pauli_vector
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_from_pauli_vector(benchmark, dims, ensemble_size):
+    """Benchmark DensityMatrix.from_pauli_vector."""
+    vector = qx.to_pauli_vector(make_density_matrix(dims, ensemble_size))
+    vector.block_until_ready()
+
+    # JIT warmup
+    qx.DensityMatrix.from_pauli_vector(vector, dims).data.block_until_ready()
+
+    def fn():
+        qx.DensityMatrix.from_pauli_vector(vector, dims).data.block_until_ready()
+
+    benchmark(fn)

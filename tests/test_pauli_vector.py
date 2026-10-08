@@ -118,3 +118,23 @@ def test_rejects_rectangular_operators():
         qx.to_pauli_vector(qx.Observable.from_matrix(jnp.zeros((3, 2), dtype=complex), ((3,), (2,))))
     with pytest.raises(ValueError):
         qx.DensityMatrix.from_pauli_vector(jnp.zeros(3), (2,))
+
+
+@pytest.mark.parametrize("dims", [(4,), (6,), (4, 3), (3, 2, 2)], ids=str)
+def test_matches_the_explicit_basis(dims):
+    # The FFT path never builds the basis; check it against contracting with the basis directly.
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(11), size=(3,))
+    basis = qx.n_qudit_herm_basis(dims).matrix
+    expected = jnp.real(jnp.einsum("...ij,kji->...k", rho.matrix, basis))
+    assert jnp.allclose(qx.to_pauli_vector(rho), expected, atol=1e-12)
+    back = jnp.einsum("...k,kij->...ij", expected.astype(complex), basis) / _d(dims)
+    assert jnp.allclose(qx.DensityMatrix.from_pauli_vector(expected, dims).matrix, back, atol=1e-12)
+
+
+def test_round_trip_beyond_the_explicit_basis():
+    # Nine qubits: the explicit (d**2, d, d) basis would hold 2**36 complex entries, about 1 TB.
+    dims = (2,) * 9
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(12))
+    vector = qx.to_pauli_vector(rho)
+    assert jnp.allclose(vector[0], 1.0)
+    assert jnp.allclose(qx.DensityMatrix.from_pauli_vector(vector, dims).matrix, rho.matrix, atol=1e-12)

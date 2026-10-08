@@ -27,26 +27,36 @@ With the same vector :math:`c` for an observable, :math:`\mathrm{Tr}[O\rho] = c 
 
 from functools import reduce, singledispatch
 from operator import mul
+from string import ascii_letters
 
-import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._operator_basis import n_qudit_herm_basis
+from ._operator_basis import _from_weyl_expansion, _hermitian_weyl_change, _weyl_coefficients
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
-def _basis_matrices(dims: tuple[int, ...]) -> Array:
-    """The Hermitian basis of ``dims`` as a ``(d**2, d, d)`` constant, safe to build under a trace."""
-    # The basis is a cached NumPy constant; evaluating eagerly keeps tracers out of the cache.
-    with jax.ensure_compile_time_eval():
-        return jnp.asarray(n_qudit_herm_basis(tuple(dims)).matrix)
+def _change_of_basis_spec(n: int) -> tuple[str, str, str]:
+    """Einsum subscripts: Weyl ``[x, z]`` axes, per-qudit changes, ``k`` axes."""
+    xs, zs, ks = ascii_letters[:n], ascii_letters[n : 2 * n], ascii_letters[2 * n : 3 * n]
+    return xs + zs, ",".join(k + x + z for k, x, z in zip(ks, xs, zs)), ks
 
 
 def _coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
-    """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``."""
-    return jnp.real(jnp.einsum("...ij,kji->...k", matrix, _basis_matrices(dims)))
+    """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``.
+
+    The basis is a tensor product, so each ``B_b`` is a product over qudits of one or two Weyl
+    operators (:func:`~quax._operator_basis._hermitian_weyl_change`).  The Weyl coefficients come
+    from one FFT (:func:`~quax._operator_basis._weyl_coefficients`), and the change of basis is
+    applied one qudit at a time, so neither the ``(d**2, d, d)`` basis nor a ``d**2 x d**2`` matrix
+    is ever built.
+    """
+    weyl, changes, ks = _change_of_basis_spec(len(dims))
+    coefficients = jnp.einsum(
+        f"...{weyl},{changes}->...{ks}", _weyl_coefficients(matrix, dims), *map(_hermitian_weyl_change, dims)
+    )
+    return jnp.real(coefficients.reshape(*matrix.shape[:-2], -1))
 
 
 @singledispatch
@@ -102,8 +112,11 @@ def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
     """
     dims = tuple(dims)
     d = reduce(mul, dims, 1)
-    basis = _basis_matrices(dims)
     coefficients = jnp.asarray(vector)
     if coefficients.shape[-1] != d * d:
         raise ValueError(f"Expected {d * d} coefficients for dims {dims}, got {coefficients.shape[-1]}.")
-    return jnp.einsum("...k,kij->...ij", coefficients.astype(complex), basis) / d
+    # B_b = sum_w a_bw W_w, so (1/d) sum_b r_b B_b has Weyl expansion (1/d) sum_b r_b a_bw.
+    weyl, changes, ks = _change_of_basis_spec(len(dims))
+    per_qudit = coefficients.astype(complex).reshape(*coefficients.shape[:-1], *(k * k for k in dims))
+    expansion = jnp.einsum(f"...{ks},{changes}->...{weyl}", per_qudit, *map(_hermitian_weyl_change, dims)) / d
+    return _from_weyl_expansion(expansion, dims)
