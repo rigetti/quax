@@ -278,6 +278,7 @@ def _from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> 
     """
     d = prod(dims)
     weyl, changes, ks = _change_of_basis_spec(len(dims))
-    per_qudit = coefficients.astype(complex).reshape(*coefficients.shape[:-1], *(k * k for k in dims))
+    # Real coefficients are promoted to complex inside the einsum, one dispatch fewer than astype.
+    per_qudit = coefficients.reshape(*coefficients.shape[:-1], *(k * k for k in dims))
     expansion = jnp.einsum(f"...{ks},{changes}->...{weyl}", per_qudit, *map(_hermitian_weyl_change, dims)) / d
     return _from_weyl_expansion(expansion, dims)
