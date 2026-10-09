@@ -13,33 +13,16 @@
 # limitations under the License.
 """Weyl characteristic functions of states and observables."""
 
-from functools import lru_cache, reduce, singledispatch
+from functools import singledispatch
 from math import isqrt, prod
 
 import jax.numpy as jnp
-import numpy as np
-import numpy.typing as npt
 from jax import Array
 
-from ._operator_basis import _weyl_coefficients, _xz_order, _xz_pairs
+from ._fast_weyl_transforms import _weyl_coefficients, _xz_order
+from ._operator_basis import _weyl_phases
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
-
-
-@lru_cache(maxsize=32)
-def _weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
-    r"""The phase :math:`\tau_{x,z}` of each Weyl operator, in basis order.
-
-    :math:`W_{x,z} = \tau_{x,z} X^x Z^z` with :math:`\tau_{x,z} = \prod_i \tau_{d_i}^{x_i z_i}`
-    and :math:`\tau_d = (-1)^d e^{i\pi/d}`, the convention of [SWCLIFF]_ (see
-    :func:`characteristic_function`). Each qudit's phases follow :func:`_xz_pairs` and the
-    Kronecker product puts qudit 0 most significant, matching :func:`n_qudit_basis`.
-
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
-    :returns: Complex array of shape ``(D**2,)``.
-    """
-    per_qudit = [np.array([((-1) ** d * np.exp(1j * np.pi / d)) ** (x * z) for x, z in _xz_pairs(d)]) for d in dims]
-    return reduce(np.kron, per_qudit)
 
 
 def _characteristic(matrix: Array, dims: tuple[int, ...]) -> Array:
