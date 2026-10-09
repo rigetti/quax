@@ -112,22 +112,23 @@ def _observable_characteristic_function(operator: Observable) -> Array:
 
 @singledispatch
 def gross_characteristic_function(operator) -> Array:
-    r"""Gross's characteristic function :math:`\mathrm{Tr}[W_a^\dagger\rho]/D`.
+    r"""Gross's characteristic function :math:`\mathrm{Tr}[W_{x,z}^\dagger\rho]/D`.
 
     [HUDSON]_ Eq. (14) defines the characteristic function of a state on :math:`n` qudits of odd
-    dimension as :math:`\Xi_\rho(\xi, x) = d^{-n}\,\mathrm{tr}(w(\xi, x)^\dagger \rho)`, the
-    coefficients of :math:`\rho` in the Weyl basis, which is orthonormal under the inner product
-    :math:`D^{-1}\mathrm{Tr}[A^\dagger B]`: :math:`\rho = \sum_a \Xi_\rho(a)\, W_a`. Its symplectic
-    Fourier transform is the discrete Wigner function ([HUDSON]_ Def. 5, Eq. (15)).
+    dimension as :math:`\Xi_\rho = d^{-n}\,\mathrm{tr}(w^\dagger \rho)` over the Weyl operators
+    :math:`w`. These are the coefficients of :math:`\rho` in the Weyl basis, which is orthonormal
+    under the inner product :math:`D^{-1}\mathrm{Tr}[A^\dagger B]`:
+    :math:`\rho = \sum_{x,z} \Xi_\rho(x, z)\, W_{x,z}`. Its symplectic Fourier transform is the
+    discrete Wigner function ([HUDSON]_ Def. 5, Eq. (15)).
 
     The Weyl operators are those of :func:`characteristic_function`. For odd :math:`d` they are
     exactly Gross's :math:`w(p, q) = \omega^{-2^{-1} p q}\, Z^p X^q` ([HUDSON]_ Eq. (3)) with
-    :math:`q = x` and :math:`p = z`, so :math:`\Xi` is his function with the pair :math:`(x, z)`
-    standing for :math:`(\xi, x) = (z, x)` in his notation. For even :math:`d`, where Gross's
+    :math:`q = x` and :math:`p = z`; Gross labels a point of phase space by the single vector
+    :math:`(p, q)`, which here is the pair :math:`(z, x)`. For even :math:`d`, where Gross's
     definition does not apply, the same formula is evaluated with the phase of
-    :func:`characteristic_function`. Since :math:`W_a^\dagger = W_{-a}`,
-    :math:`\Xi_\rho(a) = \chi_\rho(-a)/D`; for Hermitian :math:`\rho` this is
-    :math:`\overline{\chi_\rho(a)}/D`.
+    :func:`characteristic_function`. Since :math:`W_{x,z}^\dagger = W_{-x,-z}`,
+    :math:`\Xi_\rho(x, z) = \chi_\rho(-x, -z)/D`; for Hermitian :math:`\rho` this is
+    :math:`\overline{\chi_\rho(x, z)}/D`.
 
     Returned in the order of :func:`~quax.n_qudit_basis`, like :func:`characteristic_function`.
 

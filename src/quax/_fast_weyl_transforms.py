@@ -11,12 +11,34 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-r"""Weyl and Hermitian coordinates by FFT, without building an operator basis.
+"""Weyl and Hermitian coordinates of a matrix, without building the bases.
 
-Each :math:`\mathrm{Tr}[X^x Z^z A]` is a Fourier mode of one shifted diagonal of :math:`A`, so all
-:math:`D^2` coefficients cost :math:`O(D^2 \log D)` time and :math:`O(D^2)` memory instead of the
-:math:`O(D^4)` of the dense basis. Any tensor-product basis follows by one change of basis per
-qudit (:func:`_hermitian_weyl_change`).
+The idea: ``X`` shifts the computational basis and ``Z`` multiplies it by phases. So the trace
+``Tr[X^x Z^z A]`` only touches the entries of ``A`` that sit ``x`` steps off the diagonal, and
+summing them with the phases of ``Z^z`` is a discrete Fourier transform. Every Weyl coordinate of
+``A`` is therefore reached by gathering one shifted diagonal (the ``X`` part) and running an FFT
+along it (the ``Z`` part). Index bookkeeping holds the two together: qudits add digit by digit,
+with no carry between them, and the module's first job is to build those indices once per
+``dims`` and cache them.
+
+The functions build on each other in this order.
+
+* :func:`_shifted_flat` is the index arithmetic: where basis state ``i`` lands after a digit-wise
+  shift by ``j``.
+* :func:`_weyl_gather` turns that into one flat index that pulls every shifted diagonal out of a
+  matrix, and the inverse index that puts them back.
+* :func:`_weyl_coefficients` gathers and FFTs: all ``Tr[X^x Z^z A]`` at once.
+  :func:`_from_weyl_expansion` is its inverse: the matrix with given Weyl coordinates.
+* :func:`_xz_order` reorders those coordinates into the order of :func:`~quax.n_qudit_basis`.
+* :func:`_hermitian_weyl_change` expresses each element of :func:`~quax.hermitian_weyl_basis` in
+  the Weyl operators of one qudit, so :func:`_hermitian_coefficients` and
+  :func:`_from_hermitian_coefficients` reach the Hermitian (Pauli) coordinates from the Weyl ones
+  with one small contraction per qudit.
+
+Outside this module, :func:`~quax.to_pauli_vector` and ``from_pauli_vector`` are the Hermitian
+pair and :func:`~quax.characteristic_function` is the Weyl one. For ``n`` qubits the dense basis
+holds ``16**n`` entries and contracting with it costs ``O(D**4)``; the FFT route costs
+``O(D**2 log D)`` time and ``O(D**2)`` memory, which is what makes 8 to 11 qubits reachable.
 """
 
 from functools import lru_cache
@@ -33,32 +55,28 @@ from ._operator_basis import _xz_pairs, hermitian_weyl_basis
 
 
 def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
-    r"""Flat index of :math:`i \pm j`, digit-wise, for all basis-state pairs.
+    """Where basis state ``i`` lands after a digit-wise shift by ``+j`` or ``-j``.
 
-    Let :math:`n` be the number of qudits, ``len(dims)``, with local dimensions
-    :math:`d_0, \dots, d_{n-1}` and :math:`D = \prod_i d_i`. A basis state is a digit vector
-    :math:`b \in \mathbb{Z}_{\mathbf{d}} = \mathbb{Z}_{d_0} \times \cdots \times \mathbb{Z}_{d_{n-1}}`
-    with flat index :math:`\sum_i b_i s_i`, :math:`s_i = \prod_{j > i} d_j`, so qudit 0 is the most
-    significant digit, as in ``np.kron`` and ``reshape(..., *dims)``. Addition in
-    :math:`\mathbb{Z}_{\mathbf{d}}` is digit-wise with no carry: entry ``[i, j]`` of the result is
-    the flat index of the digit vector with components :math:`(i_k + \mathrm{sign}\, j_k) \bmod d_k`.
-    This is the addition under which the Weyl shift acts, :math:`X^x |b\rangle = |b + x\rangle`.
+    A computational basis state of qudits with sizes ``dims`` is a tuple of digits, one per
+    qudit, with qudit 0 most significant (the ``np.kron`` order). ``X`` on one qudit adds one to
+    that qudit's digit modulo its size, and never carries into the next qudit. Entry ``[i, j]`` of
+    the result is the flat index of the state whose digits are ``i``'s digits plus ``sign`` times
+    ``j``'s digits, each taken modulo its own size.
 
-    For ``dims = (2, 3)``, :math:`i = (0, 2)` and :math:`j = (0, 1)` have flat indices 2 and 1, and
-    their digit-wise sum is :math:`(0, 0)`, flat index 0, whereas adding flat indices modulo
-    :math:`D` would carry into the qubit:
+    For ``dims = (2, 3)`` the states ``2 = (0, 2)`` and ``1 = (0, 1)`` add to ``(0, 0) = 0``,
+    not to ``3``, because the qutrit digit wraps instead of carrying into the qubit:
 
     >>> _shifted_flat((2, 3), 1)[2, 1]
     np.int64(0)
     >>> _shifted_flat((2, 3), -1)[0, 1]
     np.int64(2)
 
-    The result is accumulated one qudit at a time in a single :math:`D \times D` buffer, so the
-    peak memory is :math:`O(D^2)` rather than the :math:`O(D^2 n)` of a digit-vector table.
+    The table is accumulated one qudit at a time in a single ``(D, D)`` buffer, so building it
+    needs ``O(D**2)`` memory and no table of digit tuples.
 
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
-    :param sign: ``1`` for :math:`i + j`, ``-1`` for :math:`i - j`.
-    :returns: Integer array of shape ``(D, D)`` with values in :math:`\{0, \dots, D-1\}`.
+    :param dims: Qudit sizes, e.g. ``(2, 3)``; ``D`` is their product.
+    :param sign: ``1`` to shift forward (``i + j``), ``-1`` to shift back (``i - j``).
+    :returns: Integer array of shape ``(D, D)``, entries in ``range(D)``.
     """
     total = prod(dims)
     out = np.zeros((total, total), dtype=np.intp)
@@ -77,23 +95,19 @@ def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
 
 @lru_cache(maxsize=32)
 def _weyl_gather(dims: tuple[int, ...]) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
-    r"""Flat indices that gather a matrix's shifted diagonals, and put them back.
+    """Flat indices that pull the shifted diagonals out of a matrix, and put them back.
 
-    Notation is as in :func:`_shifted_flat`. Since :math:`X^x |b\rangle = |b + x\rangle`, the
-    Weyl coefficients :math:`\mathrm{Tr}[X^x Z^z A]` involve only the entries :math:`A_{b,\,b+x}`
-    (see :func:`_weyl_coefficients`), which for fixed :math:`x` form the :math:`x`-th shifted
-    diagonal of :math:`A`. With ``forward`` the flat index of :math:`(b, b + x)` laid out ``[x, b]``,
-    ``A.reshape(D * D)[forward].reshape(D, D)`` has row :math:`x` equal to the :math:`x`-th shifted
-    diagonal. The pairs :math:`(b, b + x)` run over every position exactly once, so the map is a
-    permutation and its inverse is another gather: ``inverse`` is the flat index of
-    :math:`(x, b) = (r - c, c)` laid out ``[r, c]``, and ``diagonals.reshape(D * D)[inverse]`` puts
-    row :math:`x` back on the :math:`x`-th diagonal of a matrix whose entry :math:`(r, c)` is
-    ``diagonals[r - c, c]``. Here :math:`r - c` is digit-wise, so the inverse pairs a shifted
-    diagonal :math:`A_{b+x,\,b}` with row :math:`x`; this is the transpose of the ``forward``
-    layout, which is what :func:`_from_weyl_expansion` needs.
+    Row ``x`` of ``A.reshape(D * D)[forward].reshape(D, D)`` is the ``x``-th shifted diagonal of
+    ``A``: its entry ``b`` is ``A[b, b + x]``, with ``b + x`` the digit-wise shift of
+    :func:`_shifted_flat`. Those are exactly the entries that ``Tr[X^x Z^z A]`` sums over, for every
+    ``z``. Every entry of ``A`` appears in exactly one shifted diagonal, so ``forward`` is a
+    permutation, and ``inverse`` undoes it: ``diagonals.reshape(D * D)[inverse].reshape(D, D)``
+    has entry ``[r, c]`` equal to ``diagonals[r - c, c]``. Note the transpose: ``inverse`` places
+    row ``x`` on the diagonal ``A[b + x, b]``, which is the one :func:`_from_weyl_expansion`
+    produces.
 
-    For two qubits, addition in :math:`\mathbb{Z}_{\mathbf{d}}` is bitwise XOR of flat indices and
-    ``forward[x, b] = 4 b + (b ^ x)``, so row :math:`x = 0` is the main diagonal:
+    For two qubits a digit-wise shift is a bitwise XOR, so ``forward[x, b] = 4 * b + (b ^ x)`` and
+    row 0 is the main diagonal:
 
     >>> forward, inverse = _weyl_gather((2, 2))
     >>> forward.reshape(4, 4)
@@ -107,75 +121,41 @@ def _weyl_gather(dims: tuple[int, ...]) -> tuple[npt.NDArray[np.intp], npt.NDArr
            [ 8, 13,  2,  7],
            [12,  9,  6,  3]])
 
-    Results are cached per ``dims``, which must therefore be a tuple. The returned arrays are
-    shared between calls and must not be modified in place.
+    Cached per ``dims``, which must be a tuple. The arrays are shared between calls; do not
+    modify them in place.
 
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
+    :param dims: Qudit sizes; ``D`` is their product.
     :returns: ``(forward, inverse)``, integer arrays of shape ``(D**2,)``, each a permutation of
         ``range(D**2)``.
     """
     total = prod(dims)
     forward = _shifted_flat(dims, 1)  # [x, b] -> b + x
-    forward += np.arange(total)[None, :] * total  # flat index of (b, b + x)
+    forward += np.arange(total)[None, :] * total  # flat index of A[b, b + x]
     inverse = _shifted_flat(dims, -1)  # [r, c] -> r - c = x
     inverse *= total
-    inverse += np.arange(total)[None, :]  # flat index of (x, c) in the [x, b] layout
+    inverse += np.arange(total)[None, :]  # flat index of diagonals[x, c]
     return forward.reshape(-1), inverse.reshape(-1)
 
 
-@lru_cache(maxsize=32)
-def _xz_order(dims: tuple[int, ...]) -> npt.NDArray[np.intp]:
-    r"""Positions of the :func:`n_qudit_basis` operators in the ``[x, z]`` layout.
-
-    :func:`n_qudit_basis` lists each qudit's Weyl operators in :func:`_xz_pairs` order
-    and takes tensor products with qudit 0 most significant. :func:`_weyl_coefficients`
-    instead lays out :math:`(x_0, \dots, x_{n-1}, z_0, \dots, z_{n-1})` row-major. Entry
-    :math:`k` of the result is the flat position in that layout of basis element
-    :math:`k`, so ``coefficients.reshape(*ensemble, -1)[..., _xz_order(dims)]`` is in
-    basis order.
-
-    For a qubit, :func:`_xz_pairs` is :math:`I, X, Y, Z = (0,0), (1,0), (1,1), (0,1)`,
-    and the layout positions of those pairs are :math:`2x + z`:
-
-    >>> _xz_order((2,))
-    array([0, 2, 3, 1])
-
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
-    :returns: Integer array of shape ``(D**2,)``, a permutation of ``range(D**2)``.
-    """
-    # per qudit, (d**2, 2) in basis order
-    pairs = [np.array(_xz_pairs(d)) for d in dims]
-    # basis index per qudit
-    grids = np.meshgrid(*[np.arange(len(p)) for p in pairs], indexing="ij")
-    xs = [p[g, 0] for p, g in zip(pairs, grids)]
-    zs = [p[g, 1] for p, g in zip(pairs, grids)]
-    return np.asarray(np.ravel_multi_index((*xs, *zs), dims + dims)).reshape(-1)
-
-
 def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
-    r"""All Weyl coefficients :math:`\mathrm{Tr}[X^x Z^z A]` of a matrix, by FFT.
+    """All ``Tr[X^x Z^z A]`` of a matrix ``A``, with no phase on ``X^x Z^z``.
 
-    Notation is as in :func:`_shifted_flat`. Since
-    :math:`\langle b | X^x Z^z = \omega^{z \cdot (b - x)} \langle b - x |`,
+    ``X^x`` picks the ``x``-th shifted diagonal of ``A`` (gathered with :func:`_weyl_gather`) and
+    ``Z^z`` weights its entries by the phases ``omega**(z . b)``, so each coordinate is one term of
+    an inverse discrete Fourier transform of that diagonal. One ``ifftn`` over the ``b`` axes gives
+    every ``z`` at once; its built-in ``1/D`` is undone, since a trace has none.
 
-    .. math::
+    The result is laid out by digits, ``[x_0, ..., x_n-1, z_0, ..., z_n-1]``, which is the FFT's
+    natural order and not the order of :func:`~quax.n_qudit_basis`; :func:`_xz_order` converts.
+    The operators here are the bare ``X^x Z^z``; the phase convention of
+    :func:`~quax.characteristic_function` is applied by its caller.
 
-        \mathrm{Tr}[X^x Z^z A] = \sum_{b \in \mathbb{Z}_{\mathbf{d}}} \omega^{z \cdot b}\, A_{b,\,b+x},
-
-    an inverse DFT over :math:`b` of the :math:`x`-th shifted diagonal. All :math:`D^2`
-    coefficients cost :math:`O(D^2 \log D)` time and :math:`O(D^2)` memory, against the
-    :math:`O(D^4)` of contracting with an explicit basis. No symmetry of :math:`A` is
-    assumed.
-
-    :param matrix: Array of shape ``(*ensemble, D, D)``.
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
-    :returns: Complex array of shape ``(*ensemble, *dims, *dims)``, indexed ``[x, z]`` digit-wise.
-        This is not the order of :func:`n_qudit_basis`; flatten the last ``2n`` axes and index with
-        :func:`_xz_order` to get it.
-    :raises ValueError: If ``matrix`` is not ``D x D`` for :math:`D = \prod_i d_i`.
+    :param matrix: Shape ``(*ensemble, D, D)``; any square matrix, no symmetry assumed.
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Complex array of shape ``(*ensemble, *dims, *dims)``.
+    :raises ValueError: If the matrix is not ``D x D``.
     """
-    # JAX clamps out-of-range gather indices instead of raising, so check the shape up
-    # front.
+    # JAX clamps out-of-range gather indices instead of raising, so check the shape up front.
     if matrix.shape[-2:] != (prod(dims),) * 2:
         raise ValueError(
             f"Expected a square {prod(dims)}x{prod(dims)} matrix for dims {dims}, got {matrix.shape[-2:]}."
@@ -185,23 +165,21 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     forward, _ = _weyl_gather(dims)
     diagonals = jnp.take(matrix.reshape(*ensemble, d * d), forward, axis=-1)  # [x, b] = A[b, b + x]
     n = len(dims)
-    # ifftn carries a 1/D that the trace does not.
     return jnp.fft.ifftn(diagonals.reshape(*ensemble, *dims, *dims), axes=tuple(range(-n, 0))) * d
 
 
 def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
-    r"""The matrix :math:`\sum_{x,z} \gamma_{x,z}\, X^x Z^z`, by FFT.
+    """The matrix ``sum_{x,z} expansion[x, z] X^x Z^z``.
 
-    Notation is as in :func:`_weyl_coefficients`. Entry :math:`(b + x, b)` of the sum is
-    :math:`\sum_z \gamma_{x,z}\, \omega^{z \cdot b}`, so each shifted diagonal is one
-    inverse DFT over :math:`z`, put back in place by the inverse gather of
-    :func:`_weyl_gather`. Since
-    :math:`\mathrm{Tr}[(X^x Z^z)^\dagger X^{x'} Z^{z'}] = D\,\delta_{xx'}\delta_{zz'}`,
-    the expansion of a matrix :math:`A` is
-    :math:`\gamma_{x,z} = \mathrm{Tr}[(X^x Z^z)^\dagger A] / D`.
+    This inverts :func:`_weyl_coefficients`. Running the same FFT over the ``z`` axes turns each row ``x`` of the expansion into the
+    ``x``-th shifted diagonal of the result, and the inverse index of :func:`_weyl_gather` puts the
+    diagonals back into a matrix. Given a matrix ``A``, its expansion coefficients are
+    ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl operators are orthogonal with
+    ``Tr[W^dagger W] = D``.
 
-    :param expansion: Array of shape ``(*ensemble, *dims, *dims)``, indexed ``[x, z]`` digit-wise.
-    :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
+    :param expansion: Shape ``(*ensemble, *dims, *dims)``, laid out by digits like the output of
+        :func:`_weyl_coefficients`.
+    :param dims: Qudit sizes; ``D`` is their product.
     :returns: Complex array of shape ``(*ensemble, D, D)``.
     """
     n = len(dims)
@@ -213,17 +191,39 @@ def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
 
 
 @lru_cache(maxsize=32)
+def _xz_order(dims: tuple[int, ...]) -> npt.NDArray[np.intp]:
+    """Where each operator of :func:`~quax.n_qudit_basis` sits in the digit layout.
+
+    :func:`~quax.n_qudit_basis` lists each qudit's operators in :func:`_xz_pairs` order (``I, X,
+    Y, Z`` for a qubit) and tensors them with qudit 0 most significant. Flattening the
+    ``[x_0, ..., z_n-1]`` layout to one axis and indexing it with this permutation gives the
+    coefficients in basis order.
+
+    For one qubit the pairs ``(0,0), (1,0), (1,1), (0,1)`` sit at positions ``2 * x + z``:
+
+    >>> _xz_order((2,))
+    array([0, 2, 3, 1])
+
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Integer array of shape ``(D**2,)``, a permutation of ``range(D**2)``.
+    """
+    pairs = [np.array(_xz_pairs(d)) for d in dims]  # per qudit, (d**2, 2) in basis order
+    grids = np.meshgrid(*[np.arange(len(p)) for p in pairs], indexing="ij")  # basis index per qudit
+    xs = [p[g, 0] for p, g in zip(pairs, grids)]
+    zs = [p[g, 1] for p, g in zip(pairs, grids)]
+    return np.asarray(np.ravel_multi_index((*xs, *zs), dims + dims)).reshape(-1)
+
+
+@lru_cache(maxsize=32)
 def _hermitian_weyl_change(qudit_dim: int) -> npt.NDArray[np.complex128]:
-    r"""Each element of :func:`hermitian_weyl_basis` in the Weyl operators
-    :math:`X^x Z^z`.
+    """Each element of :func:`~quax.hermitian_weyl_basis` written in ``X^x Z^z``.
 
-    Returns :math:`a_{k,x,z}` with :math:`B_k = \sum_{x,z} a_{k,x,z} X^x Z^z`, computed
-    as :math:`a_{k,x,z} = \mathrm{Tr}[(X^x Z^z)^\dagger B_k] / d`. Each :math:`B_k`
-    combines a Weyl operator with its inverse, so a row has one or two non-zero entries.
-    Deriving the change of basis from :func:`hermitian_weyl_basis` keeps that function
-    the single definition of the basis.
+    Entry ``[k, x, z]`` is the coefficient of ``X^x Z^z`` in the ``k``-th Hermitian basis element,
+    ``Tr[(X^x Z^z)^dagger B_k] / d``. Each ``B_k`` is a Weyl operator plus or minus its adjoint,
+    so each ``k`` has one or two non-zero entries. Reading the coefficients off
+    :func:`~quax.hermitian_weyl_basis` keeps that function the single definition of the basis.
 
-    :param qudit_dim: Local qudit dimension :math:`d`.
+    :param qudit_dim: Size ``d`` of the qudit.
     :returns: Complex array of shape ``(d**2, d, d)``, indexed ``[k, x, z]``.
     """
     d = qudit_dim
@@ -238,6 +238,46 @@ def _hermitian_weyl_change(qudit_dim: int) -> npt.NDArray[np.complex128]:
 
 
 def _change_of_basis_spec(n: int) -> tuple[str, str, str]:
-    """Einsum subscripts: Weyl ``[x, z]`` axes, per-qudit changes, ``k`` axes."""
+    """Einsum subscripts for changing basis one qudit at a time over ``n`` qudits.
+
+    Returns the subscripts of the Weyl axes ``x_0 .. x_n-1 z_0 .. z_n-1``, of the ``n`` per-qudit
+    change-of-basis factors ``[k_i, x_i, z_i]``, and of the Hermitian axes ``k_0 .. k_n-1``.
+    """
     xs, zs, ks = ascii_letters[:n], ascii_letters[n : 2 * n], ascii_letters[2 * n : 3 * n]
     return xs + zs, ",".join(k + x + z for k, x, z in zip(ks, xs, zs)), ks
+
+
+def _hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
+    """``Tr[B_k A]`` for every element of :func:`~quax.n_qudit_herm_basis`, in order.
+
+    These are the Pauli-vector coordinates of ``A``. They come from the Weyl coordinates of
+    :func:`_weyl_coefficients` by one contraction with :func:`_hermitian_weyl_change` per qudit,
+    so neither the dense basis nor a ``D**2 x D**2`` change-of-basis matrix is built.
+
+    :param matrix: Shape ``(*ensemble, D, D)``.
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Real array of shape ``(*ensemble, D**2)``.
+    """
+    weyl, changes, ks = _change_of_basis_spec(len(dims))
+    coefficients = jnp.einsum(
+        f"...{weyl},{changes}->...{ks}", _weyl_coefficients(matrix, dims), *map(_hermitian_weyl_change, dims)
+    )
+    return jnp.real(coefficients.reshape(*matrix.shape[:-2], -1))
+
+
+def _from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> Array:
+    """The matrix ``(1/D) sum_k coefficients[k] B_k``.
+
+    This inverts :func:`_hermitian_coefficients`. Each ``B_k`` is a combination of Weyl operators, so the coefficients are first turned into a
+    Weyl expansion with :func:`_hermitian_weyl_change`, one qudit at a time, and
+    :func:`_from_weyl_expansion` builds the matrix.
+
+    :param coefficients: Shape ``(*ensemble, D**2)``, in the order of :func:`~quax.n_qudit_herm_basis`.
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Complex array of shape ``(*ensemble, D, D)``.
+    """
+    d = prod(dims)
+    weyl, changes, ks = _change_of_basis_spec(len(dims))
+    per_qudit = coefficients.astype(complex).reshape(*coefficients.shape[:-1], *(k * k for k in dims))
+    expansion = jnp.einsum(f"...{ks},{changes}->...{weyl}", per_qudit, *map(_hermitian_weyl_change, dims)) / d
+    return _from_weyl_expansion(expansion, dims)
