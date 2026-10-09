@@ -480,3 +480,29 @@ def test_from_pauli_vector(benchmark, dims, ensemble_size):
         qx.DensityMatrix.from_pauli_vector(vector, dims).data.block_until_ready()
 
     benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# 15. Characteristic functions  (density matrices)
+# ---------------------------------------------------------------------------
+
+CHARACTERISTIC_FUNCTIONS = [
+    ("characteristic_function", qx.characteristic_function),
+    ("gross_characteristic_function", qx.gross_characteristic_function),
+    ("characteristic_distribution", qx.characteristic_distribution),
+]
+
+
+@pytest.mark.parametrize(("name", "f"), [pytest.param(name, f, id=name) for name, f in CHARACTERISTIC_FUNCTIONS])
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_characteristic_function(benchmark, name, f, dims, ensemble_size):
+    """Benchmark the Weyl characteristic functions on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+    f(rho).block_until_ready()
+    benchmark(lambda: f(rho).block_until_ready())
