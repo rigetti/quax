@@ -2615,7 +2615,7 @@ class QuantumInstrument(QuantumObject):
         r"""Extract the transition matrix over the full Hilbert space.
 
         Shape ``(*ensemble, d_total, d_total)``.  Entry ``[k, j]`` is the probability of
-        ending in computational basis state *k* given input *j*, marginalised
+        ending in computational basis state *k* given input *j*, marginalized
         over all measurement outcomes:
 
         .. math::
