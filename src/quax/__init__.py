@@ -46,7 +46,6 @@ from ._apply import (
 from ._characteristic_function import (
     characteristic_distribution,
     characteristic_function,
-    gross_characteristic_function,
 )
 from ._compose import (
     compose_choi,
@@ -266,7 +265,6 @@ __all__ = [
     "gates",
     # Random functions
     "ginibre_matrix_complex",
-    "gross_characteristic_function",
     "hermitian_weyl_basis",
     "hermitian_weyl_basis_labels",
     "instrument_fidelity",

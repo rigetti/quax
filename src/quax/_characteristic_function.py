@@ -14,7 +14,7 @@
 """Weyl characteristic functions of states and observables."""
 
 from functools import singledispatch
-from math import isqrt, prod
+from math import isqrt
 
 import jax.numpy as jnp
 from jax import Array
@@ -58,8 +58,8 @@ def characteristic_function(operator) -> Array:
     :math:`X` to the left of :math:`Z`. For qubits :math:`\tau = i` and the :math:`W_{x,z}` are the
     Hermitian Paulis :math:`I, X, Y, Z`, so :math:`\chi` is real and equals
     :func:`~quax.to_pauli_vector`. For odd :math:`d`, :math:`\tau = \omega^{2^{-1}}` and the
-    :math:`W_{x,z}` are the Weyl operators of Gross [HUDSON]_ Eq. (3) (see
-    :func:`gross_characteristic_function`). For every :math:`d`, :math:`W_{x,z}^\dagger = W_{-x,-z}`
+    :math:`W_{x,z}` are the Weyl operators of Gross [HUDSON]_ Eq. (3), with his :math:`(p, q)`
+    being our :math:`(z, x)`. For every :math:`d`, :math:`W_{x,z}^\dagger = W_{-x,-z}`
     and :math:`W_a W_b = \tau^{[a,b]} W_{a+b}` for the symplectic form :math:`[a, b]`
     ([SWCLIFF]_ Eq. (2.4)).
 
@@ -70,9 +70,14 @@ def characteristic_function(operator) -> Array:
     :math:`\rho = \frac{1}{D} \sum_{x,z} \chi_\rho(x,z)\, W_{x,z}^\dagger`, and
     :math:`\sum_{x,z} |\chi_\rho(x,z)|^2 = D\,\mathrm{Tr}[\rho^2]`.
 
-    The characteristic function of [SWCLIFF]_ Eq. (2.6) is
-    :math:`c_\rho(a) = \mathrm{Tr}[W_a^\dagger \rho]/\sqrt{D} = \chi_\rho(-a)/\sqrt{D}`, and that of
-    [HUDSON]_ Eq. (14) is :math:`\chi_\rho(-a)/D`; see :func:`gross_characteristic_function`.
+    Two other normalizations go by the same name. [HUDSON]_ Eq. (14) defines
+    :math:`\Xi_\rho = \mathrm{Tr}[W_{x,z}^\dagger \rho]/D`, the coefficients of :math:`\rho` in the
+    Weyl basis, and [SWCLIFF]_ Eq. (2.6) defines :math:`c_\rho = \mathrm{Tr}[W_{x,z}^\dagger \rho]/\sqrt{D}`.
+    For a state or observable, which is Hermitian, both are the complex conjugate of :math:`\chi`
+    up to the factor::
+
+        xi = jnp.conj(characteristic_function(rho)) / D        # Gross
+        c = jnp.conj(characteristic_function(rho)) / sqrt(D)   # Gross, Nezami, Walter
 
     All :math:`D^2` traces are computed by gathering the shifted diagonals of :math:`\rho` and
     Fourier transforming them, in :math:`O(D^2 \log D)` time and :math:`O(D^2)` memory, without
@@ -82,6 +87,11 @@ def characteristic_function(operator) -> Array:
     :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
     :return: Complex array of shape ``(*ensemble, D**2)``.
 
+    .. [HUDSON] Hudson's theorem for finite-dimensional quantum systems.
+             Gross.
+             J. Math. Phys. 47, 122107 (2006).
+             https://doi.org/10.1063/1.2393152
+             https://arxiv.org/abs/quant-ph/0602001
     .. [SWCLIFF] Schur-Weyl duality for the Clifford group with applications: property testing,
              a robust Hudson theorem, and de Finetti representations.
              Gross, Nezami, Walter.
@@ -108,64 +118,6 @@ def _state_vector_characteristic_function(operator: StateVector) -> Array:
 @characteristic_function.register(Observable)
 def _observable_characteristic_function(operator: Observable) -> Array:
     return _characteristic(operator.matrix, _square_dims(operator))
-
-
-@singledispatch
-def gross_characteristic_function(operator) -> Array:
-    r"""Gross's characteristic function :math:`\mathrm{Tr}[W_{x,z}^\dagger\rho]/D`.
-
-    [HUDSON]_ Eq. (14) defines the characteristic function of a state on :math:`n` qudits of odd
-    dimension as :math:`\Xi_\rho = d^{-n}\,\mathrm{tr}(w^\dagger \rho)` over the Weyl operators
-    :math:`w`. These are the coefficients of :math:`\rho` in the Weyl basis, which is orthonormal
-    under the inner product :math:`D^{-1}\mathrm{Tr}[A^\dagger B]`:
-    :math:`\rho = \sum_{x,z} \Xi_\rho(x, z)\, W_{x,z}`. Its symplectic Fourier transform is the
-    discrete Wigner function ([HUDSON]_ Def. 5, Eq. (15)).
-
-    The Weyl operators are those of :func:`characteristic_function`. For odd :math:`d` they are
-    exactly Gross's :math:`w(p, q) = \omega^{-2^{-1} p q}\, Z^p X^q` ([HUDSON]_ Eq. (3)) with
-    :math:`q = x` and :math:`p = z`; Gross labels a point of phase space by the single vector
-    :math:`(p, q)`, which here is the pair :math:`(z, x)`. For even :math:`d`, where Gross's
-    definition does not apply, the same formula is evaluated with the phase of
-    :func:`characteristic_function`. Since :math:`W_{x,z}^\dagger = W_{-x,-z}`,
-    :math:`\Xi_\rho(x, z) = \chi_\rho(-x, -z)/D`; for Hermitian :math:`\rho` this is
-    :math:`\overline{\chi_\rho(x, z)}/D`.
-
-    Returned in the order of :func:`~quax.n_qudit_basis`, like :func:`characteristic_function`.
-
-    :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
-    :return: Complex array of shape ``(*ensemble, D**2)``.
-
-    .. [HUDSON] Hudson's theorem for finite-dimensional quantum systems.
-             Gross.
-             J. Math. Phys. 47, 122107 (2006).
-             https://doi.org/10.1063/1.2393152
-             https://arxiv.org/abs/quant-ph/0602001
-    """
-    raise TypeError(
-        f"gross_characteristic_function() does not support type {type(operator)!r}. "
-        "Expected a DensityMatrix, StateVector or Observable."
-    )
-
-
-def _gross(matrix: Array, dims: tuple[int, ...]) -> Array:
-    # Tr[W^dagger A] = conj(Tr[W A^dagger]) holds for any A, Hermitian or not.
-    adjoint = jnp.conj(jnp.swapaxes(matrix, -1, -2))
-    return jnp.conj(_characteristic(adjoint, dims)) / prod(dims)
-
-
-@gross_characteristic_function.register(DensityMatrix)
-def _density_matrix_gross_characteristic_function(operator: DensityMatrix) -> Array:
-    return _gross(operator.matrix, tuple(operator.dims))
-
-
-@gross_characteristic_function.register(StateVector)
-def _state_vector_gross_characteristic_function(operator: StateVector) -> Array:
-    return gross_characteristic_function(promote_state_vector_to_density_matrix(operator))
-
-
-@gross_characteristic_function.register(Observable)
-def _observable_gross_characteristic_function(operator: Observable) -> Array:
-    return _gross(operator.matrix, _square_dims(operator))
 
 
 def characteristic_distribution(operator) -> Array:

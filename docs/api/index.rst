@@ -232,7 +232,6 @@ squared moduli.
    :nosignatures:
 
    characteristic_function
-   gross_characteristic_function
    characteristic_distribution
 
 Projection onto Physical Maps

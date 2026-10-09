@@ -488,7 +488,6 @@ def test_from_pauli_vector(benchmark, dims, ensemble_size):
 
 CHARACTERISTIC_FUNCTIONS = [
     ("characteristic_function", qx.characteristic_function),
-    ("gross_characteristic_function", qx.gross_characteristic_function),
     ("characteristic_distribution", qx.characteristic_distribution),
 ]
 
