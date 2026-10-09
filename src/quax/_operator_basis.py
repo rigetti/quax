@@ -261,5 +261,10 @@ def _weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
     :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
     :returns: Complex array of shape ``(D**2,)``.
     """
-    per_qudit = [np.array([((-1) ** d * np.exp(1j * np.pi / d)) ** (x * z) for x, z in _xz_pairs(d)]) for d in dims]
+    per_qudit = [
+        np.array(
+            [((-1) ** d * np.exp(1j * np.pi / d)) ** (x * z) for x, z in _xz_pairs(d)],
+        )
+        for d in dims
+    ]
     return reduce(np.kron, per_qudit)

@@ -31,30 +31,9 @@ from operator import mul
 import jax.numpy as jnp
 from jax import Array
 
-from ._fast_weyl_transforms import (
-    _change_of_basis_spec,
-    _from_weyl_expansion,
-    _hermitian_weyl_change,
-    _weyl_coefficients,
-)
+from ._fast_weyl_transforms import _from_hermitian_coefficients, _hermitian_coefficients
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
-
-
-def _coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
-    """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``.
-
-    The basis is a tensor product, so each ``B_b`` is a product over qudits of one or two Weyl
-    operators (:func:`~quax._fast_weyl_transforms._hermitian_weyl_change`).  The Weyl coefficients come
-    from one FFT (:func:`~quax._fast_weyl_transforms._weyl_coefficients`), and the change of basis is
-    applied one qudit at a time, so neither the ``(d**2, d, d)`` basis nor a ``d**2 x d**2`` matrix
-    is ever built.
-    """
-    weyl, changes, ks = _change_of_basis_spec(len(dims))
-    coefficients = jnp.einsum(
-        f"...{weyl},{changes}->...{ks}", _weyl_coefficients(matrix, dims), *map(_hermitian_weyl_change, dims)
-    )
-    return jnp.real(coefficients.reshape(*matrix.shape[:-2], -1))
 
 
 @singledispatch
@@ -83,7 +62,7 @@ def to_pauli_vector(operator) -> Array:
 
 @to_pauli_vector.register(DensityMatrix)
 def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array:
-    return _coefficients(operator.matrix, tuple(operator.dims))
+    return _hermitian_coefficients(operator.matrix, tuple(operator.dims))
 
 
 @to_pauli_vector.register(StateVector)
@@ -96,11 +75,11 @@ def _observable_to_pauli_vector(operator: Observable) -> Array:
     dims_out, dims_in = operator.dims
     if tuple(dims_out) != tuple(dims_in):
         raise ValueError(f"A Pauli vector needs a square operator, got dims {operator.dims}.")
-    return _coefficients(operator.matrix, tuple(dims_out))
+    return _hermitian_coefficients(operator.matrix, tuple(dims_out))
 
 
 def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
-    r"""The matrix :math:`\frac{1}{d}\sum_b r_b B_b` with the given coefficients, ``(*ensemble, d, d)``.
+    r"""The matrix :math:`\frac{1}{d}\sum_b r_b B_b` with Pauli-vector coordinates :math:`r`.
 
     Inverse of :func:`to_pauli_vector`; used by ``DensityMatrix.from_pauli_vector`` and
     ``Observable.from_pauli_vector``.
@@ -113,8 +92,4 @@ def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
     coefficients = jnp.asarray(vector)
     if coefficients.shape[-1] != d * d:
         raise ValueError(f"Expected {d * d} coefficients for dims {dims}, got {coefficients.shape[-1]}.")
-    # B_b = sum_w a_bw W_w, so (1/d) sum_b r_b B_b has Weyl expansion (1/d) sum_b r_b a_bw.
-    weyl, changes, ks = _change_of_basis_spec(len(dims))
-    per_qudit = coefficients.astype(complex).reshape(*coefficients.shape[:-1], *(k * k for k in dims))
-    expansion = jnp.einsum(f"...{ks},{changes}->...{weyl}", per_qudit, *map(_hermitian_weyl_change, dims)) / d
-    return _from_weyl_expansion(expansion, dims)
+    return _from_hermitian_coefficients(coefficients, dims)
