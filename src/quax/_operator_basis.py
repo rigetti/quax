@@ -406,7 +406,7 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     d = prod(dims)
     ensemble = matrix.shape[:-2]
     forward, _ = _weyl_gather(dims)
-    diagonals = matrix.reshape(*ensemble, d * d)[..., forward]  # [x, b] = A[b, b + x]
+    diagonals = jnp.take(matrix.reshape(*ensemble, d * d), forward, axis=-1)  # [x, b] = A[b, b + x]
     n = len(dims)
     # ifftn carries a 1/D that the trace does not.
     return jnp.fft.ifftn(diagonals.reshape(*ensemble, *dims, *dims), axes=tuple(range(-n, 0))) * d
@@ -432,7 +432,7 @@ def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
     ensemble = expansion.shape[: -2 * n]
     diagonals = jnp.fft.ifftn(expansion, axes=tuple(range(-n, 0))) * d  # [x, b] = A[b + x, b]
     _, inverse = _weyl_gather(dims)
-    return diagonals.reshape(*ensemble, d * d)[..., inverse].reshape(*ensemble, d, d)
+    return jnp.take(diagonals.reshape(*ensemble, d * d), inverse, axis=-1).reshape(*ensemble, d, d)
 
 
 @lru_cache(maxsize=32)
