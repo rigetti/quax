@@ -45,7 +45,7 @@ def _weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
 def _characteristic(matrix: Array, dims: tuple[int, ...]) -> Array:
     r""":math:`\mathrm{Tr}[W_{x,z} A]` for every Weyl operator, in basis order."""
     traces = _weyl_coefficients(matrix, dims).reshape(*matrix.shape[:-2], -1)
-    return traces[..., _xz_order(dims)] * _weyl_phases(dims)
+    return jnp.take(traces, _xz_order(dims), axis=-1) * _weyl_phases(dims)
 
 
 def _square_dims(operator: Observable) -> tuple[int, ...]:
