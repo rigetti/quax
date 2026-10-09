@@ -27,28 +27,26 @@ With the same vector :math:`c` for an observable, :math:`\mathrm{Tr}[O\rho] = c 
 
 from functools import reduce, singledispatch
 from operator import mul
-from string import ascii_letters
 
 import jax.numpy as jnp
 from jax import Array
 
-from ._operator_basis import _from_weyl_expansion, _hermitian_weyl_change, _weyl_coefficients
+from ._fast_weyl_transforms import (
+    _change_of_basis_spec,
+    _from_weyl_expansion,
+    _hermitian_weyl_change,
+    _weyl_coefficients,
+)
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
-
-
-def _change_of_basis_spec(n: int) -> tuple[str, str, str]:
-    """Einsum subscripts: Weyl ``[x, z]`` axes, per-qudit changes, ``k`` axes."""
-    xs, zs, ks = ascii_letters[:n], ascii_letters[n : 2 * n], ascii_letters[2 * n : 3 * n]
-    return xs + zs, ",".join(k + x + z for k, x, z in zip(ks, xs, zs)), ks
 
 
 def _coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``.
 
     The basis is a tensor product, so each ``B_b`` is a product over qudits of one or two Weyl
-    operators (:func:`~quax._operator_basis._hermitian_weyl_change`).  The Weyl coefficients come
-    from one FFT (:func:`~quax._operator_basis._weyl_coefficients`), and the change of basis is
+    operators (:func:`~quax._fast_weyl_transforms._hermitian_weyl_change`).  The Weyl coefficients come
+    from one FFT (:func:`~quax._fast_weyl_transforms._weyl_coefficients`), and the change of basis is
     applied one qudit at a time, so neither the ``(d**2, d, d)`` basis nor a ``d**2 x d**2`` matrix
     is ever built.
     """
