@@ -236,6 +236,21 @@ channel, and the linear inversion of a table of expectation values into a channe
    linear_inversion_process
    linear_inversion_state
 
+Characteristic Functions
+------------------------
+
+Expectation values of the Weyl operators :math:`W_{x,z} = \tau^{xz} X^x Z^z` (the Pauli strings
+for qubits), computed by FFT without building the operator basis, and the distribution of their
+squared moduli.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   characteristic_function
+   gross_characteristic_function
+   characteristic_distribution
+
 Projection onto Physical Maps
 -----------------------------
 
