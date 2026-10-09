@@ -117,31 +117,14 @@ def test_reconstruction_and_parseval(dims):
 
 
 @pytest.mark.parametrize("d", [3, 5, 7])
-def test_gross_characteristic_function_matches_gross(d):
-    """Xi(a) = Tr[w(a)^dagger rho]/d with Gross's w(a), and rho = sum_a Xi(a) w(a)."""
+def test_odd_dimensions_use_gross_weyl_operators(d):
+    """Our W_{x,z} are Gross Eq. (3), and conj(chi)/d is his Xi: rho = sum_a Xi(a) w(a)."""
     rho = qx.random_density_matrix(d, (d,), key=jax.random.key(4), size=(2,))
-    xi = qx.gross_characteristic_function(rho)
     gross = _gross_weyl_operators(d)
     assert jnp.allclose(gross, _weyl_operators((d,)), atol=1e-12)
-    expected = jnp.einsum("...ij,kij->...k", rho.matrix, gross.conj()) / d
-    assert jnp.allclose(xi, expected, atol=1e-12)
+    xi = jnp.conj(qx.characteristic_function(rho)) / d
+    assert jnp.allclose(xi, jnp.einsum("...ij,kij->...k", rho.matrix, gross.conj()) / d, atol=1e-12)
     assert jnp.allclose(jnp.einsum("...k,kij->...ij", xi, gross), rho.matrix, atol=1e-12)
-
-
-@pytest.mark.parametrize("dims", DIMS, ids=str)
-def test_gross_is_the_conjugate_over_d_for_hermitian_inputs(dims):
-    rho = qx.random_density_matrix(_d(dims), dims, key=jax.random.key(5), size=(3,))
-    assert jnp.allclose(
-        qx.gross_characteristic_function(rho), jnp.conj(qx.characteristic_function(rho)) / _d(dims), atol=1e-12
-    )
-
-
-def test_gross_uses_the_adjoint_for_non_hermitian_matrices():
-    dims = (3, 2)
-    matrix = jax.random.normal(jax.random.key(6), (6, 6)) + 1j * jax.random.normal(jax.random.key(7), (6, 6))
-    operator = qx.Observable.from_matrix(matrix, (dims, dims))
-    expected = jnp.einsum("ij,kij->k", matrix, _weyl_operators(dims).conj()) / 6
-    assert jnp.allclose(qx.gross_characteristic_function(operator), expected, atol=1e-12)
 
 
 @pytest.mark.parametrize("dims", DIMS, ids=str)
@@ -185,7 +168,6 @@ def test_state_vector_and_observable_dispatch():
     psi = qx.random_state_vector((2, 3), key=jax.random.key(11), size=(2,))
     rho = qx.promote_state_vector_to_density_matrix(psi)
     assert jnp.allclose(qx.characteristic_function(psi), qx.characteristic_function(rho))
-    assert jnp.allclose(qx.gross_characteristic_function(psi), qx.gross_characteristic_function(rho))
     observable = qx.random_observable(((2, 3), (2, 3)), key=jax.random.key(12))
     expected = jnp.einsum("ij,kji->k", observable.matrix, _weyl_operators((2, 3)))
     assert jnp.allclose(qx.characteristic_function(observable), expected, atol=1e-12)
@@ -195,18 +177,16 @@ def test_rejects_unsupported_inputs():
     rectangular = qx.Observable.from_matrix(jnp.zeros((3, 2), dtype=complex), ((3,), (2,)))
     with pytest.raises(ValueError):
         qx.characteristic_function(rectangular)
-    with pytest.raises(ValueError):
-        qx.gross_characteristic_function(rectangular)
     with pytest.raises(TypeError):
         qx.characteristic_function(qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(14)))
     with pytest.raises(TypeError):
-        qx.gross_characteristic_function(jnp.eye(2))
+        qx.characteristic_distribution(jnp.eye(2))
 
 
 def test_jit_and_grad():
     dims = (3, 2)
     rho = qx.random_density_matrix(6, dims, key=jax.random.key(13))
-    for f in (qx.characteristic_function, qx.gross_characteristic_function, qx.characteristic_distribution):
+    for f in (qx.characteristic_function, qx.characteristic_distribution):
         assert jnp.allclose(jax.jit(f)(rho), f(rho))
 
     def purity_from_bloch(bloch):
