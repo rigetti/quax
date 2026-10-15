@@ -36,6 +36,14 @@ from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
+def _square_dims(operator: Observable) -> tuple[int, ...]:
+    """The qudit sizes of a square operator; coordinates in an operator basis need one."""
+    dims_out, dims_in = operator.dims
+    if tuple(dims_out) != tuple(dims_in):
+        raise ValueError(f"Expected a square operator, got dims {operator.dims}.")
+    return tuple(dims_out)
+
+
 @singledispatch
 def to_pauli_vector(operator) -> Array:
     r"""The coefficients of a state or observable in the Hermitian operator basis.
@@ -72,10 +80,7 @@ def _state_vector_to_pauli_vector(operator: StateVector) -> Array:
 
 @to_pauli_vector.register(Observable)
 def _observable_to_pauli_vector(operator: Observable) -> Array:
-    dims_out, dims_in = operator.dims
-    if tuple(dims_out) != tuple(dims_in):
-        raise ValueError(f"A Pauli vector needs a square operator, got dims {operator.dims}.")
-    return _hermitian_coefficients(operator.matrix, tuple(dims_out))
+    return _hermitian_coefficients(operator.matrix, _square_dims(operator))
 
 
 def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:

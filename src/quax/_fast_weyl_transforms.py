@@ -155,7 +155,8 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     :returns: Complex array of shape ``(*ensemble, *dims, *dims)``.
     :raises ValueError: If the matrix is not ``D x D``.
     """
-    # JAX clamps out-of-range gather indices instead of raising, so check the shape up front.
+    # jnp.take does not raise on an out-of-range index (its default mode fills with NaN), so a
+    # wrong shape would give NaNs or wrong values silently; check it up front.
     if matrix.shape[-2:] != (prod(dims),) * 2:
         raise ValueError(
             f"Expected a square {prod(dims)}x{prod(dims)} matrix for dims {dims}, got {matrix.shape[-2:]}."
@@ -171,11 +172,11 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
 def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``sum_{x,z} expansion[x, z] X^x Z^z``.
 
-    This inverts :func:`_weyl_coefficients`. Running the same FFT over the ``z`` axes turns each row ``x`` of the expansion into the
-    ``x``-th shifted diagonal of the result, and the inverse index of :func:`_weyl_gather` puts the
-    diagonals back into a matrix. Given a matrix ``A``, its expansion coefficients are
-    ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl operators are orthogonal with
-    ``Tr[W^dagger W] = D``.
+    This inverts :func:`_weyl_coefficients`. Running the same FFT over the ``z`` axes turns each
+    row ``x`` of the expansion into the ``x``-th shifted diagonal of the result, and the inverse
+    index of :func:`_weyl_gather` puts the diagonals back into a matrix. Given a matrix ``A``, its
+    expansion coefficients are ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl operators are
+    orthogonal with ``Tr[W^dagger W] = D``.
 
     :param expansion: Shape ``(*ensemble, *dims, *dims)``, laid out by digits like the output of
         :func:`_weyl_coefficients`.
@@ -268,9 +269,9 @@ def _hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
 def _from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``(1/D) sum_k coefficients[k] B_k``.
 
-    This inverts :func:`_hermitian_coefficients`. Each ``B_k`` is a combination of Weyl operators, so the coefficients are first turned into a
-    Weyl expansion with :func:`_hermitian_weyl_change`, one qudit at a time, and
-    :func:`_from_weyl_expansion` builds the matrix.
+    This inverts :func:`_hermitian_coefficients`. Each ``B_k`` is a combination of Weyl operators,
+    so the coefficients are first turned into a Weyl expansion with :func:`_hermitian_weyl_change`,
+    one qudit at a time, and :func:`_from_weyl_expansion` builds the matrix.
 
     :param coefficients: Shape ``(*ensemble, D**2)``, in the order of :func:`~quax.n_qudit_herm_basis`.
     :param dims: Qudit sizes; ``D`` is their product.
