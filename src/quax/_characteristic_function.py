@@ -21,6 +21,7 @@ from jax import Array
 
 from ._fast_weyl_transforms import _weyl_coefficients, _xz_order
 from ._operator_basis import _weyl_phases
+from ._pauli_vector import _square_dims
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
@@ -29,13 +30,6 @@ def _characteristic(matrix: Array, dims: tuple[int, ...]) -> Array:
     r""":math:`\mathrm{Tr}[W_{x,z} A]` for every Weyl operator, in basis order."""
     traces = _weyl_coefficients(matrix, dims).reshape(*matrix.shape[:-2], -1)
     return jnp.take(traces, _xz_order(dims), axis=-1) * _weyl_phases(dims)
-
-
-def _square_dims(operator: Observable) -> tuple[int, ...]:
-    dims_out, dims_in = operator.dims
-    if tuple(dims_out) != tuple(dims_in):
-        raise ValueError(f"A characteristic function needs a square operator, got dims {operator.dims}.")
-    return tuple(dims_out)
 
 
 @singledispatch
@@ -59,13 +53,22 @@ def characteristic_function(operator) -> Array:
     Hermitian Paulis :math:`I, X, Y, Z`, so :math:`\chi` is real and equals
     :func:`~quax.to_pauli_vector`. For odd :math:`d`, :math:`\tau = \omega^{2^{-1}}` and the
     :math:`W_{x,z}` are the Weyl operators of Gross [HUDSON]_ Eq. (3), with his :math:`(p, q)`
-    being our :math:`(z, x)`. For every :math:`d`, :math:`W_{x,z}^\dagger = W_{-x,-z}`
-    and :math:`W_a W_b = \tau^{[a,b]} W_{a+b}` for the symplectic form :math:`[a, b]`
-    ([SWCLIFF]_ Eq. (2.4)).
+    being our :math:`(z, x)`. With labels reduced to :math:`0 \le x, z < d`, two identities hold
+    exactly for odd :math:`d`: :math:`W_{x,z}^\dagger = W_{-x,-z}` and
+    :math:`W_a W_b = \tau^{[a,b]} W_{a+b}` for the symplectic form :math:`[a, b]` ([SWCLIFF]_
+    Eq. (2.4)). For even :math:`d` the phase :math:`\tau^{xz}` is not periodic modulo :math:`d`
+    ([SWCLIFF]_ Eq. (2.2)), so reducing a label can flip the sign of :math:`W`. Then the
+    composition law holds only up to a sign, for qubits too (:math:`YZ = iX`, where the law with
+    reduced labels gives :math:`-iX`). The adjoint rule still holds exactly for qubits, but only up
+    to a sign for even :math:`d > 2`.
 
     The :math:`D^2` values are returned as a vector in the order of
     :func:`~quax.n_qudit_basis` and :func:`~quax.weyl_basis_labels`: qudit 0 most significant, each
-    qudit's :math:`(x, z)` pairs in the order of its labels. Since
+    qudit's :math:`(x, z)` pairs in the order of its labels. For qubits the :math:`W_{x,z}` are the
+    elements of :func:`~quax.n_qudit_basis`, so :math:`\chi_k = \mathrm{Tr}[B_k \rho]` for its
+    :math:`k`-th element :math:`B_k`. For :math:`d > 2` that basis holds the bare :math:`X^x Z^z`, so
+    :math:`\chi_k = \tau^{xz}\,\mathrm{Tr}[B_k \rho]`: contracting :math:`\chi` with
+    :func:`~quax.n_qudit_basis` does not rebuild :math:`\rho` unless the phase is applied. Since
     :math:`\mathrm{Tr}[W_a^\dagger W_b] = D\,\delta_{ab}`, the state is recovered as
     :math:`\rho = \frac{1}{D} \sum_{x,z} \chi_\rho(x,z)\, W_{x,z}^\dagger`, and
     :math:`\sum_{x,z} |\chi_\rho(x,z)|^2 = D\,\mathrm{Tr}[\rho^2]`.
