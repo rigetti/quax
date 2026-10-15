@@ -224,8 +224,7 @@ Characteristic Functions
 ------------------------
 
 Expectation values of the Weyl operators :math:`W_{x,z} = \tau^{xz} X^x Z^z` (the Pauli strings
-for qubits), computed by FFT without building the operator basis, and the distribution of their
-squared moduli.
+for qubits).
 
 .. autosummary::
    :toctree: generated/
