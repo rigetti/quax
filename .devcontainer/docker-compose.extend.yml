@@ -1,0 +1,19 @@
+# Overrides applied when running as a devcontainer (eg, in Coder).
+services:
+  lab:
+    # Overrides default command so things don't shut down after the process ends.
+    command: sleep infinity
+    volumes:
+      # VS Code's server and extensions are copied from the user's machine on
+      # first connect; keep them across rebuilds so reconnecting is faster.
+      # Not all of ~/.vscode-server: VS Code tracks per-container state there.
+      - vscode-server-bin:/home/rigetti/.vscode-server/bin
+      - vscode-server-extensions:/home/rigetti/.vscode-server/extensions
+    # GPUs in Coder workspaces with GPU support; no effect otherwise
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+volumes:
+  vscode-server-bin:
+  vscode-server-extensions:

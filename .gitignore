@@ -170,3 +170,6 @@ pyrightconfig.json
 
 # GitLab pages
 public/
+
+# Claude Code config and state (see CLAUDE_CONFIG_DIR in the Dockerfile)
+.claude-home/

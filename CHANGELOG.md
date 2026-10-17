@@ -27,6 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 - **Breaking:** `process_fidelity` to a smaller `Unitary` is the fidelity on its computational subspace, where
   leakage counts as error. Superoperators on different dims are no longer promoted and raise `ValueError`.
 - `==` follows `process_fidelity` for a smaller `Unitary`; superoperators on different dims are unequal.
+- The development image is Ubuntu 26.04 (still Python 3.12), with Google Chrome for kaleido rather than the
+  chromium-browser snap, Claude Code, and `JAX_DEFAULT_MATMUL_PRECISION=highest`. The devcontainer supports Coder's
+  `devcontainer-cli` template.
 
 
 ## [0.7.7] - 2026-09-24

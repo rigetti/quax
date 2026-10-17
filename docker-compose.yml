@@ -21,6 +21,7 @@ services:
         GID: 1000
     volumes:
       - .:/home/rigetti/quax/
+      - ${QCS_DIR:-~/.qcs}/:/home/rigetti/.qcs/
       - ${GIT_CONFIG_FILE:-~/.gitconfig}:/home/rigetti/.gitconfig
       - ${SSH:-~/.ssh}:/home/rigetti/.ssh
     ports:

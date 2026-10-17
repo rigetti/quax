@@ -1,19 +1,15 @@
-// For use with Coder
 {
   "$schema": "https://raw.githubusercontent.com/devcontainers/spec/main/schemas/devContainer.schema.json",
-  "name": "coder",
-  "build": {
-    "dockerfile": "../Dockerfile",
-    "context": "../"
-  },
-  "runArgs": [
-    "--gpus",
-    "all"
+  "name": "quax",
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.extend.yml"
   ],
   "remoteUser": "rigetti",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/home/rigetti/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+  "updateRemoteUserUID": false,
+  "service": "lab",
   "workspaceFolder": "/home/rigetti/${localWorkspaceFolderBasename}",
-  "shutdownAction": "stopContainer",
+  "shutdownAction": "stopCompose",
   "customizations": {
     "vscode": {
       "extensions": [

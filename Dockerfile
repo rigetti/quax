@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 USER root
 
@@ -35,17 +35,25 @@ RUN apt-get update -qq \
     nodejs \
     npm \
     pandoc \
-    # python
-    python3.12-dev \
-    python3.12-venv \
-    python3-pip \
-    # plotly kaleido
-    libnss3 \
-    chromium-browser \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -sf $(which python3.12) $(which python || echo '/usr/local/bin/python') \
-    && ln -sf $(which python3.12) $(which python3 || echo '/usr/local/bin/python3')
+# Python 3.12 from the deadsnakes PPA: 26.04's own Python is newer. Link python and python3 to it in
+# /usr/local/bin, which comes first on PATH, leaving /usr/bin/python3 to the system tools (eg, apt) that need it.
+RUN add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update -qq \
+    && apt-get install -y -qq \
+    python3.12-dev \
+    python3.12-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python3
+
+# Chrome, for plotly's image export through kaleido. Ubuntu's chromium-browser is a snap, which cannot run in a
+# container; apt installs Chrome's own package with its dependencies.
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get update -qq \
+    && apt-get install -y -qq ./google-chrome-stable_current_amd64.deb \
+    && rm -rf google-chrome-stable_current_amd64.deb /var/lib/apt/lists/*
 
 # Create the docker user 'rigetti'
 ARG UID=1000
@@ -75,6 +83,11 @@ RUN wget https://qcs-cli-golang.s3-us-west-2.amazonaws.com/latest/linux/qcs \
 RUN mkdir -p /home/rigetti/quax/src && chown -R rigetti:rigetti /home/rigetti/
 
 USER rigetti
+
+# Created here so the devcontainer's named volumes for them (see
+# .devcontainer/docker-compose.extend.yml) are owned by rigetti
+RUN mkdir -p /home/rigetti/.vscode-server/bin /home/rigetti/.vscode-server/extensions
+
 WORKDIR /home/rigetti/quax/
 
 # Install poetry and rust
@@ -96,6 +109,14 @@ ENV VIRTUAL_ENV=/home/rigetti/.venv/quax
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN poetry run python -m ipykernel install --user --name=quax
 
-# Default to 64-bit JAX
+# Install Claude Code
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Keep Claude Code's config and state (login, session history) in the project directory, which persists: the rest of
+# the container is reset whenever the devcontainer is rebuilt
+ENV CLAUDE_CONFIG_DIR=/home/rigetti/quax/.claude-home
+
+# Default to 64-bit JAX, and the highest matmul precision
 ENV JAX_ENABLE_X64=1
+ENV JAX_DEFAULT_MATMUL_PRECISION=highest
 ENV SHELL=/bin/bash
