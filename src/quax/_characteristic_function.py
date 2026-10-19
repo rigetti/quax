@@ -16,6 +16,7 @@
 from functools import singledispatch
 from math import isqrt
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -85,7 +86,7 @@ def characteristic_function(operator) -> Array:
     All :math:`D^2` traces are computed by gathering the shifted diagonals of :math:`\rho` and
     Fourier transforming them, in :math:`O(D^2 \log D)` time and :math:`O(D^2)` memory, without
     building the operator basis. Dispatches on the type of *operator*; ensembles broadcast; the
-    function is jittable and differentiable.
+    function is jitted and differentiable.
 
     :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
     :return: Complex array of shape ``(*ensemble, D**2)``.
@@ -109,20 +110,24 @@ def characteristic_function(operator) -> Array:
 
 
 @characteristic_function.register(DensityMatrix)
+@jax.jit
 def _density_matrix_characteristic_function(operator: DensityMatrix) -> Array:
     return _characteristic(operator.matrix, tuple(operator.dims))
 
 
 @characteristic_function.register(StateVector)
+@jax.jit
 def _state_vector_characteristic_function(operator: StateVector) -> Array:
     return characteristic_function(promote_state_vector_to_density_matrix(operator))
 
 
 @characteristic_function.register(Observable)
+@jax.jit
 def _observable_characteristic_function(operator: Observable) -> Array:
     return _characteristic(operator.matrix, _square_dims(operator))
 
 
+@jax.jit
 def characteristic_distribution(operator) -> Array:
     r"""The characteristic distribution :math:`p_\rho(x,z) = |\chi_\rho(x,z)|^2 / D`.
 

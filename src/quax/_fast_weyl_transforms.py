@@ -16,10 +16,10 @@
 The idea: ``X`` shifts the computational basis and ``Z`` multiplies it by phases. So the trace
 ``Tr[X^x Z^z A]`` only touches the entries of ``A`` that sit ``x`` steps off the diagonal, and
 summing them with the phases of ``Z^z`` is a discrete Fourier transform. Every Weyl coordinate of
-``A`` is therefore reached by gathering one shifted diagonal (the ``X`` part) and running an FFT
-along it (the ``Z`` part). Index bookkeeping holds the two together: qudits add digit by digit,
-with no carry between them, and the module's first job is to build those indices once per
-``dims`` and cache them.
+``A`` is therefore reached by gathering one shifted diagonal (the ``X`` part) and Fourier
+transforming along it (the ``Z`` part). Index bookkeeping holds the two together: qudits add
+digit by digit, with no carry between them, and the module's first job is to build those indices
+once per ``dims`` and cache them.
 
 The functions build on each other in this order.
 
@@ -27,7 +27,8 @@ The functions build on each other in this order.
   shift by ``j``.
 * :func:`_weyl_gather` turns that into one flat index that pulls every shifted diagonal out of a
   matrix, and the inverse index that puts them back.
-* :func:`_weyl_coefficients` gathers and FFTs: all ``Tr[X^x Z^z A]`` at once.
+* :func:`_qudit_dft` is the Fourier transform, one qudit axis at a time.
+* :func:`_weyl_coefficients` gathers and transforms: all ``Tr[X^x Z^z A]`` at once.
   :func:`_from_weyl_expansion` is its inverse: the matrix with given Weyl coordinates.
 * :func:`_xz_order` reorders those coordinates into the order of :func:`~quax.n_qudit_basis`.
 * :func:`_hermitian_weyl_change` expresses each element of :func:`~quax.hermitian_weyl_basis` in
@@ -37,7 +38,7 @@ The functions build on each other in this order.
 
 Outside this module, :func:`~quax.to_pauli_vector` and ``from_pauli_vector`` are the Hermitian
 pair and :func:`~quax.characteristic_function` is the Weyl one. For ``n`` qubits the dense basis
-holds ``16**n`` entries and contracting with it costs ``O(D**4)``; the FFT route costs
+holds ``16**n`` entries and contracting with it costs ``O(D**4)``; the Fourier route costs
 ``O(D**2 log D)`` time and ``O(D**2)`` memory, which is what makes 8 to 11 qubits reachable.
 """
 
@@ -137,17 +138,42 @@ def _weyl_gather(dims: tuple[int, ...]) -> tuple[npt.NDArray[np.intp], npt.NDArr
     return forward.reshape(-1), inverse.reshape(-1)
 
 
+@lru_cache(maxsize=32)
+def _dft_matrix(d: int) -> npt.NDArray[np.complex128]:
+    """The ``d x d`` matrix ``omega**(z * b)``, ``omega = exp(2 pi i / d)``, indexed ``[z, b]``."""
+    k = np.arange(d)
+    return np.exp(2j * np.pi * np.outer(k, k) / d)
+
+
+def _qudit_dft(x: Array, dims: tuple[int, ...]) -> Array:
+    """``sum_b omega**(z . b) x[..., b]`` over the last ``len(dims)`` axes, one qudit at a time.
+
+    This is the Fourier transform that turns a shifted diagonal, indexed by basis state ``b``, into
+    the coordinates for every ``Z^z``. It is ``D`` times ``jnp.fft.ifftn`` over those axes, done as
+    one contraction with :func:`_dft_matrix` per qudit axis, because under jit XLA runs an FFT over
+    many tiny axes slowly.
+
+    :param x: Complex array whose last ``len(dims)`` axes have sizes ``dims``.
+    :param dims: Qudit sizes.
+    :returns: Complex array of the same shape.
+    """
+    first = x.ndim - len(dims)
+    for i, d in enumerate(dims):
+        x = jnp.moveaxis(jnp.tensordot(x, _dft_matrix(d), axes=([first + i], [1])), -1, first + i)
+    return x
+
+
 def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     """All ``Tr[X^x Z^z A]`` of a matrix ``A``, with no phase on ``X^x Z^z``.
 
     ``X^x`` picks the ``x``-th shifted diagonal of ``A`` (gathered with :func:`_weyl_gather`) and
     ``Z^z`` weights its entries by the phases ``omega**(z . b)``, so each coordinate is one term of
-    an inverse discrete Fourier transform of that diagonal. One ``ifftn`` over the ``b`` axes gives
-    every ``z`` at once; its built-in ``1/D`` is undone, since a trace has none.
+    the Fourier transform of that diagonal. :func:`_qudit_dft` over the ``b`` axes gives every
+    ``z`` at once.
 
-    The result is laid out by digits, ``[x_0, ..., x_n-1, z_0, ..., z_n-1]``, which is the FFT's
-    natural order and not the order of :func:`~quax.n_qudit_basis`; :func:`_xz_order` converts.
-    The operators here are the bare ``X^x Z^z``; the phase convention of
+    The result is laid out by digits, ``[x_0, ..., x_n-1, z_0, ..., z_n-1]``, which is the
+    transform's natural order and not the order of :func:`~quax.n_qudit_basis`;
+    :func:`_xz_order` converts. The operators here are the bare ``X^x Z^z``; the phase convention of
     :func:`~quax.characteristic_function` is applied by its caller.
 
     :param matrix: Shape ``(*ensemble, D, D)``; any square matrix, no symmetry assumed.
@@ -165,18 +191,17 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     ensemble = matrix.shape[:-2]
     forward, _ = _weyl_gather(dims)
     diagonals = jnp.take(matrix.reshape(*ensemble, d * d), forward, axis=-1)  # [x, b] = A[b, b + x]
-    n = len(dims)
-    return jnp.fft.ifftn(diagonals.reshape(*ensemble, *dims, *dims), axes=tuple(range(-n, 0))) * d
+    return _qudit_dft(diagonals.reshape(*ensemble, *dims, *dims), dims)
 
 
 def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``sum_{x,z} expansion[x, z] X^x Z^z``.
 
-    This inverts :func:`_weyl_coefficients`. Running the same FFT over the ``z`` axes turns each
-    row ``x`` of the expansion into the ``x``-th shifted diagonal of the result, and the inverse
-    index of :func:`_weyl_gather` puts the diagonals back into a matrix. Given a matrix ``A``, its
-    expansion coefficients are ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl operators are
-    orthogonal with ``Tr[W^dagger W] = D``.
+    This inverts :func:`_weyl_coefficients`. The same :func:`_qudit_dft` over the ``z`` axes turns
+    each row ``x`` of the expansion into the ``x``-th shifted diagonal of the result, and the
+    inverse index of :func:`_weyl_gather` puts the diagonals back into a matrix. Given a matrix
+    ``A``, its expansion coefficients are ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl
+    operators are orthogonal with ``Tr[W^dagger W] = D``.
 
     :param expansion: Shape ``(*ensemble, *dims, *dims)``, laid out by digits like the output of
         :func:`_weyl_coefficients`.
@@ -186,7 +211,7 @@ def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
     n = len(dims)
     d = prod(dims)
     ensemble = expansion.shape[: -2 * n]
-    diagonals = jnp.fft.ifftn(expansion, axes=tuple(range(-n, 0))) * d  # [x, b] = A[b + x, b]
+    diagonals = _qudit_dft(expansion, dims)  # [x, b] = A[b + x, b]
     _, inverse = _weyl_gather(dims)
     return jnp.take(diagonals.reshape(*ensemble, d * d), inverse, axis=-1).reshape(*ensemble, d, d)
 
@@ -266,6 +291,7 @@ def _hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     return jnp.real(coefficients.reshape(*matrix.shape[:-2], -1))
 
 
+@jax.jit(static_argnames=("dims",))
 def _from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``(1/D) sum_k coefficients[k] B_k``.
 

@@ -28,6 +28,7 @@ With the same vector :math:`c` for an observable, :math:`\mathrm{Tr}[O\rho] = c 
 from functools import reduce, singledispatch
 from operator import mul
 
+import jax
 import jax.numpy as jnp
 from jax import Array
 
@@ -56,7 +57,7 @@ def to_pauli_vector(operator) -> Array:
     ``to_pauli_vector(S @ rho) == to_pauli_liouville(S).matrix @ to_pauli_vector(rho)`` and
     ``estimate(rho, O) == to_pauli_vector(O) @ to_pauli_vector(rho) / d``.
 
-    Dispatches on the type of *operator*.  Ensembles broadcast; the function is jittable and
+    Dispatches on the type of *operator*.  Ensembles broadcast; the function is jitted and
     differentiable.
 
     :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
@@ -69,16 +70,19 @@ def to_pauli_vector(operator) -> Array:
 
 
 @to_pauli_vector.register(DensityMatrix)
+@jax.jit
 def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array:
     return _hermitian_coefficients(operator.matrix, tuple(operator.dims))
 
 
 @to_pauli_vector.register(StateVector)
+@jax.jit
 def _state_vector_to_pauli_vector(operator: StateVector) -> Array:
     return to_pauli_vector(promote_state_vector_to_density_matrix(operator))
 
 
 @to_pauli_vector.register(Observable)
+@jax.jit
 def _observable_to_pauli_vector(operator: Observable) -> Array:
     return _hermitian_coefficients(operator.matrix, _square_dims(operator))
 
