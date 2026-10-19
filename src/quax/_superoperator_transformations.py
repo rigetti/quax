@@ -13,12 +13,15 @@
 # limitations under the License.
 
 from functools import lru_cache, singledispatch
+from math import prod
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import numpy.typing as npt
 from jax import Array
 
-from ._operator_basis import n_qudit_herm_basis
+from ._operator_basis import hermitian_weyl_basis
 from ._quantum_objects import Choi, KrausMap, PauliLiouville, SuperOp, Unitary
 from ._tolerance import eigenvalue_tolerance, norm_tolerance
 
@@ -78,93 +81,105 @@ def superop_to_choi(superop: SuperOp) -> Choi:
 
 
 @lru_cache(maxsize=32)
-def _hermitian_basis_rows(dims: tuple[int, ...]) -> Array:
-    """The Hermitian operator basis as a ``(d², d²)`` matrix whose row ``i`` is ``B_i.ravel()``.
-
-    This one matrix gives both changes of basis.  Each ``B_i`` is Hermitian, so
-    ``conj(vec(B_i)) = conj(B_i.T).ravel() = B_i.ravel()`` for the column-stacking ``vec``: the
-    computational-to-Pauli matrix is ``rows / d`` and the Pauli-to-computational matrix, whose
-    column ``i`` is ``vec(B_i)``, is ``rows^†``.  The rows are a reshape of the cached basis, so
-    building them costs one device copy and no transpose or conjugate.
-
-    The matrix is a data-independent constant, assembled with NumPy and handed to JAX once.
-    Building it with a Python loop over ``jnp`` slices instead produced a jaxpr with one operation
-    per basis element (d^4 of them for a d-dim joint system, e.g. 1296 for a tensored
-    qubit-qutrit), whose XLA compilation was pathologically slow.
-    """
-    basis = n_qudit_herm_basis(dims).matrix  # (d², d, d)
-    # ensure_compile_time_eval keeps the cached value concrete when the first call is under a trace
+def _hermitian_factor(qudit_dim: int) -> npt.NDArray[np.complex128]:
+    """The basis of :func:`~quax.hermitian_weyl_basis` for one qudit, indexed ``[k, a, b]``."""
     with jax.ensure_compile_time_eval():
-        return jnp.asarray(basis.reshape(basis.shape[0], -1))
+        return np.asarray(hermitian_weyl_basis(qudit_dim).matrix)
 
 
-@jax.jit(static_argnames=("to_superop",))
-def _into_pauli_basis(operator, rows: Array, to_superop=None) -> PauliLiouville:
-    """``c2p @ S @ c2p^† * d`` with ``c2p = rows / d``, for ``S = to_superop(operator)``.
+def _qudit_pairs(n: int) -> list[int]:
+    """Axis order grouping ``[col(n), row(n), col'(n), row'(n)]`` into one pair per qudit."""
+    pairs = [axis for j in range(n) for axis in (j, n + j)]
+    return pairs + [2 * n + axis for axis in pairs]
 
-    Taking the conversion to ``SuperOp`` as a static argument keeps each public conversion to one
-    jitted call.
+
+def _to_pauli_basis(superop: Array, dims: tuple[int, ...]) -> Array:
+    """The Pauli-Liouville matrix ``Tr[B_i S(B_j)] / D`` of a superoperator matrix ``S``.
+
+    ``B_i`` is the ``i``-th element of :func:`~quax.n_qudit_herm_basis`. That basis is a tensor
+    product, so the ``D**2 x D**2`` change-of-basis matrix is a tensor product of one
+    ``d**2 x d**2`` matrix per qudit, :func:`_hermitian_factor`. Grouping ``S``'s indices into one
+    ``(col, row)`` pair per qudit on each side, each pair is contracted with that qudit's factor,
+    conjugated on the input side. That is ``2n`` small contractions, and the large matrix is never
+    built.
+
+    :param superop: Shape ``(*ensemble, D**2, D**2)``, acting on column-stacked ``vec(rho)``.
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Real array of shape ``(*ensemble, D**2, D**2)``, in the order of
+        :func:`~quax.n_qudit_herm_basis`.
     """
-    superop = operator if to_superop is None else to_superop(operator)
-    d_out, d_in = superop.d
-    assert d_in == d_out, "Superoperator to Pauli-Liouville conversion only supports square operators"
-    # The Hermitian operator basis guarantees real PL matrices for CP maps.
-    data = (rows @ superop.matrix @ jnp.conj(rows).T / d_in).real
-    return PauliLiouville.from_matrix(data, superop.dims)
+    n, d, lead = len(dims), prod(dims), superop.ndim - 2
+    x = superop.reshape(*superop.shape[:-2], *(dims * 4))
+    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in _qudit_pairs(n))))
+    for factor in [_hermitian_factor(q) for q in dims] + [np.conj(_hermitian_factor(q)) for q in dims]:
+        x = jnp.tensordot(x, factor, axes=([lead, lead + 1], [1, 2]))
+    return jnp.real(x.reshape(superop.shape)) / d
 
 
-@jax.jit(static_argnames=("from_superop",))
-def _out_of_pauli_basis(pauli_liouville: PauliLiouville, rows: Array, from_superop=None):
-    """``p2c @ R @ p2c^† / d`` with ``p2c = rows^†``, converted by ``from_superop`` when given."""
-    d_out, d_in = pauli_liouville.d
-    assert d_in == d_out, "Pauli-Liouville to Superoperator conversion only supports square operators"
-    data = jnp.conj(rows).T @ pauli_liouville.matrix @ rows / d_in
-    superop = SuperOp.from_matrix(data, pauli_liouville.dims)
-    return superop if from_superop is None else from_superop(superop)
+def _from_pauli_basis(pauli_liouville: Array, dims: tuple[int, ...]) -> Array:
+    """The superoperator with Pauli-Liouville matrix ``R``; inverts :func:`_to_pauli_basis`.
+
+    The same per-qudit contractions run the other way: each basis index of ``R`` is expanded back
+    into a ``(col, row)`` pair with that qudit's basis, conjugated on the output side, and the pairs
+    are ungrouped into the column-stacked layout.
+
+    :param pauli_liouville: Shape ``(*ensemble, D**2, D**2)``, in the order of
+        :func:`~quax.n_qudit_herm_basis`.
+    :param dims: Qudit sizes; ``D`` is their product.
+    :returns: Complex array of shape ``(*ensemble, D**2, D**2)``, acting on column-stacked
+        ``vec(rho)``.
+    """
+    n, d, lead = len(dims), prod(dims), pauli_liouville.ndim - 2
+    x = pauli_liouville.reshape(*pauli_liouville.shape[:-2], *[q * q for q in dims] * 2)
+    for factor in [np.conj(_hermitian_factor(q)) for q in dims] + [_hermitian_factor(q) for q in dims]:
+        x = jnp.tensordot(x, factor, axes=([lead], [0]))
+    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in np.argsort(_qudit_pairs(n)))))
+    return x.reshape(pauli_liouville.shape) / d
 
 
-# The conversions below that reach the change-of-basis matrix are not decorated with ``jax.jit``:
-# they pass the matrix as an argument to the jitted kernels above.  Under a jitted caller the
-# matrix would be a closure constant, and XLA embeds a copy of it (d^4 entries) in every compiled
-# executable.  The work is still jitted, and the conversions remain jittable and differentiable.
-
-
+@jax.jit
 def superop_to_pauli_liouville(superop: SuperOp) -> PauliLiouville:
     """
     Convert superoperator to Pauli-Liouville matrix.
 
     This is achieved by a linear change of basis.
     """
-    return _into_pauli_basis(superop, _hermitian_basis_rows(superop.dims[0]))
+    d_out, d_in = superop.d
+    assert d_in == d_out, "Superoperator to Pauli-Liouville conversion only supports square operators"
+    return PauliLiouville.from_matrix(_to_pauli_basis(superop.matrix, tuple(superop.dims[0])), superop.dims)
 
 
+@jax.jit
 def pauli_liouville_to_superop(pauli_liouville: PauliLiouville) -> SuperOp:
     """
     Convert Pauli-Liouville matrix to superoperator.
 
     This is achieved by a linear change of basis.
     """
-    return _out_of_pauli_basis(pauli_liouville, _hermitian_basis_rows(pauli_liouville.dims[0]))
+    d_out, d_in = pauli_liouville.d
+    assert d_in == d_out, "Pauli-Liouville to Superoperator conversion only supports square operators"
+    dims = tuple(pauli_liouville.dims[0])
+    return SuperOp.from_matrix(_from_pauli_basis(pauli_liouville.matrix, dims), pauli_liouville.dims)
 
 
+@jax.jit
 def choi_to_pauli_liouville(choi: Choi) -> PauliLiouville:
     """
     Convert Choi matrix to Pauli-Liouville matrix.
 
     Composed transformation: Choi -> Superop -> Pauli-Liouville
     """
-    return _into_pauli_basis(choi, _hermitian_basis_rows(choi.dims[0]), to_superop=choi_to_superop)
+    return superop_to_pauli_liouville(choi_to_superop(choi))
 
 
+@jax.jit
 def pauli_liouville_to_choi(pauli_liouville: PauliLiouville) -> Choi:
     """
     Convert Pauli-Liouville matrix to Choi matrix.
 
     Composed transformation: Pauli-Liouville -> Superop -> Choi
     """
-    return _out_of_pauli_basis(
-        pauli_liouville, _hermitian_basis_rows(pauli_liouville.dims[0]), from_superop=superop_to_choi
-    )
+    return superop_to_choi(pauli_liouville_to_superop(pauli_liouville))
 
 
 # ============================================================================
@@ -223,13 +238,14 @@ def kraus_to_superop(kraus_map: KrausMap) -> SuperOp:
     return SuperOp.from_matrix(S, kraus_map.dims)
 
 
+@jax.jit
 def kraus_to_pauli_liouville(kraus_ops: KrausMap) -> PauliLiouville:
     """
     Convert Kraus operators to Pauli-Liouville matrix.
 
     Composed transformation: Kraus -> Superop -> Pauli-Liouville
     """
-    return _into_pauli_basis(kraus_ops, _hermitian_basis_rows(kraus_ops.dims[0]), to_superop=kraus_to_superop)
+    return superop_to_pauli_liouville(kraus_to_superop(kraus_ops))
 
 
 @jax.jit
@@ -433,6 +449,7 @@ def unitary_to_superop(unitary: Unitary) -> SuperOp:
     return SuperOp.from_matrix(superop_data, unitary.dims)
 
 
+@jax.jit
 def unitary_to_pauli_liouville(unitary: Unitary) -> PauliLiouville:
     """
     Convert unitary operator to Pauli-Liouville matrix.
@@ -445,7 +462,7 @@ def unitary_to_pauli_liouville(unitary: Unitary) -> PauliLiouville:
     Returns:
         PauliLiouville object
     """
-    return _into_pauli_basis(unitary, _hermitian_basis_rows(unitary.dims[0]), to_superop=unitary_to_superop)
+    return superop_to_pauli_liouville(unitary_to_superop(unitary))
 
 
 @jax.jit
