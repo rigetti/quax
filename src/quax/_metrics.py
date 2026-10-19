@@ -25,8 +25,7 @@ import numpy as np
 from jax import Array
 from jax.typing import ArrayLike
 
-from ._promotion import promote, promote_hilbert_space
-from ._apply import apply_superop_to_density_matrix
+from ._promotion import promote
 from ._quantum_objects import (
     Choi,
     DensityMatrix,
