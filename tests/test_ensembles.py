@@ -1,3 +1,6 @@
+from functools import reduce
+from itertools import product
+
 import jax.numpy as jnp
 import pytest
 
@@ -60,3 +63,13 @@ def test_is_two_design(ensemble):
     ensemble: numpy array of shape (N, 2, 2)
     """
     assert jnp.all(qx.is_two_design(ensemble, atol=1e-6))
+
+
+@pytest.mark.parametrize("n", [1, 2, 3])
+def test_n_qubit_pauli_operators(n):
+    """Each element is the Kronecker product of single-qubit Paulis, qubit 0 most significant, exactly."""
+    paulis = qx.ensembles.n_qubit_pauli_operators(n)
+    expected = jnp.stack([reduce(jnp.kron, p) for p in product(PAULIS.matrix, repeat=n)])
+    assert isinstance(paulis, qx.Unitary)
+    assert paulis.dims == ((2,) * n, (2,) * n)
+    assert jnp.array_equal(paulis.matrix, expected)
