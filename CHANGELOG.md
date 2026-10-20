@@ -14,7 +14,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
-## [Unreleased]
+## [0.7.9] - 2026-10-19
+
+### Changed
+
+- `n_qudit_basis` and `n_qudit_herm_basis` build in a single buffer, halving peak memory.
+- The `*_pauli_liouville` conversions derive the change of basis from the cached Hermitian basis
+  without copies, and keep it out of compiled programs when called eagerly.
+- `kraus_to_superop` and `unitary_entanglement_fidelity` (and so `Unitary ==`) contract directly
+  instead of materializing intermediates.
+- `confusion_matrix`, `transition_matrix`, `non_demolition_fidelity` and `instrument_fidelity` read
+  only the diagonal of each outcome's superoperator.
+- `ensembles.n_qubit_pauli_operators` uses one batched Kronecker product per qubit,
+  `channels.instrument_from_confusion_and_transition` its closed form, and `tensor_instrument`
+  one call over all outcome pairs.
+
+
+## [0.7.8] - 2026-10-08
 
 ### Added
 

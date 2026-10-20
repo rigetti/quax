@@ -20,8 +20,12 @@ Run with:
 These benchmarks are NOT included in the default test suite (``make test-package``).
 """
 
+from functools import reduce
 from itertools import product
+from operator import mul
 
+import jax
+import jax.numpy as jnp
 import pytest
 
 import quax as qx
@@ -59,6 +63,15 @@ DM_SYSTEMS = [
 ]
 
 ENSEMBLE_SIZES = [(), (4,), (8,), (16,)]
+
+# (label, dims) for building the tensor-product operator bases (D**4 entries each)
+BASIS_SYSTEMS = [
+    ("2Q", (2, 2)),
+    ("4Q", (2,) * 4),
+    ("6Q", (2,) * 6),
+    ("3Qt", (3,) * 3),
+    ("2Qt2Q", (3, 3, 2, 2)),
+]
 
 
 def _subsystem_patterns(dims: tuple[int, ...]) -> list[tuple[str, tuple[int, ...], tuple[int, ...]]]:
@@ -248,3 +261,157 @@ def test_instrument_sv(benchmark, dims, ensemble_size, inst_type):
         o.block_until_ready()
 
     benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# 6. n_qudit_basis / n_qudit_herm_basis  (cold-cache construction)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in BASIS_SYSTEMS])
+@pytest.mark.parametrize("build", [qx.n_qudit_basis, qx.n_qudit_herm_basis], ids=["weyl", "hermitian"])
+def test_tensor_basis_build(benchmark, build, dims):
+    """Benchmark building n_qudit_basis / n_qudit_herm_basis from a cold cache."""
+
+    def fn():
+        build.cache_clear()
+        build(dims)
+
+    benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# Pauli-Liouville change of basis
+# ---------------------------------------------------------------------------
+
+PAULI_LIOUVILLE_SYSTEMS = [
+    ("1Q", (2,)),
+    ("3Q", (2,) * 3),
+    ("5Q", (2,) * 5),
+    ("2Qt", (3, 3)),
+]
+
+
+# Each conversion with the representation it takes, built from a random unitary channel.
+PAULI_LIOUVILLE_CONVERSIONS = [
+    ("superop_to_pauli_liouville", qx.to_superop),
+    ("pauli_liouville_to_superop", qx.to_pauli_liouville),
+    ("choi_to_pauli_liouville", qx.to_choi),
+    ("pauli_liouville_to_choi", qx.to_pauli_liouville),
+    ("kraus_to_pauli_liouville", lambda unitary: qx.truncate_kraus(qx.to_kraus(unitary))),
+    ("unitary_to_pauli_liouville", lambda unitary: unitary),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in PAULI_LIOUVILLE_SYSTEMS])
+@pytest.mark.parametrize(
+    ("name", "make_input"), [pytest.param(name, make, id=name) for name, make in PAULI_LIOUVILLE_CONVERSIONS]
+)
+def test_pauli_liouville_conversion(benchmark, name, make_input, dims):
+    """Benchmark the conversions that change to or from the Pauli-Liouville basis."""
+    convert = getattr(qx, name)
+    operator = make_input(make_unitary(dims))
+    convert(operator).data.block_until_ready()
+    benchmark(lambda: convert(operator).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Kraus to superoperator
+# ---------------------------------------------------------------------------
+
+KRAUS_TO_SUPEROP_SYSTEMS = [
+    ("1Q", (2,)),
+    ("3Q", (2,) * 3),
+    ("4Q", (2,) * 4),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in KRAUS_TO_SUPEROP_SYSTEMS])
+@pytest.mark.parametrize("full_rank", [True, False], ids=["full_rank", "rank1"])
+def test_kraus_to_superop(benchmark, dims, full_rank):
+    """Benchmark kraus_to_superop with D² Kraus operators (full rank) and with a single one."""
+    d = reduce(mul, dims)
+    kraus_map = make_kraus_map(dims, rank=d * d if full_rank else 1, truncate=not full_rank)
+    qx.kraus_to_superop(kraus_map).data.block_until_ready()
+    benchmark(lambda: qx.kraus_to_superop(kraus_map).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Unitary entanglement fidelity
+# ---------------------------------------------------------------------------
+
+ENTANGLEMENT_FIDELITY_SYSTEMS = [
+    ("1Q", (2,)),
+    ("6Q", (2,) * 6),
+    ("9Q", (2,) * 9),
+    ("11Q", (2,) * 11),
+]
+
+
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in ENTANGLEMENT_FIDELITY_SYSTEMS])
+def test_unitary_entanglement_fidelity(benchmark, dims):
+    """Benchmark unitary_entanglement_fidelity, which also backs ``Unitary.__eq__``."""
+    unitary_e = make_unitary(dims)
+    unitary_f = qx.random_unitary(dims=(dims, dims), key=jax.random.key(7))
+    qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready()
+    benchmark(lambda: qx.unitary_entanglement_fidelity(unitary_e, unitary_f).block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Instrument diagnostics: basis-state transitions per outcome
+# ---------------------------------------------------------------------------
+
+INSTRUMENT_DIAGNOSTIC_QUBITS = [1, 2, 4]
+
+INSTRUMENT_DIAGNOSTICS = [
+    ("confusion_matrix", lambda instrument: instrument.confusion_matrix),
+    ("transition_matrix", lambda instrument: instrument.transition_matrix),
+    ("non_demolition_fidelity", qx.non_demolition_fidelity),
+    ("instrument_fidelity", qx.instrument_fidelity),
+]
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in INSTRUMENT_DIAGNOSTIC_QUBITS])
+@pytest.mark.parametrize(("name", "diagnostic"), [pytest.param(name, f, id=name) for name, f in INSTRUMENT_DIAGNOSTICS])
+def test_instrument_diagnostic(benchmark, name, diagnostic, n_qubits):
+    """Benchmark the instrument diagnostics on a noisy measurement of every qubit."""
+    instrument = reduce(lambda a, b: a | b, [make_noisy_instrument(dim=2)] * n_qubits)
+    jax.block_until_ready(diagnostic(instrument))
+    benchmark(lambda: jax.block_until_ready(diagnostic(instrument)))
+
+
+# ---------------------------------------------------------------------------
+# n-qubit Pauli ensemble
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (2, 4, 5)])
+def test_n_qubit_pauli_operators(benchmark, n_qubits):
+    """Benchmark building the 4^n n-qubit Pauli operators."""
+    benchmark(lambda: qx.ensembles.n_qubit_pauli_operators(n_qubits).data.block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# Instrument construction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (1, 2, 3)])
+def test_instrument_from_confusion_and_transition(benchmark, n_qubits):
+    """Benchmark building an instrument of every qubit from random stochastic matrices."""
+    dims = (2,) * n_qubits
+    d = 2**n_qubits
+    confusion = jax.random.dirichlet(jax.random.key(4), jnp.ones(d), (d,)).T
+    transition = jax.random.dirichlet(jax.random.key(5), jnp.ones(d), (d,)).T
+    build = qx.channels.instrument_from_confusion_and_transition
+    build(confusion, transition, dims).data.block_until_ready()
+    benchmark(lambda: build(confusion, transition, dims).data.block_until_ready())
+
+
+@pytest.mark.parametrize("n_qubits", [pytest.param(n, id=f"{n}Q") for n in (2, 4, 5)])
+def test_tensor_instrument(benchmark, n_qubits):
+    """Benchmark tensoring a noisy measurement of n - 1 qubits with one more."""
+    single = make_noisy_instrument(dim=2)
+    rest = reduce(lambda a, b: a | b, [single] * (n_qubits - 1))
+    qx.tensor_instrument(rest, single).data.block_until_ready()
+    benchmark(lambda: qx.tensor_instrument(rest, single).data.block_until_ready())
