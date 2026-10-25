@@ -90,21 +90,28 @@ def _hermitian_factor(qudit_dim: int) -> npt.NDArray[np.complex128]:
 def _tensor_index_qudit_pair_order(n: int) -> list[int]:
     """Axis order that puts each qudit's column and row index side by side.
 
-    Reshaping a ``D**2 x D**2`` superoperator matrix into a tensor gives one axis per qudit digit.
-    The column-stacked index is ``col * D + row``, so the column digits of all qudits come first,
-    then the row digits. For two qudits the output side's axes are
-    ``[col_0, col_1, row_0, row_1]``, followed by the same four for the input side. Qudit 0's basis
-    matrix needs ``col_0`` and ``row_0`` together, but they sit two positions apart.
+    One way to reshape a ``D**2 x D**2`` superoperator matrix into a tensor is to split each index
+    into its digits, one per qudit for the column and one per qudit for the row. That gives four
+    axes per qudit: a column and a row axis on the output side, and the same two on the input
+    side. The column-stacked index is ``col * D + row``, so on each side the column digits of all
+    qudits come first, then the row digits. For example, write ``C`` and ``R`` for column and row,
+    ``o`` and ``i`` for output and input, and ``_j`` for qubit ``j``, so ``R_i_0`` is the input row
+    of qubit 0. A two-qubit superoperator then reshapes to
 
-    This returns the permutation that interleaves them:
+        ``[C_o_0, C_o_1, R_o_0, R_o_1, C_i_0, C_i_1, R_i_0, R_i_1]``.
+
+    Qubit 0's basis matrix needs ``C_o_0`` and ``R_o_0`` together, but they sit two positions
+    apart. This returns the permutation that interleaves them:
 
     >>> _tensor_index_qudit_pair_order(2)
     [0, 2, 1, 3, 4, 6, 5, 7]
 
-    ``jnp.transpose`` with it turns ``[col_0, col_1, row_0, row_1 | col'_0, col'_1, row'_0, row'_1]``
-    into ``[col_0, row_0, col_1, row_1 | col'_0, row'_0, col'_1, row'_1]``. The first half is
-    ``j, n + j`` for each qudit ``j``: its column axis, then its row axis ``n`` positions later. The
-    second half is the same pattern shifted by ``2n`` for the input side.
+    ``jnp.transpose`` with it gives
+
+        ``[C_o_0, R_o_0, C_o_1, R_o_1, C_i_0, R_i_0, C_i_1, R_i_1]``.
+
+    The first half is ``j, n + j`` for each qudit ``j``: its column axis, then its row axis ``n``
+    positions later. The second half is the same pattern shifted by ``2n`` for the input side.
 
     With each qudit's pair adjacent, :func:`_to_pauli_basis` contracts the first two axes with the
     next qudit's basis; ``tensordot`` drops them and appends the new basis index at the end. After
