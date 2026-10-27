@@ -14,6 +14,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.10] - 2026-10-27
+
+### Added
+
+- `characteristic_function` and `characteristic_distribution`: the Weyl characteristic function
+  `Tr[W_{x,z} rho]` of a state or observable, and its squared modulus over `D`, in the order of
+  `n_qudit_basis`.
+
+### Changed
+
+- `to_pauli_vector` and the `from_pauli_vector` constructors no longer build the dense operator
+  basis, so they reach 10 qubits and beyond, and they are jitted.
+- The `*_pauli_liouville` conversions change basis one qudit at a time instead of with a dense
+  matrix, and are jitted again.
+
+
 ## [0.7.9] - 2026-10-19
 
 ### Changed
