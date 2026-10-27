@@ -72,7 +72,7 @@ from ._exponentiation import (
 )
 from ._generators import unitary_to_hamiltonian
 from ._leakage import leakage_rate, seepage_rate
-from ._magic import stabilizer_norm
+from ._magic import mixed_stabilizer_renyi_entropy, stabilizer_norm, stabilizer_renyi_entropy
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -294,6 +294,7 @@ __all__ = [
     "lindbladians",
     "linear_inversion_process",
     "linear_inversion_state",
+    "mixed_stabilizer_renyi_entropy",
     "mixed_state_matrix",
     "n_qudit_basis",
     "n_qudit_herm_basis",
@@ -334,6 +335,7 @@ __all__ = [
     "squeeze",
     # Magic
     "stabilizer_norm",
+    "stabilizer_renyi_entropy",
     "state_vector_reduced_density_matrix",
     "states",
     "stochastic_infidelity",

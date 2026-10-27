@@ -261,6 +261,8 @@ quantum computers.
    :nosignatures:
 
    stabilizer_norm
+   stabilizer_renyi_entropy
+   mixed_stabilizer_renyi_entropy
 
 Projection onto Physical Maps
 -----------------------------

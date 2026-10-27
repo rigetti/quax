@@ -125,3 +125,174 @@ def test_stabilizer_norm_rejects_other_types():
         qx.stabilizer_norm(qx.random_observable(((2,), (2,)), key=jax.random.key(8)))
     with pytest.raises(TypeError):
         qx.stabilizer_norm(jnp.eye(2))
+
+
+def _t_state():
+    return _state(1, np.exp(1j * np.pi / 4))
+
+
+def test_stabilizer_renyi_entropy_of_familiar_qubit_states():
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(qx.states.KET0), 0)
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(qx.states.KETPLUS), 0)
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(_t_state()), np.log(4 / 3))
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(_t_state(), base=2), np.log2(4 / 3))
+
+
+@pytest.mark.parametrize("n", [1, 2, 3])
+@pytest.mark.parametrize("alpha", [0.5, 2.0, 3.0, 4.5])
+def test_stabilizer_renyi_entropy_of_t_states_matches_the_closed_form(n, alpha):
+    t_states = reduce(lambda a, b: a | b, [_t_state()] * n)
+    expected = n / (1 - alpha) * (np.log(2 ** (1 - alpha) + 1) - np.log(2))
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(t_states, alpha=alpha), expected)
+
+
+def test_stabilizer_renyi_entropy_limits_on_t_states():
+    t_states = _t_state() | _t_state() | _t_state()
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(t_states, alpha=1), 3 * np.log(2) / 2)
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(t_states, alpha=0), 3 * np.log(3 / 2))
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(t_states, alpha=1 + 1e-6), 3 * np.log(2) / 2, atol=1e-5)
+
+
+@pytest.mark.parametrize("dims", DIMS, ids=str)
+@pytest.mark.parametrize("alpha", [0.5, 1.0, 2.0, 3.0])
+def test_stabilizer_renyi_entropy_matches_the_definition(dims, alpha):
+    psi = qx.random_state_vector(dims, key=jax.random.key(9), size=(3,))
+    traces = jnp.einsum("...i,kij,...j->...k", jnp.conj(psi.matrix), qx.n_qudit_basis(dims).matrix, psi.matrix)
+    xi = jnp.abs(traces) ** 2 / _d(dims)
+    if alpha == 1:
+        entropy = -jnp.sum(xi * jnp.log(xi), axis=-1)
+    else:
+        entropy = jnp.log(jnp.sum(xi**alpha, axis=-1)) / (1 - alpha)
+    assert jnp.allclose(qx.stabilizer_renyi_entropy(psi, alpha=alpha), entropy - np.log(_d(dims)), atol=1e-10)
+
+
+def test_stabilizer_renyi_entropy_is_zero_exactly_on_stabilizer_states():
+    single_qubit = qx.apply_unitary_to_state_vector(qx.ensembles.CLIFFORDS_1Q, qx.states.KET0)
+    ghz = qx.apply_unitary_to_state_vector(qx.gates.CNOT, qx.states.KETPLUS | qx.states.KET0)
+    qutrit = _state(1, 1, 1) | qx.zero_state_vector(dims=(3,))
+    for alpha in [0, 0.5, 1, 2, 3]:
+        assert jnp.allclose(qx.stabilizer_renyi_entropy(single_qubit, alpha=alpha), 0, atol=1e-10)
+        assert jnp.isclose(qx.stabilizer_renyi_entropy(ghz, alpha=alpha), 0, atol=1e-10)
+        assert jnp.isclose(qx.stabilizer_renyi_entropy(qutrit, alpha=alpha), 0, atol=1e-10)
+    random = qx.random_state_vector((2, 3), key=jax.random.key(10), size=(20,))
+    assert jnp.all(qx.stabilizer_renyi_entropy(random) > 1e-3)
+
+
+def test_stabilizer_renyi_entropy_is_clifford_invariant():
+    psi = qx.random_state_vector((2, 2), key=jax.random.key(11), size=(4,))
+    clifford = qx.gates.CNOT @ (qx.gates.H | qx.gates.S)
+    rotated = qx.apply_unitary_to_state_vector(clifford, psi)
+    for alpha in [0.5, 1, 2]:
+        assert jnp.allclose(
+            qx.stabilizer_renyi_entropy(rotated, alpha=alpha), qx.stabilizer_renyi_entropy(psi, alpha=alpha)
+        )
+
+
+@pytest.mark.parametrize(("dims_a", "dims_b"), [((2,), (2,)), ((2,), (3,)), ((3,), (2, 2))], ids=str)
+def test_stabilizer_renyi_entropy_is_additive(dims_a, dims_b):
+    a = qx.random_state_vector(dims_a, key=jax.random.key(12), size=(3,))
+    b = qx.random_state_vector(dims_b, key=jax.random.key(13), size=(3,))
+    for alpha in [0.5, 1, 2]:
+        total = qx.stabilizer_renyi_entropy(a, alpha=alpha) + qx.stabilizer_renyi_entropy(b, alpha=alpha)
+        assert jnp.allclose(qx.stabilizer_renyi_entropy(a | b, alpha=alpha), total, atol=1e-10)
+
+
+def test_stabilizer_renyi_entropy_order_and_bounds():
+    psi = qx.random_state_vector((2, 3), key=jax.random.key(14), size=(10,))
+    entropies = jnp.stack([qx.stabilizer_renyi_entropy(psi, alpha=alpha) for alpha in [0.5, 1, 2, 3]])
+    assert jnp.all(jnp.diff(entropies, axis=0) <= 1e-12)
+    assert jnp.all(entropies <= np.log(6) + 1e-12)
+    assert jnp.allclose(entropies[0], 2 * jnp.log(qx.stabilizer_norm(psi)))
+
+
+def test_stabilizer_renyi_entropy_jit_and_grad():
+    psi = qx.random_state_vector((2, 2), key=jax.random.key(15))
+    sre = jax.jit(qx.stabilizer_renyi_entropy, static_argnames="alpha")
+    assert jnp.allclose(sre(psi, alpha=3.0), qx.stabilizer_renyi_entropy(psi, alpha=3.0))
+
+    def entropy_of_rotated_zero(angle, alpha):
+        rotation = jnp.array([[jnp.cos(angle), -jnp.sin(angle)], [jnp.sin(angle), jnp.cos(angle)]], dtype=complex)
+        state = qx.StateVector.from_matrix(rotation @ qx.states.KET0.matrix, (2,))
+        return qx.stabilizer_renyi_entropy(state, alpha=alpha)
+
+    for alpha in [1.0, 2.0]:
+        assert jnp.isfinite(jax.grad(entropy_of_rotated_zero)(0.0, alpha))
+        assert jnp.isfinite(jax.grad(entropy_of_rotated_zero)(0.3, alpha))
+
+
+def test_stabilizer_renyi_entropy_rejects_mixed_states_and_bad_orders():
+    with pytest.raises(TypeError):
+        qx.stabilizer_renyi_entropy(qx.random_density_matrix(2, (2,), key=jax.random.key(16)))
+    with pytest.raises(ValueError):
+        qx.stabilizer_renyi_entropy(qx.states.KET0, alpha=-1.0)
+    with pytest.raises(ValueError):
+        qx.stabilizer_renyi_entropy(qx.states.KET0, alpha=float("inf"))
+
+
+def _projector(psi):
+    return qx.promote_state_vector_to_density_matrix(psi).matrix
+
+
+def test_mixed_stabilizer_renyi_entropy_of_familiar_qubit_states():
+    zero = qx.DensityMatrix.from_matrix(_projector(qx.states.KET0), (2,))
+    maximally_mixed = qx.DensityMatrix.from_matrix(jnp.eye(2, dtype=complex) / 2, (2,))
+    stabilizer_mixture = qx.DensityMatrix.from_matrix(
+        (_projector(qx.states.KET0) + _projector(qx.states.KETPLUS)) / 2, (2,)
+    )
+
+    assert jnp.isclose(qx.mixed_stabilizer_renyi_entropy(zero), 0)
+    assert jnp.isclose(qx.mixed_stabilizer_renyi_entropy(maximally_mixed), 0)
+    assert jnp.isclose(qx.mixed_stabilizer_renyi_entropy(stabilizer_mixture), np.log(4 / 3))
+    assert jnp.isclose(qx.mixed_stabilizer_renyi_entropy(_t_state()), np.log(4 / 3))
+
+
+@pytest.mark.parametrize("dims", DIMS, ids=str)
+def test_mixed_stabilizer_renyi_entropy_matches_the_definition(dims):
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(17), size=(3,))
+    traces = jnp.abs(jnp.einsum("...ij,kji->...k", rho.matrix, qx.n_qudit_basis(dims).matrix))
+    expected = -jnp.log(jnp.sum(traces**4, axis=-1) / jnp.sum(traces**2, axis=-1))
+    assert jnp.allclose(qx.mixed_stabilizer_renyi_entropy(rho), expected, atol=1e-10)
+
+
+@pytest.mark.parametrize("dims", [(2,), (2, 2), (2, 3), (3, 3)], ids=str)
+def test_mixed_stabilizer_renyi_entropy_reduces_to_m2_on_pure_states(dims):
+    psi = qx.random_state_vector(dims, key=jax.random.key(18), size=(4,))
+    m2 = qx.stabilizer_renyi_entropy(psi, alpha=2)
+    assert jnp.allclose(qx.mixed_stabilizer_renyi_entropy(psi), m2, atol=1e-12)
+    assert jnp.allclose(
+        qx.mixed_stabilizer_renyi_entropy(qx.promote_state_vector_to_density_matrix(psi)), m2, atol=1e-12
+    )
+
+
+def test_mixed_stabilizer_renyi_entropy_is_zero_on_stabilizer_code_states():
+    z = qx.gates.Z.matrix
+    code_state = qx.DensityMatrix.from_matrix((jnp.eye(4) + jnp.kron(z, z)) / 4, (2, 2))
+    assert jnp.isclose(qx.mixed_stabilizer_renyi_entropy(code_state), 0, atol=1e-12)
+    noisy = qx.random_density_matrix(2, (2, 2), key=jax.random.key(19), size=(10,))
+    assert jnp.all(qx.mixed_stabilizer_renyi_entropy(noisy) > 1e-3)
+
+
+def test_mixed_stabilizer_renyi_entropy_is_clifford_invariant_and_additive():
+    rho = qx.random_density_matrix(2, (2, 2), key=jax.random.key(20), size=(3,))
+    clifford = qx.gates.CNOT @ (qx.gates.H | qx.gates.S)
+    rotated = qx.apply_unitary_to_density_matrix(clifford, rho)
+    assert jnp.allclose(qx.mixed_stabilizer_renyi_entropy(rotated), qx.mixed_stabilizer_renyi_entropy(rho))
+    sigma = qx.random_density_matrix(2, (3,), key=jax.random.key(21), size=(3,))
+    total = qx.mixed_stabilizer_renyi_entropy(rho) + qx.mixed_stabilizer_renyi_entropy(sigma)
+    assert jnp.allclose(qx.mixed_stabilizer_renyi_entropy(rho | sigma), total, atol=1e-10)
+
+
+def test_mixed_stabilizer_renyi_entropy_base_jit_grad_and_types():
+    rho = qx.random_density_matrix(2, (2,), key=jax.random.key(22))
+    assert jnp.isclose(
+        qx.mixed_stabilizer_renyi_entropy(rho, base=2), qx.mixed_stabilizer_renyi_entropy(rho) / np.log(2)
+    )
+    assert jnp.allclose(jax.jit(qx.mixed_stabilizer_renyi_entropy)(rho), qx.mixed_stabilizer_renyi_entropy(rho))
+
+    def entropy_of_mixed_zero(p):
+        matrix = (1 - p) * _projector(qx.states.KET0) + p * jnp.eye(2) / 2
+        return qx.mixed_stabilizer_renyi_entropy(qx.DensityMatrix.from_matrix(matrix, (2,)))
+
+    assert jnp.isfinite(jax.grad(entropy_of_mixed_zero)(0.3))
+    with pytest.raises(TypeError):
+        qx.mixed_stabilizer_renyi_entropy(qx.random_observable(((2,), (2,)), key=jax.random.key(23)))

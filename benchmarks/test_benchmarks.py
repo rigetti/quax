@@ -525,3 +525,32 @@ def test_stabilizer_norm(benchmark, dims, ensemble_size):
     rho = make_density_matrix(dims, ensemble_size)
     qx.stabilizer_norm(rho).block_until_ready()
     benchmark(lambda: qx.stabilizer_norm(rho).block_until_ready())
+
+
+@pytest.mark.parametrize("alpha", [1.0, 2.0], ids=["alpha1", "alpha2"])
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_stabilizer_renyi_entropy(benchmark, dims, ensemble_size, alpha):
+    """Benchmark stabilizer_renyi_entropy on state vectors."""
+    psi = make_state_vector(dims, ensemble_size)
+    qx.stabilizer_renyi_entropy(psi, alpha=alpha).block_until_ready()
+    benchmark(lambda: qx.stabilizer_renyi_entropy(psi, alpha=alpha).block_until_ready())
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_mixed_stabilizer_renyi_entropy(benchmark, dims, ensemble_size):
+    """Benchmark mixed_stabilizer_renyi_entropy on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+    qx.mixed_stabilizer_renyi_entropy(rho).block_until_ready()
+    benchmark(lambda: qx.mixed_stabilizer_renyi_entropy(rho).block_until_ready())
