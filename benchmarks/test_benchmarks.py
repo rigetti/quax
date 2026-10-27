@@ -506,3 +506,22 @@ def test_characteristic_function(benchmark, name, f, dims, ensemble_size):
     rho = make_density_matrix(dims, ensemble_size)
     f(rho).block_until_ready()
     benchmark(lambda: f(rho).block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# 16. Magic measures  (density matrices)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(PAULI_VECTOR_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_stabilizer_norm(benchmark, dims, ensemble_size):
+    """Benchmark stabilizer_norm on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+    qx.stabilizer_norm(rho).block_until_ready()
+    benchmark(lambda: qx.stabilizer_norm(rho).block_until_ready())

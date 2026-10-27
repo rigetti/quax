@@ -249,6 +249,19 @@ for qubits).
    characteristic_function
    characteristic_distribution
 
+Magic
+-----
+
+How far a state is from the stabilizer formalism, whose states and operations are classically
+simulable. Magic is the resource that magic-state distillation supplies to fault-tolerant
+quantum computers.
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   stabilizer_norm
+
 Projection onto Physical Maps
 -----------------------------
 

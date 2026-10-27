@@ -72,6 +72,7 @@ from ._exponentiation import (
 )
 from ._generators import unitary_to_hamiltonian
 from ._leakage import leakage_rate, seepage_rate
+from ._magic import stabilizer_norm
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -331,6 +332,8 @@ __all__ = [
     "seepage_rate",
     "select_outcome",
     "squeeze",
+    # Magic
+    "stabilizer_norm",
     "state_vector_reduced_density_matrix",
     "states",
     "stochastic_infidelity",
