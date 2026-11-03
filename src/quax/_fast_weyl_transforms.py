@@ -54,6 +54,14 @@ from jax import Array
 
 from ._operator_basis import hermitian_weyl_basis, xz_pairs
 
+# The index tables, DFT matrices and change-of-basis arrays below depend only on ``dims`` and are
+# cached, so they are built with NumPy rather than ``jax.numpy``. If they were built with ``jnp``
+# and first called inside a ``jax.jit`` trace, they would return tracers, the cache would keep
+# those tracers, and the next call outside that trace would raise ``UnexpectedTracerError``. NumPy
+# always returns concrete arrays, so the cached values are safe under any trace. NumPy also allows
+# the in-place updates that keep ``_shifted_flat`` to a single ``D x D`` buffer. The jitted
+# transforms take these arrays in as constants.
+
 
 def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
     """Where basis state ``i`` lands after a digit-wise shift by ``+j`` or ``-j``.
