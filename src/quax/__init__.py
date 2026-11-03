@@ -43,6 +43,10 @@ from ._apply import (
     targeted_apply_unitary,
     targeted_apply_unitary_to_density_matrix,
 )
+from ._characteristic_function import (
+    characteristic_distribution,
+    characteristic_function,
+)
 from ._compose import (
     compose_choi,
     compose_instrument,
@@ -225,6 +229,9 @@ __all__ = [
     # Observables
     "bitstring_probability",
     "channels",
+    # Characteristic functions
+    "characteristic_distribution",
+    "characteristic_function",
     # Superoperator transformations
     "choi_to_kraus",
     "choi_to_pauli_liouville",

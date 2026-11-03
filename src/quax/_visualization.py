@@ -19,7 +19,7 @@ except ImportError:
 if TYPE_CHECKING:
     from plotly.graph_objs import Figure
 
-from ._operator_basis import _xz_pairs
+from ._operator_basis import xz_pairs
 from ._quantum_objects import (
     DensityMatrix,
     Operator,
@@ -58,7 +58,7 @@ def _weyl_labels(dims: tuple[int, ...]) -> list[str]:
     pauli_labels = {(0, 0): "I", (1, 0): "X", (1, 1): "Y", (0, 1): "Z"}
     single_labels = []
     for d in dims:
-        pairs = _xz_pairs(d)
+        pairs = xz_pairs(d)
         if d == 2:
             single_labels.append([pauli_labels[p] for p in pairs])
         else:
