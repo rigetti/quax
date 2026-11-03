@@ -32,12 +32,12 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._fast_weyl_transforms import _from_hermitian_coefficients, _hermitian_coefficients
+from ._fast_weyl_transforms import from_hermitian_coefficients, hermitian_coefficients
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
-def _square_dims(operator: Observable) -> tuple[int, ...]:
+def square_dims(operator: Observable) -> tuple[int, ...]:
     """The qudit sizes of a square operator; coordinates in an operator basis need one."""
     dims_out, dims_in = operator.dims
     if tuple(dims_out) != tuple(dims_in):
@@ -72,7 +72,7 @@ def to_pauli_vector(operator) -> Array:
 @to_pauli_vector.register(DensityMatrix)
 @jax.jit
 def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array:
-    return _hermitian_coefficients(operator.matrix, tuple(operator.dims))
+    return hermitian_coefficients(operator.matrix, tuple(operator.dims))
 
 
 @to_pauli_vector.register(StateVector)
@@ -84,7 +84,7 @@ def _state_vector_to_pauli_vector(operator: StateVector) -> Array:
 @to_pauli_vector.register(Observable)
 @jax.jit
 def _observable_to_pauli_vector(operator: Observable) -> Array:
-    return _hermitian_coefficients(operator.matrix, _square_dims(operator))
+    return hermitian_coefficients(operator.matrix, square_dims(operator))
 
 
 def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
@@ -101,4 +101,4 @@ def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
     coefficients = jnp.asarray(vector)
     if coefficients.shape[-1] != d * d:
         raise ValueError(f"Expected {d * d} coefficients for dims {dims}, got {coefficients.shape[-1]}.")
-    return _from_hermitian_coefficients(coefficients, dims)
+    return from_hermitian_coefficients(coefficients, dims)

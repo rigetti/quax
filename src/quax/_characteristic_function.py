@@ -20,17 +20,17 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._fast_weyl_transforms import _weyl_coefficients, _xz_order
-from ._operator_basis import _weyl_phases
-from ._pauli_vector import _square_dims
+from ._fast_weyl_transforms import weyl_coefficients, xz_order
+from ._operator_basis import weyl_phases
+from ._pauli_vector import square_dims
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
 def _characteristic(matrix: Array, dims: tuple[int, ...]) -> Array:
     r""":math:`\mathrm{Tr}[W_{x,z} A]` for every Weyl operator, in basis order."""
-    traces = _weyl_coefficients(matrix, dims).reshape(*matrix.shape[:-2], -1)
-    return jnp.take(traces, _xz_order(dims), axis=-1) * _weyl_phases(dims)
+    traces = weyl_coefficients(matrix, dims).reshape(*matrix.shape[:-2], -1)
+    return jnp.take(traces, xz_order(dims), axis=-1) * weyl_phases(dims)
 
 
 @singledispatch
@@ -124,7 +124,7 @@ def _state_vector_characteristic_function(operator: StateVector) -> Array:
 @characteristic_function.register(Observable)
 @jax.jit
 def _observable_characteristic_function(operator: Observable) -> Array:
-    return _characteristic(operator.matrix, _square_dims(operator))
+    return _characteristic(operator.matrix, square_dims(operator))
 
 
 @jax.jit

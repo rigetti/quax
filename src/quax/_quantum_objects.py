@@ -597,19 +597,19 @@ class StateVector(State):
         """
         import itertools
 
-        from ._state import _format_state_vector_str
+        from ._state import format_state_vector_str
 
         matrix = self.matrix
         dims = self.dims
 
         if self.ensemble_size == ():
-            return _format_state_vector_str(matrix, dims, decimals, atol)
+            return format_state_vector_str(matrix, dims, decimals, atol)
 
         lines = []
         for idx in itertools.product(*[range(s) for s in self.ensemble_size]):
             label = "[" + ", ".join(str(i) for i in idx) + "]"
             vec = matrix[idx]
-            lines.append(f"{label}: {_format_state_vector_str(vec, dims, decimals, atol)}")
+            lines.append(f"{label}: {format_state_vector_str(vec, dims, decimals, atol)}")
         return "\n".join(lines)
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
@@ -822,19 +822,19 @@ class DensityMatrix(State):
         """
         import itertools
 
-        from ._state import _format_density_matrix_str
+        from ._state import format_density_matrix_str
 
         matrix = self.matrix
         dims = self.dims
 
         if self.ensemble_size == ():
-            return _format_density_matrix_str(matrix, dims, decimals, atol)
+            return format_density_matrix_str(matrix, dims, decimals, atol)
 
         lines = []
         for idx in itertools.product(*[range(s) for s in self.ensemble_size]):
             label = "[" + ", ".join(str(i) for i in idx) + "]"
             mat = matrix[idx]
-            lines.append(f"{label}: {_format_density_matrix_str(mat, dims, decimals, atol)}")
+            lines.append(f"{label}: {format_density_matrix_str(mat, dims, decimals, atol)}")
         return "\n".join(lines)
 
     def _to_qobj(self) -> "qutip.Qobj | NDArray":
@@ -2533,7 +2533,7 @@ class QuantumInstrument(QuantumObject):
 
         # Map each full-space index j_full to its measured-subsystem index j_meas.
         j_meas_array = jnp.array(
-            [_extract_measured_index(j, dims, self.measured_qudits) for j in range(d_total)]
+            [extract_measured_index(j, dims, self.measured_qudits) for j in range(d_total)]
         )  # (d_total,)
 
         # Sum contributions into measured-subsystem columns, then normalize.
@@ -2722,7 +2722,7 @@ def _build_partial_projector(
     return projector
 
 
-def _extract_measured_index(
+def extract_measured_index(
     full_index: int,
     dims: tuple[int, ...],
     measured_qudits: tuple[int, ...],

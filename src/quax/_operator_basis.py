@@ -45,10 +45,10 @@ from ._typing import ArrayT
 
 
 @overload
-def _batched_kron(a: npt.NDArray[np.number], b: npt.NDArray[np.number]) -> npt.NDArray[np.complex128]: ...
+def batched_kron(a: npt.NDArray[np.number], b: npt.NDArray[np.number]) -> npt.NDArray[np.complex128]: ...
 @overload
-def _batched_kron(a: Array, b: Array) -> Array: ...
-def _batched_kron(a: ArrayT, b: ArrayT) -> ArrayT:
+def batched_kron(a: Array, b: Array) -> Array: ...
+def batched_kron(a: ArrayT, b: ArrayT) -> ArrayT:
     """Batched Kronecker product of two ensembles of square matrices.
 
     Operates elementwise, so it stays on whatever array type it is given (the basis builders
@@ -72,7 +72,7 @@ def _batched_kron(a: ArrayT, b: ArrayT) -> ArrayT:
 
 
 @lru_cache(maxsize=32)
-def _xz_pairs(d: int) -> list[tuple[int, int]]:
+def xz_pairs(d: int) -> list[tuple[int, int]]:
     """
     Return the (x, z) ordering for single-qudit Weyl operators.
 
@@ -105,7 +105,7 @@ def weyl_basis_labels(qudit_dim: int) -> list[str]:
     :param qudit_dim: Local qudit dimension d.
     :return: List of d² string labels of the form ``"Wxz"``.
     """
-    return [f"W{x}{z}" for x, z in _xz_pairs(qudit_dim)]
+    return [f"W{x}{z}" for x, z in xz_pairs(qudit_dim)]
 
 
 @lru_cache(maxsize=32)
@@ -132,7 +132,7 @@ def weyl_basis(qudit_dim: int) -> Unitary:
 
     # d > 2: plain Weyl unitaries W_{x,z} = X^x Z^z
     root_of_unity = np.exp(2j * np.pi / qudit_dim)
-    pairs = np.array(_xz_pairs(qudit_dim))  # (d², 2)
+    pairs = np.array(xz_pairs(qudit_dim))  # (d², 2)
     x_vals, z_vals = pairs[:, 0], pairs[:, 1]
 
     # W_{x,z}[i, j] = omega^{jz} * delta(i, (j + x) mod d)
@@ -170,7 +170,7 @@ def hermitian_weyl_basis(qudit_dim: int) -> Observable:
     :return: Ensemble of d² Hermitian basis operators as an :class:`Observable`.
     """
     root_of_unity = np.exp(2j * np.pi / qudit_dim)
-    pairs = np.array(_xz_pairs(qudit_dim))  # (d², 2)
+    pairs = np.array(xz_pairs(qudit_dim))  # (d², 2)
     x_vals, z_vals = pairs[:, 0], pairs[:, 1]
 
     # Inverse pair indices: W_{x,z}^{-1} = W_{-x,-z}
@@ -222,7 +222,7 @@ def n_qudit_herm_basis(dims: tuple[int, ...]) -> Observable:
         return first
 
     rest = n_qudit_herm_basis(dims[1:])
-    ops = _batched_kron(first.matrix, rest.matrix)
+    ops = batched_kron(first.matrix, rest.matrix)
     return Observable.from_matrix(ops, (dims, dims))
 
 
@@ -245,17 +245,17 @@ def n_qudit_basis(dims: tuple[int, ...]) -> Unitary:
         return first
 
     rest = n_qudit_basis(dims[1:])
-    ops = _batched_kron(first.matrix, rest.matrix)
+    ops = batched_kron(first.matrix, rest.matrix)
     return Unitary.from_matrix(ops, (dims, dims))
 
 
 @lru_cache(maxsize=32)
-def _weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
+def weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
     r"""The phase :math:`\tau_{x,z}` of each Weyl operator, in basis order.
 
     :math:`W_{x,z} = \tau_{x,z} X^x Z^z` with :math:`\tau_{x,z} = \prod_i \tau_{d_i}^{x_i z_i}`
     and :math:`\tau_d = (-1)^d e^{i\pi/d}`, the convention of [SWCLIFF]_ (see
-    :func:`characteristic_function`). Each qudit's phases follow :func:`_xz_pairs` and the
+    :func:`characteristic_function`). Each qudit's phases follow :func:`xz_pairs` and the
     Kronecker product puts qudit 0 most significant, matching :func:`n_qudit_basis`.
 
     :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
@@ -263,7 +263,7 @@ def _weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
     """
     per_qudit = [
         np.array(
-            [((-1) ** d * np.exp(1j * np.pi / d)) ** (x * z) for x, z in _xz_pairs(d)],
+            [((-1) ** d * np.exp(1j * np.pi / d)) ** (x * z) for x, z in xz_pairs(d)],
         )
         for d in dims
     ]

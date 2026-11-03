@@ -41,7 +41,7 @@ from jax import Array
 
 from . import lindbladians
 from ._exponentiation import evolve
-from ._quantum_objects import QuantumInstrument, SuperOp, _extract_measured_index
+from ._quantum_objects import QuantumInstrument, SuperOp, extract_measured_index
 
 
 def depolarizing(rate: float | Array, dims: tuple[int, ...] = (2,), t: float = 1.0) -> SuperOp:
@@ -171,7 +171,7 @@ def instrument_from_confusion_and_transition(
             if not bool(jnp.allclose(jnp.sum(m, axis=0), 1.0, atol=1e-6)):
                 raise ValueError(f"{label} matrix columns must sum to 1.")
 
-    j_meas = [_extract_measured_index(j, dims, measured_qudits) for j in range(d_total)]
+    j_meas = [extract_measured_index(j, dims, measured_qudits) for j in range(d_total)]
     matrices = _diagonal_instrument(jnp.asarray(confusion_matrix)[:, j_meas], jnp.asarray(transition_matrix))
     return QuantumInstrument.from_matrix(matrices, (dims, dims), measured_qudits)
 

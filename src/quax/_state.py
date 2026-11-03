@@ -22,7 +22,7 @@ from jax import Array
 from ._quantum_objects import DensityMatrix, StateVector
 
 
-def _format_state_vector_str(vec: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
+def format_state_vector_str(vec: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
     """Format a single (non-ensembled) state vector as a Unicode Dirac-notation string."""
 
     def _fmt(x: float) -> str:
@@ -70,7 +70,7 @@ def _format_state_vector_str(vec: Array, dims: tuple[int, ...], decimals: int, a
     return "".join(parts)
 
 
-def _format_density_matrix_str(mat: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
+def format_density_matrix_str(mat: Array, dims: tuple[int, ...], decimals: int, atol: float) -> str:
     """Format a single (non-ensembled) density matrix as a Unicode ``|i⟩⟨j|`` string."""
 
     def _fmt(x: float) -> str:

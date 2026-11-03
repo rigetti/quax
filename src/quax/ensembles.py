@@ -18,7 +18,7 @@ from itertools import permutations
 import jax.numpy as jnp
 from jax.numpy import arccos, pi, sqrt
 
-from ._operator_basis import _batched_kron
+from ._operator_basis import batched_kron
 from ._quantum_objects import Unitary
 from .gates import RX, RY, RZ, I, X, Y, Z
 
@@ -294,5 +294,5 @@ def n_qubit_pauli_operators(n: int = 1) -> Unitary:
     # Each step is one batched Kronecker product over the whole ensemble, written into a single
     # buffer, with qubit 0 most significant (the order of ``itertools.product``).  The entries are
     # products of 0, ±1 and ±i, so the result is exact.
-    paulis = reduce(_batched_kron, [PAULI_ENSEMBLE.matrix] * n)
+    paulis = reduce(batched_kron, [PAULI_ENSEMBLE.matrix] * n)
     return Unitary.from_matrix(paulis, ((2,) * n, (2,) * n))

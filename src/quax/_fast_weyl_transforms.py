@@ -28,12 +28,12 @@ The functions build on each other in this order.
 * :func:`_weyl_gather` turns that into one flat index that pulls every shifted diagonal out of a
   matrix, and the inverse index that puts them back.
 * :func:`_qudit_dft` is the Fourier transform, one qudit axis at a time.
-* :func:`_weyl_coefficients` gathers and transforms: all ``Tr[X^x Z^z A]`` at once.
+* :func:`weyl_coefficients` gathers and transforms: all ``Tr[X^x Z^z A]`` at once.
   :func:`_from_weyl_expansion` is its inverse: the matrix with given Weyl coordinates.
-* :func:`_xz_order` reorders those coordinates into the order of :func:`~quax.n_qudit_basis`.
+* :func:`xz_order` reorders those coordinates into the order of :func:`~quax.n_qudit_basis`.
 * :func:`_hermitian_weyl_change` expresses each element of :func:`~quax.hermitian_weyl_basis` in
-  the Weyl operators of one qudit, so :func:`_hermitian_coefficients` and
-  :func:`_from_hermitian_coefficients` reach the Hermitian (Pauli) coordinates from the Weyl ones
+  the Weyl operators of one qudit, so :func:`hermitian_coefficients` and
+  :func:`from_hermitian_coefficients` reach the Hermitian (Pauli) coordinates from the Weyl ones
   with one small contraction per qudit.
 
 Outside this module, :func:`~quax.to_pauli_vector` and ``from_pauli_vector`` are the Hermitian
@@ -52,7 +52,7 @@ import numpy as np
 import numpy.typing as npt
 from jax import Array
 
-from ._operator_basis import _xz_pairs, hermitian_weyl_basis
+from ._operator_basis import hermitian_weyl_basis, xz_pairs
 
 
 def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
@@ -163,7 +163,7 @@ def _qudit_dft(x: Array, dims: tuple[int, ...]) -> Array:
     return x
 
 
-def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
+def weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     """All ``Tr[X^x Z^z A]`` of a matrix ``A``, with no phase on ``X^x Z^z``.
 
     ``X^x`` picks the ``x``-th shifted diagonal of ``A`` (gathered with :func:`_weyl_gather`) and
@@ -173,7 +173,7 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
 
     The result is laid out by digits, ``[x_0, ..., x_n-1, z_0, ..., z_n-1]``, which is the
     transform's natural order and not the order of :func:`~quax.n_qudit_basis`;
-    :func:`_xz_order` converts. The operators here are the bare ``X^x Z^z``; the phase convention of
+    :func:`xz_order` converts. The operators here are the bare ``X^x Z^z``; the phase convention of
     :func:`~quax.characteristic_function` is applied by its caller.
 
     :param matrix: Shape ``(*ensemble, D, D)``; any square matrix, no symmetry assumed.
@@ -197,14 +197,14 @@ def _weyl_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
 def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``sum_{x,z} expansion[x, z] X^x Z^z``.
 
-    This inverts :func:`_weyl_coefficients`. The same :func:`_qudit_dft` over the ``z`` axes turns
+    This inverts :func:`weyl_coefficients`. The same :func:`_qudit_dft` over the ``z`` axes turns
     each row ``x`` of the expansion into the ``x``-th shifted diagonal of the result, and the
     inverse index of :func:`_weyl_gather` puts the diagonals back into a matrix. Given a matrix
     ``A``, its expansion coefficients are ``Tr[(X^x Z^z)^dagger A] / D``, because the Weyl
     operators are orthogonal with ``Tr[W^dagger W] = D``.
 
     :param expansion: Shape ``(*ensemble, *dims, *dims)``, laid out by digits like the output of
-        :func:`_weyl_coefficients`.
+        :func:`weyl_coefficients`.
     :param dims: Qudit sizes; ``D`` is their product.
     :returns: Complex array of shape ``(*ensemble, D, D)``.
     """
@@ -217,23 +217,23 @@ def _from_weyl_expansion(expansion: Array, dims: tuple[int, ...]) -> Array:
 
 
 @lru_cache(maxsize=32)
-def _xz_order(dims: tuple[int, ...]) -> npt.NDArray[np.intp]:
+def xz_order(dims: tuple[int, ...]) -> npt.NDArray[np.intp]:
     """Where each operator of :func:`~quax.n_qudit_basis` sits in the digit layout.
 
-    :func:`~quax.n_qudit_basis` lists each qudit's operators in :func:`_xz_pairs` order (``I, X,
+    :func:`~quax.n_qudit_basis` lists each qudit's operators in :func:`xz_pairs` order (``I, X,
     Y, Z`` for a qubit) and tensors them with qudit 0 most significant. Flattening the
     ``[x_0, ..., z_n-1]`` layout to one axis and indexing it with this permutation gives the
     coefficients in basis order.
 
     For one qubit the pairs ``(0,0), (1,0), (1,1), (0,1)`` sit at positions ``2 * x + z``:
 
-    >>> _xz_order((2,))
+    >>> xz_order((2,))
     array([0, 2, 3, 1])
 
     :param dims: Qudit sizes; ``D`` is their product.
     :returns: Integer array of shape ``(D**2,)``, a permutation of ``range(D**2)``.
     """
-    pairs = [np.array(_xz_pairs(d)) for d in dims]  # per qudit, (d**2, 2) in basis order
+    pairs = [np.array(xz_pairs(d)) for d in dims]  # per qudit, (d**2, 2) in basis order
     grids = np.meshgrid(*[np.arange(len(p)) for p in pairs], indexing="ij")  # basis index per qudit
     xs = [p[g, 0] for p, g in zip(pairs, grids)]
     zs = [p[g, 1] for p, g in zip(pairs, grids)]
@@ -273,11 +273,11 @@ def _change_of_basis_spec(n: int) -> tuple[str, str, str]:
     return xs + zs, ",".join(k + x + z for k, x, z in zip(ks, xs, zs)), ks
 
 
-def _hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
+def hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     """``Tr[B_k A]`` for every element of :func:`~quax.n_qudit_herm_basis`, in order.
 
     These are the Pauli-vector coordinates of ``A``. They come from the Weyl coordinates of
-    :func:`_weyl_coefficients` by one contraction with :func:`_hermitian_weyl_change` per qudit,
+    :func:`weyl_coefficients` by one contraction with :func:`_hermitian_weyl_change` per qudit,
     so neither the dense basis nor a ``D**2 x D**2`` change-of-basis matrix is built.
 
     :param matrix: Shape ``(*ensemble, D, D)``.
@@ -286,16 +286,16 @@ def _hermitian_coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
     """
     weyl, changes, ks = _change_of_basis_spec(len(dims))
     coefficients = jnp.einsum(
-        f"...{weyl},{changes}->...{ks}", _weyl_coefficients(matrix, dims), *map(_hermitian_weyl_change, dims)
+        f"...{weyl},{changes}->...{ks}", weyl_coefficients(matrix, dims), *map(_hermitian_weyl_change, dims)
     )
     return jnp.real(coefficients.reshape(*matrix.shape[:-2], -1))
 
 
 @jax.jit(static_argnames=("dims",))
-def _from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> Array:
+def from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> Array:
     """The matrix ``(1/D) sum_k coefficients[k] B_k``.
 
-    This inverts :func:`_hermitian_coefficients`. Each ``B_k`` is a combination of Weyl operators,
+    This inverts :func:`hermitian_coefficients`. Each ``B_k`` is a combination of Weyl operators,
     so the coefficients are first turned into a Weyl expansion with :func:`_hermitian_weyl_change`,
     one qudit at a time, and :func:`_from_weyl_expansion` builds the matrix.
 
