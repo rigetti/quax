@@ -136,6 +136,7 @@ from ._random import (
     random_unitary,
 )
 from ._squeeze import squeeze
+from ._stabilizer_states import stabilizer_states
 from ._state import (
     mixed_state_matrix,
     tensor_density_matrices,
@@ -336,6 +337,7 @@ __all__ = [
     # Magic
     "stabilizer_norm",
     "stabilizer_renyi_entropy",
+    "stabilizer_states",
     "state_vector_reduced_density_matrix",
     "states",
     "stochastic_infidelity",

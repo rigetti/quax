@@ -554,3 +554,22 @@ def test_mixed_stabilizer_renyi_entropy(benchmark, dims, ensemble_size):
     rho = make_density_matrix(dims, ensemble_size)
     qx.mixed_stabilizer_renyi_entropy(rho).block_until_ready()
     benchmark(lambda: qx.mixed_stabilizer_renyi_entropy(rho).block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# 17. stabilizer_states  (cold-cache enumeration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "dims",
+    [pytest.param(dims, id=lbl) for lbl, dims in [("2Q", (2, 2)), ("3Q", (2,) * 3), ("4Q", (2,) * 4), ("2Qt", (3, 3))]],
+)
+def test_stabilizer_states(benchmark, dims):
+    """Benchmark enumerating every stabilizer state from a cold cache."""
+
+    def fn():
+        qx.stabilizer_states.cache_clear()
+        qx.stabilizer_states(dims).data.block_until_ready()
+
+    benchmark(fn)

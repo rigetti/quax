@@ -263,6 +263,7 @@ quantum computers.
    stabilizer_norm
    stabilizer_renyi_entropy
    mixed_stabilizer_renyi_entropy
+   stabilizer_states
 
 Projection onto Physical Maps
 -----------------------------

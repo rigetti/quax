@@ -296,3 +296,53 @@ def test_mixed_stabilizer_renyi_entropy_base_jit_grad_and_types():
     assert jnp.isfinite(jax.grad(entropy_of_mixed_zero)(0.3))
     with pytest.raises(TypeError):
         qx.mixed_stabilizer_renyi_entropy(qx.random_observable(((2,), (2,)), key=jax.random.key(23)))
+
+
+def test_single_qubit_stabilizer_states_are_the_six_cardinal_states():
+    expected = jnp.array(
+        [
+            [1, 0],
+            [1 / np.sqrt(2), 1 / np.sqrt(2)],
+            [1 / np.sqrt(2), 1j / np.sqrt(2)],
+            [1 / np.sqrt(2), -1 / np.sqrt(2)],
+            [1 / np.sqrt(2), -1j / np.sqrt(2)],
+            [0, 1],
+        ]
+    )
+    assert jnp.allclose(qx.stabilizer_states((2,)).matrix, expected)
+
+
+@pytest.mark.parametrize(
+    ("dims", "count"),
+    [((2,), 6), ((3,), 12), ((5,), 30), ((2, 2), 60), ((2, 3), 72), ((3, 3), 360), ((2, 2, 2), 1080), ((2, 2, 3), 720)],
+    ids=str,
+)
+def test_stabilizer_state_counts(dims, count):
+    states = qx.stabilizer_states(dims)
+    assert states.ensemble_size == (count,)
+    assert jnp.allclose(jnp.linalg.norm(states.matrix, axis=-1), 1)
+    overlaps = jnp.abs(jnp.einsum("ai,bi->ab", jnp.conj(states.matrix), states.matrix))
+    assert jnp.allclose(jnp.diagonal(overlaps), 1)
+    assert jnp.all(overlaps[~jnp.eye(count, dtype=bool)] < 1 - 1e-9)
+
+
+@pytest.mark.parametrize("dims", [(2, 2), (2, 3), (3, 3), (2, 2, 2)], ids=str)
+def test_stabilizer_states_have_no_magic(dims):
+    states = qx.stabilizer_states(dims)
+    assert jnp.allclose(qx.stabilizer_norm(states), 1)
+    for alpha in [0, 0.5, 1, 2]:
+        assert jnp.allclose(qx.stabilizer_renyi_entropy(states, alpha=alpha), 0, atol=1e-10)
+
+
+def test_stabilizer_states_contain_familiar_states():
+    states = qx.stabilizer_states((2, 2)).matrix
+    ghz = jnp.array([1, 0, 0, 1]) / np.sqrt(2)
+    assert jnp.isclose(jnp.max(jnp.abs(states @ jnp.conj(ghz))), 1)
+    t_state = jnp.array([1, np.exp(1j * np.pi / 4)]) / np.sqrt(2)
+    assert jnp.max(jnp.abs(qx.stabilizer_states((2,)).matrix @ jnp.conj(t_state))) < 1 - 1e-3
+
+
+@pytest.mark.parametrize("dims", [(4,), (6,), (2, 4), (1,), ()], ids=str)
+def test_stabilizer_states_reject_composite_dimensions(dims):
+    with pytest.raises(ValueError):
+        qx.stabilizer_states(dims)
