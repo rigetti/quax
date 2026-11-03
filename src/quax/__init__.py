@@ -72,7 +72,7 @@ from ._exponentiation import (
 )
 from ._generators import unitary_to_hamiltonian
 from ._leakage import leakage_rate, seepage_rate
-from ._magic import mixed_stabilizer_renyi_entropy, stabilizer_norm, stabilizer_renyi_entropy
+from ._magic import mixed_stabilizer_renyi_entropy, stabilizer_norm, stabilizer_renyi_entropy, wigner_function
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -384,6 +384,7 @@ __all__ = [
     # Operator basis functions
     "weyl_basis",
     "weyl_basis_labels",
+    "wigner_function",
     # State functions
     "zero_state_matrix",
     "zero_state_vector",

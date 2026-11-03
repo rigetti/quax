@@ -346,3 +346,112 @@ def test_stabilizer_states_contain_familiar_states():
 def test_stabilizer_states_reject_composite_dimensions(dims):
     with pytest.raises(ValueError):
         qx.stabilizer_states(dims)
+
+
+ODD_DIMS = [(3,), (5,), (9,), (3, 3), (3, 5)]
+
+
+def _gross_point_operators(d):
+    """Gross Eq. (15): A(p, q) = d^-1 sum_b conj(chi([(p, q), b])) w(b)^dagger, w(p, q) = omega^(-pq/2) Z^p X^q."""
+    shift = np.roll(np.eye(d), 1, axis=0)
+    clock = np.diag(np.exp(2j * np.pi * np.arange(d) / d))
+    omega, half = np.exp(2j * np.pi / d), (d + 1) // 2
+
+    def weyl(p, q):
+        return omega ** (-half * p * q % d) * np.linalg.matrix_power(clock, p) @ np.linalg.matrix_power(shift, q)
+
+    points = np.empty((d, d, d, d), dtype=complex)  # [q, p, row, col]
+    for p, q in np.ndindex(d, d):
+        points[q, p] = sum(omega ** (-((p * b - q * a) % d)) * weyl(a, b).conj().T for a, b in np.ndindex(d, d)) / d
+    return points
+
+
+def _wigner_by_definition(rho, dims):
+    """W[q, p] = Tr[A(p, q) rho] / D with A the tensor product of each qudit's Gross operators."""
+    operators = np.ones((1, 1), dtype=complex)
+    for d in dims:
+        points = _gross_point_operators(d)  # [q, p, row, col]
+        operators = np.einsum("...ij,qpkl->...qpikjl", operators, points)
+        operators = operators.reshape(*operators.shape[:-4], operators.shape[-4] * d, operators.shape[-2] * d)
+    n = len(dims)
+    order = [2 * k for k in range(n)] + [2 * k + 1 for k in range(n)]  # q_0 p_0 q_1 p_1 -> q_0 q_1 p_0 p_1
+    operators = np.transpose(operators, (*order, 2 * n, 2 * n + 1))
+    return np.einsum("...ij,ji->...", operators, np.asarray(rho)).real / _d(dims)
+
+
+def test_wigner_function_of_familiar_qutrit_states():
+    zero = qx.zero_state_vector(dims=(3,))
+    strange = _state(0, 1, -1)
+    measure_zero = qx.Observable.from_matrix(jnp.diag(jnp.array([1, 0, 0], dtype=complex)), ((3,), (3,)))
+
+    assert jnp.allclose(qx.wigner_function(zero), jnp.array([[1, 1, 1], [0, 0, 0], [0, 0, 0]]) / 3)
+    assert jnp.allclose(qx.wigner_function(strange), jnp.array([[-2, 1, 1], [1, 1, 1], [1, 1, 1]]) / 6)
+    assert jnp.allclose(qx.wigner_function(measure_zero), jnp.array([[1, 1, 1], [0, 0, 0], [0, 0, 0]]))
+
+
+@pytest.mark.parametrize("dims", ODD_DIMS, ids=str)
+def test_wigner_function_matches_gross_definition(dims):
+    rho = qx.random_density_matrix(_d(dims), dims, key=jax.random.key(24))
+    result = qx.wigner_function(rho)
+    assert result.shape == dims + dims
+    assert jnp.allclose(result, _wigner_by_definition(rho.matrix, dims), atol=1e-12)
+
+
+@pytest.mark.parametrize("dims", ODD_DIMS, ids=str)
+def test_wigner_function_normalization_and_marginals(dims):
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(25), size=(3,))
+    w = qx.wigner_function(rho)
+    n = len(dims)
+    assert jnp.allclose(jnp.sum(w, axis=tuple(range(1, 2 * n + 1))), 1)
+    marginal = jnp.sum(w, axis=tuple(range(n + 1, 2 * n + 1))).reshape(3, -1)
+    assert jnp.allclose(marginal, jnp.real(jnp.diagonal(rho.matrix, axis1=-2, axis2=-1)), atol=1e-12)
+
+
+def test_wigner_function_overlap_with_an_observable():
+    dims = (3, 5)
+    rho = qx.random_density_matrix(4, dims, key=jax.random.key(26))
+    observable = qx.random_observable((dims, dims), key=jax.random.key(27))
+    overlap = jnp.sum(qx.wigner_function(observable) * qx.wigner_function(rho))
+    assert jnp.isclose(overlap, qx.estimate(rho, observable))
+
+
+@pytest.mark.parametrize("dims", [(3,), (5,), (3, 3)], ids=str)
+def test_discrete_hudson_theorem(dims):
+    stabilizer = qx.wigner_function(qx.stabilizer_states(dims))
+    assert jnp.all(stabilizer >= -1e-12)
+    magic = qx.wigner_function(qx.random_state_vector(dims, key=jax.random.key(28), size=(20,)))
+    assert jnp.all(jnp.min(magic.reshape(20, -1), axis=-1) < -1e-6)
+
+
+def test_wigner_function_shifts_under_weyl_operators():
+    rho = qx.random_density_matrix(2, (5,), key=jax.random.key(29))
+    shift = jnp.roll(jnp.eye(5), 1, axis=0)
+    shifted = qx.DensityMatrix.from_matrix(shift @ rho.matrix @ shift.T, (5,))
+    assert jnp.allclose(qx.wigner_function(shifted), jnp.roll(qx.wigner_function(rho), 1, axis=0))
+
+
+def test_wigner_function_of_a_product_is_the_product():
+    a = qx.random_density_matrix(2, (3,), key=jax.random.key(30))
+    b = qx.random_density_matrix(2, (5,), key=jax.random.key(31))
+    expected = jnp.einsum("qp,rs->qrps", qx.wigner_function(a), qx.wigner_function(b))
+    assert jnp.allclose(qx.wigner_function(a | b), expected, atol=1e-12)
+
+
+def test_wigner_function_dispatch_jit_grad_and_errors():
+    psi = qx.random_state_vector((3, 3), key=jax.random.key(32), size=(2,))
+    rho = qx.promote_state_vector_to_density_matrix(psi)
+    assert jnp.allclose(qx.wigner_function(psi), qx.wigner_function(rho))
+    assert jnp.allclose(jax.jit(qx.wigner_function)(rho), qx.wigner_function(rho))
+
+    def origin_of_rotated_zero(angle):
+        rotation = jnp.array([[jnp.cos(angle), -jnp.sin(angle), 0], [jnp.sin(angle), jnp.cos(angle), 0], [0, 0, 1]])
+        state = qx.StateVector.from_matrix((rotation @ jnp.array([1, 0, 0])).astype(complex), (3,))
+        return qx.wigner_function(state)[0, 0]
+
+    assert jnp.isfinite(jax.grad(origin_of_rotated_zero)(0.4))
+    with pytest.raises(ValueError):
+        qx.wigner_function(qx.random_density_matrix(2, (2,), key=jax.random.key(33)))
+    with pytest.raises(ValueError):
+        qx.wigner_function(qx.random_density_matrix(2, (3, 4), key=jax.random.key(34)))
+    with pytest.raises(TypeError):
+        qx.wigner_function(qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(35)))

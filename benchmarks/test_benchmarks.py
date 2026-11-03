@@ -573,3 +573,24 @@ def test_stabilizer_states(benchmark, dims):
         qx.stabilizer_states(dims).data.block_until_ready()
 
     benchmark(fn)
+
+
+# ---------------------------------------------------------------------------
+# 18. wigner_function  (density matrices, odd dimensions)
+# ---------------------------------------------------------------------------
+
+WIGNER_SYSTEMS = [("1Qt", (3,)), ("2Q5", (5, 5)), ("Qt+Q5", (3, 5)), ("4Qt", (3,) * 4), ("6Qt", (3,) * 6)]
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(WIGNER_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_wigner_function(benchmark, dims, ensemble_size):
+    """Benchmark wigner_function on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+    qx.wigner_function(rho).block_until_ready()
+    benchmark(lambda: qx.wigner_function(rho).block_until_ready())

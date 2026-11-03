@@ -264,6 +264,7 @@ quantum computers.
    stabilizer_renyi_entropy
    mixed_stabilizer_renyi_entropy
    stabilizer_states
+   wigner_function
 
 Projection onto Physical Maps
 -----------------------------

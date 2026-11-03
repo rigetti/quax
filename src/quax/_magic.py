@@ -14,14 +14,17 @@
 """Magic (non-stabilizerness) measures of quantum states."""
 
 from functools import singledispatch
-from math import e, isfinite, isqrt
+from math import e, isfinite, isqrt, prod
 
 import jax
 import jax.numpy as jnp
 from jax import Array
 
 from ._characteristic_function import characteristic_distribution, characteristic_function
-from ._quantum_objects import DensityMatrix, StateVector
+from ._fast_weyl_transforms import wigner_transform
+from ._pauli_vector import square_dims
+from ._promotion import promote_state_vector_to_density_matrix
+from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
 @singledispatch
@@ -258,3 +261,95 @@ def _state_vector_mixed_stabilizer_renyi_entropy(state: StateVector, base: float
     xi = characteristic_distribution(state)
     # sum |chi|^4 / sum |chi|^2 = D * sum xi^2 / sum xi, with xi = |chi|^2 / D.
     return -jnp.log(isqrt(xi.shape[-1]) * jnp.sum(xi**2, axis=-1) / jnp.sum(xi, axis=-1)) / jnp.log(base)
+
+
+def _require_odd(dims: tuple[int, ...]) -> None:
+    if any(d % 2 == 0 for d in dims):
+        raise ValueError(f"The discrete Wigner function needs odd local dimensions, got {dims}.")
+
+
+@singledispatch
+def wigner_function(operator) -> Array:
+    r"""The discrete Wigner function of a state or observable on qudits of odd dimension.
+
+    For a state :math:`\rho` on :math:`n` qudits,
+
+    .. math::
+
+        W_\rho(u) = \frac{1}{D}\,\mathrm{Tr}[A_u\,\rho],
+        \qquad
+        A_0 = \frac{1}{D}\sum_v T_v,
+        \qquad
+        A_u = T_u A_0 T_u^\dagger,
+
+    over the :math:`D^2` phase-space points :math:`u` ([RTSC]_ Sec. II B). :math:`T_u` are the
+    Weyl operators :math:`\omega^{-2^{-1}pq} Z^p X^q`, and :math:`A_u` the phase-point operators;
+    :math:`A_0` is the parity operator, :math:`A_0|q\rangle = |-q\rangle`. This is the
+    symplectic Fourier transform of the characteristic function ([HUDSON]_ Definition 5,
+    Eq. (15), Theorem 6.5). For an observable or measurement operator :math:`E` the normalization
+    is :math:`W_E(u) = \mathrm{Tr}[A_u E]`, without the :math:`1/D` ([RTSC]_ Sec. II B), so that
+    :math:`\mathrm{Tr}[E\rho] = \sum_u W_E(u)\,W_\rho(u)`.
+
+    The papers label a point :math:`u = (p, q)` by momentum (the power of :math:`Z`) and position
+    (the power of :math:`X`, the computational-basis index). The result is indexed position
+    first: ``W[q_0, ..., q_{n-1}, p_0, ..., p_{n-1}]``, the order of
+    :func:`characteristic_function`'s :math:`(x, z)`.
+
+    How to read it:
+
+    * It is a real quasi-probability distribution. For a state it sums to 1, and summing over the
+      momenta gives the computational-basis probabilities,
+      :math:`\sum_p W_\rho(q, p) = \langle q|\rho|q\rangle` ([HUDSON]_ Theorem 6; [RTSC]_).
+    * A pure state has a non-negative Wigner function if and only if it is a stabilizer state
+      (the discrete Hudson theorem, [HUDSON]_ Theorem 2), and every mixture of stabilizer states
+      is non-negative. Negative entries are therefore a witness of magic, measured by
+      :func:`sum_negativity` and :func:`mana`.
+    * Clifford unitaries act on it as affine symplectic permutations of phase space
+      ([HUDSON]_ Theorem 7).
+    * The qutrit state :math:`|0\rangle` is :math:`1/3` on the line :math:`q = 0` and zero
+      elsewhere. The qutrit "strange state" :math:`(|1\rangle - |2\rangle)/\sqrt{2}` is
+      :math:`-1/3` at the origin.
+
+    It is defined for odd dimensions, where :math:`2^{-1} \bmod d` exists; composite odd
+    dimensions and mixtures such as ``(3, 5)`` are allowed. Computed from Gross's formula
+    :math:`W_\rho(q, p) = D^{-1}\sum_\xi \omega^{-\xi \cdot p}\,\rho[q + 2^{-1}\xi, q - 2^{-1}\xi]`
+    ([HUDSON]_ Theorem 6.2) in :math:`O(D^2 \log D)` time. Dispatches on the type of *operator*;
+    ensembles broadcast; the function is jitted and differentiable. The full citation for
+    [HUDSON]_ is under :func:`characteristic_function`.
+
+    :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
+    :return: Real array of shape ``(*ensemble, *dims, *dims)``, indexed ``[q, p]``.
+    :raises ValueError: If any local dimension is even.
+
+    .. [RTSC] The resource theory of stabilizer quantum computation.
+             Veitch, Mousavian, Gottesman, Emerson.
+             New J. Phys. 16, 013009 (2014).
+             https://doi.org/10.1088/1367-2630/16/1/013009
+             https://arxiv.org/abs/1307.7171
+    """
+    raise TypeError(
+        f"wigner_function() does not support type {type(operator)!r}. "
+        "Expected a DensityMatrix, StateVector or Observable."
+    )
+
+
+@wigner_function.register(DensityMatrix)
+@jax.jit
+def _density_matrix_wigner_function(operator: DensityMatrix) -> Array:
+    dims = tuple(operator.dims)
+    _require_odd(dims)
+    return jnp.real(wigner_transform(operator.matrix, dims)) / prod(dims)
+
+
+@wigner_function.register(StateVector)
+@jax.jit
+def _state_vector_wigner_function(operator: StateVector) -> Array:
+    return wigner_function(promote_state_vector_to_density_matrix(operator))
+
+
+@wigner_function.register(Observable)
+@jax.jit
+def _observable_wigner_function(operator: Observable) -> Array:
+    dims = square_dims(operator)
+    _require_odd(dims)
+    return jnp.real(wigner_transform(operator.matrix, dims))

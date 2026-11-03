@@ -24,7 +24,7 @@ once per ``dims`` and cache them.
 The functions build on each other in this order.
 
 * :func:`_shifted_flat` is the index arithmetic: where basis state ``i`` lands after a digit-wise
-  shift by ``j``.
+  shift by ``j``, or by a multiple of ``j`` per qudit.
 * :func:`_weyl_gather` turns that into one flat index that pulls every shifted diagonal out of a
   matrix, and the inverse index that puts them back.
 * :func:`_qudit_dft` is the Fourier transform, one qudit axis at a time.
@@ -35,9 +35,13 @@ The functions build on each other in this order.
   the Weyl operators of one qudit, so :func:`hermitian_coefficients` and
   :func:`from_hermitian_coefficients` reach the Hermitian (Pauli) coordinates from the Weyl ones
   with one small contraction per qudit.
+* :func:`_wigner_gather` and :func:`wigner_transform` do the same for Gross's discrete Wigner
+  function on odd qudits: gather the entries ``A[q + xi / 2, q - xi / 2]`` placed symmetrically
+  about each diagonal position ``q``, and Fourier transform over ``xi``.
 
 Outside this module, :func:`~quax.to_pauli_vector` and ``from_pauli_vector`` are the Hermitian
-pair and :func:`~quax.characteristic_function` is the Weyl one. For ``n`` qubits the dense basis
+pair, :func:`~quax.characteristic_function` is the Weyl one, and :func:`~quax.wigner_function`
+uses the Wigner transform. For ``n`` qubits the dense basis
 holds ``16**n`` entries and contracting with it costs ``O(D**4)``; the Fourier route costs
 ``O(D**2 log D)`` time and ``O(D**2)`` memory, which is what makes 8 to 11 qubits reachable.
 """
@@ -63,28 +67,30 @@ from ._operator_basis import hermitian_weyl_basis, xz_pairs
 # transforms take these arrays in as constants.
 
 
-def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
-    """Where basis state ``i`` lands after a digit-wise shift by ``+j`` or ``-j``.
+def _shifted_flat(dims: tuple[int, ...], scales: tuple[int, ...]) -> npt.NDArray[np.intp]:
+    """Where basis state ``i`` lands after a digit-wise shift by ``scales * j``.
 
     A computational basis state of qudits with sizes ``dims`` is a tuple of digits, one per
     qudit, with qudit 0 most significant (the ``np.kron`` order). ``X`` on one qudit adds one to
     that qudit's digit modulo its size, and never carries into the next qudit. Entry ``[i, j]`` of
-    the result is the flat index of the state whose digits are ``i``'s digits plus ``sign`` times
-    ``j``'s digits, each taken modulo its own size.
+    the result is the flat index of the state whose digit ``k`` is ``i_k + scales[k] * j_k``,
+    taken modulo its own size. Scales of all ``1`` or all ``-1`` give ``i + j`` and ``i - j``;
+    the Wigner function needs ``i + j / 2`` and ``i - j / 2``, with ``1 / 2`` taken modulo each
+    odd size.
 
     For ``dims = (2, 3)`` the states ``2 = (0, 2)`` and ``1 = (0, 1)`` add to ``(0, 0) = 0``,
     not to ``3``, because the qutrit digit wraps instead of carrying into the qubit:
 
-    >>> _shifted_flat((2, 3), 1)[2, 1]
+    >>> _shifted_flat((2, 3), (1, 1))[2, 1]
     np.int64(0)
-    >>> _shifted_flat((2, 3), -1)[0, 1]
+    >>> _shifted_flat((2, 3), (-1, -1))[0, 1]
     np.int64(2)
 
     The table is accumulated one qudit at a time in a single ``(D, D)`` buffer, so building it
     needs ``O(D**2)`` memory and no table of digit tuples.
 
     :param dims: Qudit sizes, e.g. ``(2, 3)``; ``D`` is their product.
-    :param sign: ``1`` to shift forward (``i + j``), ``-1`` to shift back (``i - j``).
+    :param scales: One integer per qudit multiplying that qudit's digit of ``j``.
     :returns: Integer array of shape ``(D, D)``, entries in ``range(D)``.
     """
     total = prod(dims)
@@ -92,9 +98,9 @@ def _shifted_flat(dims: tuple[int, ...], sign: int) -> npt.NDArray[np.intp]:
     term = np.empty_like(out)
     flat = np.arange(total)
     stride = 1
-    for d in reversed(dims):
+    for d, scale in zip(reversed(dims), reversed(scales)):
         digit = flat // stride % d
-        np.add.outer(digit, sign * digit, out=term)
+        np.add.outer(digit, scale * digit, out=term)
         term %= d
         term *= stride
         out += term
@@ -138,12 +144,32 @@ def _weyl_gather(dims: tuple[int, ...]) -> tuple[npt.NDArray[np.intp], npt.NDArr
         ``range(D**2)``.
     """
     total = prod(dims)
-    forward = _shifted_flat(dims, 1)  # [x, b] -> b + x
+    forward = _shifted_flat(dims, (1,) * len(dims))  # [x, b] -> b + x
     forward += np.arange(total)[None, :] * total  # flat index of A[b, b + x]
-    inverse = _shifted_flat(dims, -1)  # [r, c] -> r - c = x
+    inverse = _shifted_flat(dims, (-1,) * len(dims))  # [r, c] -> r - c = x
     inverse *= total
     inverse += np.arange(total)[None, :]  # flat index of diagonals[x, c]
     return forward.reshape(-1), inverse.reshape(-1)
+
+
+@lru_cache(maxsize=32)
+def _wigner_gather(dims: tuple[int, ...]) -> npt.NDArray[np.intp]:
+    """Flat indices that pull ``A[q + xi / 2, q - xi / 2]`` out of a matrix, laid out ``[q, xi]``.
+
+    Gross's Wigner formula sums, for each position ``q``, the entries of ``A`` placed
+    symmetrically about the diagonal at ``q``: row ``q + xi / 2`` and column ``q - xi / 2``,
+    digit-wise, with ``1 / 2`` the inverse of 2 modulo each odd qudit size. Row ``q`` of
+    ``A.reshape(D * D)[gather].reshape(D, D)`` lists them for every ``xi``. Cached per ``dims``;
+    the array is shared between calls, so do not modify it in place.
+
+    :param dims: Odd qudit sizes; ``D`` is their product.
+    :returns: Integer array of shape ``(D**2,)``.
+    """
+    halves = tuple((d + 1) // 2 for d in dims)
+    gather = _shifted_flat(dims, halves)  # [q, xi] -> q + xi / 2
+    gather *= prod(dims)
+    gather += _shifted_flat(dims, tuple(-h for h in halves))  # + (q - xi / 2)
+    return gather.reshape(-1)
 
 
 @lru_cache(maxsize=32)
@@ -317,3 +343,20 @@ def from_hermitian_coefficients(coefficients: Array, dims: tuple[int, ...]) -> A
     per_qudit = coefficients.reshape(*coefficients.shape[:-1], *(k * k for k in dims))
     expansion = jnp.einsum(f"...{ks},{changes}->...{weyl}", per_qudit, *map(_hermitian_weyl_change, dims)) / d
     return _from_weyl_expansion(expansion, dims)
+
+
+def wigner_transform(matrix: Array, dims: tuple[int, ...]) -> Array:
+    """``sum_xi omega**(-xi . p) A[q + xi / 2, q - xi / 2]`` for every ``q`` and ``p``.
+
+    This is ``D`` times Gross's Wigner function of ``A``: gather the entries symmetric about each
+    diagonal position ``q`` with :func:`_wigner_gather`, then Fourier transform over ``xi``. The
+    transform needs ``omega**(-xi p)``, which is ``conj(_qudit_dft(conj(...)))``.
+
+    :param matrix: Shape ``(*ensemble, D, D)``; odd qudit sizes only.
+    :param dims: Odd qudit sizes; ``D`` is their product.
+    :returns: Complex array of shape ``(*ensemble, *dims, *dims)``, indexed ``[q, p]``.
+    """
+    d = prod(dims)
+    ensemble = matrix.shape[:-2]
+    gathered = jnp.take(matrix.reshape(*ensemble, d * d), _wigner_gather(dims), axis=-1)
+    return jnp.conj(_qudit_dft(jnp.conj(gathered).reshape(*ensemble, *dims, *dims), dims))
