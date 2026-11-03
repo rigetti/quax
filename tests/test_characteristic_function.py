@@ -195,3 +195,16 @@ def test_jit_and_grad():
     gradient = jax.grad(purity_from_bloch)(rho.bloch_vector)
     # sum p = Tr[rho^2] = (1 + |bloch|^2) / d
     assert jnp.allclose(gradient, 2 * rho.bloch_vector / 6, atol=1e-10)
+
+
+def test_characteristic_function_of_zero_states():
+    assert jnp.allclose(qx.characteristic_function(qx.states.KET0), jnp.array([1, 0, 0, 1]))
+    assert jnp.allclose(
+        qx.characteristic_function(qx.zero_state_vector(dims=(3,))),
+        jnp.array([1, 1, 1, 0, 0, 0, 0, 0, 0]),
+    )
+
+
+def test_characteristic_distribution_of_the_t_state():
+    t_state = qx.StateVector.from_matrix(jnp.array([1, np.exp(1j * np.pi / 4)]) / np.sqrt(2), (2,))
+    assert jnp.allclose(qx.characteristic_distribution(t_state), jnp.array([1 / 2, 1 / 4, 1 / 4, 0]))

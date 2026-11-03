@@ -138,3 +138,11 @@ def test_round_trip_beyond_the_explicit_basis():
     vector = qx.to_pauli_vector(rho)
     assert jnp.allclose(vector[0], 1.0)
     assert jnp.allclose(qx.DensityMatrix.from_pauli_vector(vector, dims).matrix, rho.matrix, atol=1e-12)
+
+
+def test_pauli_vector_of_the_z_observable():
+    z = qx.Observable.from_matrix(jnp.diag(jnp.array([1, -1], dtype=complex)), ((2,), (2,)))
+    pauli_vector = jnp.array([0, 0, 0, 2])
+
+    assert jnp.allclose(qx.to_pauli_vector(z), pauli_vector)
+    assert jnp.allclose(qx.Observable.from_pauli_vector(pauli_vector, (2,)).matrix, z.matrix)
