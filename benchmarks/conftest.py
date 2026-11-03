@@ -51,8 +51,14 @@ def make_unitary(gate_dims: tuple[int, ...]) -> qx.Unitary:
 
 
 def make_superop(gate_dims: tuple[int, ...]) -> qx.SuperOp:
-    """Create a depolarizing channel superoperator for benchmarking."""
-    s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=gate_dims)
+    r"""Create the depolarizing channel :math:`\rho \mapsto (1 - p)\rho + p\,I/D`, :math:`p = 0.05`.
+
+    :func:`quax.channels.depolarizing` relaxes toward :math:`I/D` at rate :math:`\gamma D^2/(D^2-1)`,
+    so :math:`\gamma = -\ln(1 - p)\,(D^2-1)/D^2` gives mixing probability :math:`p` at unit time.
+    """
+    d = reduce(mul, gate_dims)
+    rate = -jnp.log(1 - 0.05) * (d * d - 1) / (d * d)
+    s = qx.channels.depolarizing(rate, dims=gate_dims)
     s.data.block_until_ready()
     return s
 
@@ -75,8 +81,7 @@ def make_kraus_map(gate_dims: tuple[int, ...], rank: int, truncate: bool = False
 
 def make_depolarizing_kraus(gate_dims: tuple[int, ...], truncate: bool = False) -> qx.KrausMap:
     """Create a Kraus map from a depolarizing channel for benchmarking."""
-    s = qx.depolarizing_channel_superoperator(jnp.array(0.05), dims=gate_dims)
-    km = qx.superop_to_kraus(s)
+    km = qx.superop_to_kraus(make_superop(gate_dims))
     if truncate:
         km = qx.truncate_kraus(km)
     km.data.block_until_ready()

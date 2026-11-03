@@ -32,21 +32,17 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from ._operator_basis import n_qudit_herm_basis
+from ._fast_weyl_transforms import from_hermitian_coefficients, hermitian_coefficients
 from ._promotion import promote_state_vector_to_density_matrix
 from ._quantum_objects import DensityMatrix, Observable, StateVector
 
 
-def _basis_matrices(dims: tuple[int, ...]) -> Array:
-    """The Hermitian basis of ``dims`` as a ``(d**2, d, d)`` constant, safe to build under a trace."""
-    # The basis is a cached NumPy constant; evaluating eagerly keeps tracers out of the cache.
-    with jax.ensure_compile_time_eval():
-        return jnp.asarray(n_qudit_herm_basis(tuple(dims)).matrix)
-
-
-def _coefficients(matrix: Array, dims: tuple[int, ...]) -> Array:
-    """``Tr[B_b A]`` for every basis element, ``(*ensemble, d**2)``."""
-    return jnp.real(jnp.einsum("...ij,kji->...k", matrix, _basis_matrices(dims)))
+def square_dims(operator: Observable) -> tuple[int, ...]:
+    """The qudit sizes of a square operator; coordinates in an operator basis need one."""
+    dims_out, dims_in = operator.dims
+    if tuple(dims_out) != tuple(dims_in):
+        raise ValueError(f"Expected a square operator, got dims {operator.dims}.")
+    return tuple(dims_out)
 
 
 @singledispatch
@@ -61,7 +57,7 @@ def to_pauli_vector(operator) -> Array:
     ``to_pauli_vector(S @ rho) == to_pauli_liouville(S).matrix @ to_pauli_vector(rho)`` and
     ``estimate(rho, O) == to_pauli_vector(O) @ to_pauli_vector(rho) / d``.
 
-    Dispatches on the type of *operator*.  Ensembles broadcast; the function is jittable and
+    Dispatches on the type of *operator*.  Ensembles broadcast; the function is jitted and
     differentiable.
 
     :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
@@ -74,25 +70,25 @@ def to_pauli_vector(operator) -> Array:
 
 
 @to_pauli_vector.register(DensityMatrix)
+@jax.jit
 def _density_matrix_to_pauli_vector(operator: DensityMatrix) -> Array:
-    return _coefficients(operator.matrix, tuple(operator.dims))
+    return hermitian_coefficients(operator.matrix, tuple(operator.dims))
 
 
 @to_pauli_vector.register(StateVector)
+@jax.jit
 def _state_vector_to_pauli_vector(operator: StateVector) -> Array:
     return to_pauli_vector(promote_state_vector_to_density_matrix(operator))
 
 
 @to_pauli_vector.register(Observable)
+@jax.jit
 def _observable_to_pauli_vector(operator: Observable) -> Array:
-    dims_out, dims_in = operator.dims
-    if tuple(dims_out) != tuple(dims_in):
-        raise ValueError(f"A Pauli vector needs a square operator, got dims {operator.dims}.")
-    return _coefficients(operator.matrix, tuple(dims_out))
+    return hermitian_coefficients(operator.matrix, square_dims(operator))
 
 
 def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
-    r"""The matrix :math:`\frac{1}{d}\sum_b r_b B_b` with the given coefficients, ``(*ensemble, d, d)``.
+    r"""The matrix :math:`\frac{1}{d}\sum_b r_b B_b` with Pauli-vector coordinates :math:`r`.
 
     Inverse of :func:`to_pauli_vector`; used by ``DensityMatrix.from_pauli_vector`` and
     ``Observable.from_pauli_vector``.
@@ -102,8 +98,7 @@ def pauli_vector_to_matrix(vector: Array, dims: tuple[int, ...]) -> Array:
     """
     dims = tuple(dims)
     d = reduce(mul, dims, 1)
-    basis = _basis_matrices(dims)
     coefficients = jnp.asarray(vector)
     if coefficients.shape[-1] != d * d:
         raise ValueError(f"Expected {d * d} coefficients for dims {dims}, got {coefficients.shape[-1]}.")
-    return jnp.einsum("...k,kij->...ij", coefficients.astype(complex), basis) / d
+    return from_hermitian_coefficients(coefficients, dims)

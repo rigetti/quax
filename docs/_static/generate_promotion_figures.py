@@ -134,9 +134,9 @@ def _add_weyl_subspace_labels(fig: go.Figure, d_comp: int, D: int) -> None:
     when both are outside, and "cross-subspace" otherwise.  "x" hatching marks
     cross-subspace operators; "+" marks complement operators.
     """
-    from quax._operator_basis import _xz_pairs
+    from quax._operator_basis import xz_pairs
 
-    xz_list = _xz_pairs(D)
+    xz_list = xz_pairs(D)
     n = len(xz_list)  # D^2
 
     cross = [k for k, (x, z) in enumerate(xz_list) if (x < d_comp) != (z < d_comp)]

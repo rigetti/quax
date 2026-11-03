@@ -143,8 +143,7 @@ make html
 2. **Type Hints**: Required for all public functions
 3. **Imports**: JAX imports should use `import jax` and `import jax.numpy as jnp`. In-package imports should be relative ex. `from ._quantum_objects import Unitary`
 In tests or example notebooks, always use `import quax as qx` and then acccess functions using `qx.function`.
-4. **Private Modules**: Internal implementation files use `_` prefix
-5. **Docstrings**: Required for all public functions, use ReST format
+4. **Docstrings**: Required for all public functions, use ReST format
 
 ### Dispatch on Type, Not Conditionals
 
@@ -183,7 +182,16 @@ name lies about a subclass: `Involution.from_matrix(...)` really returns an `Inv
 - **Functions**: `snake_case` (e.g., `apply_unitary_to_state_vector`)
 - **Classes**: `PascalCase` (e.g., `StateVector`, `DensityMatrix`)
 - **Constants**: `UPPER_CASE` (e.g., `KRAUS_OPS`)
-- **Private functions**: `_snake_case` prefix
+- **Modules**: `snake_case` (e.g. `_pauli_vector.py`)
+
+#### Private vs Public
+
+- Internal implementation modules start with `_` (e.g. `_pauli_vector.py`)
+- A private helper used only inside its own module starts with `_` (e.g. `_shifted_flat`)
+- A private helper, that is defined in an internal module and used outside that module, does not
+  start with a `_` (e.g. `weyl_coefficients` in `_fast_weyl_transforms.py`, `eigenvalue_tolerance`
+  in `_tolerance.py`)
+- A private helper defined in a public module always starts with a `_`
 
 ### JAX Best Practices
 

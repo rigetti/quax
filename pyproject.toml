@@ -14,10 +14,11 @@
 
 [project]
 name = "rigetti-quax"
-version = "0.7.9"
+version = "0.7.10"
 description = "A high-performance library for quantum information science built on top of JAX"
 authors = [
-    {name = "Bram Evert",email = "bevert@rigetti.com"}
+    {name = "Bram Evert", email = "bevert@rigetti.com"},
+    {name = "Ed Younis", email = "eyounis@rigetti.com"}
 ]
 license = "Apache-2.0"
 readme = "README.md"
@@ -47,7 +48,7 @@ dev = [
     "sphinx-copybutton (>=0.5.2)",
     "sphinx-design (>=0.6.1)",
     "pyquil (>=4.17.0)",
-    "pyright (>=1.1.407,<2.0.0)",
+    "pyright[nodejs] (>=1.1.407,<2.0.0)",
     "pre-commit (>=4.5.1,<5.0.0)",
     "jupyterlab (>=4.5.2,<5.0.0)",
     "jupyterlab-lsp (>=5.2.0,<6.0.0)",

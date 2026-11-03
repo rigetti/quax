@@ -473,3 +473,52 @@ class TestKrausTolerance:
         """``truncate_kraus`` keeps every operator the arithmetic can resolve."""
         assert qx.truncate_kraus(qx.to_kraus(qx.gates.H)).matrix.shape[-3] == 1
         assert qx.truncate_kraus(qx.to_kraus(qx.channels.depolarizing(1e-9, (2,)))).matrix.shape[-3] == 4
+
+
+def test_x_gate_in_the_pauli_basis():
+    superop = jnp.array(
+        [
+            [0, 0, 0, 1],
+            [0, 0, 1, 0],
+            [0, 1, 0, 0],
+            [1, 0, 0, 0],
+        ]
+    )
+    pauli_liouville = jnp.diag(jnp.array([1, 1, -1, -1]))
+
+    assert jnp.allclose(qx.to_superop(qx.gates.X).matrix, superop)
+    assert jnp.allclose(qx.to_pauli_liouville(qx.gates.X).matrix, pauli_liouville)
+    assert jnp.allclose(qx.pauli_liouville_to_superop(qx.to_pauli_liouville(qx.gates.X)).matrix, superop)
+
+
+def test_z_measurement_in_the_pauli_basis():
+    measure_z = qx.SuperOp.from_matrix(jnp.diag(jnp.array([1, 0, 0, 1])) + 0j, ((2,), (2,)))
+    pauli_liouville = jnp.diag(jnp.array([1, 0, 0, 1]))
+
+    assert jnp.allclose(qx.to_pauli_liouville(measure_z).matrix, pauli_liouville)
+    assert jnp.allclose(qx.pauli_liouville_to_superop(qx.to_pauli_liouville(measure_z)).matrix, measure_z.matrix)
+
+
+def test_z_measurement_kraus_operators_in_the_pauli_basis():
+    measure_z = qx.KrausMap.from_matrix(jnp.array([[[1, 0], [0, 0]], [[0, 0], [0, 1]]], dtype=complex), ((2,), (2,)))
+    pauli_liouville = jnp.diag(jnp.array([1, 0, 0, 1]))
+
+    assert jnp.allclose(qx.kraus_to_pauli_liouville(measure_z).matrix, pauli_liouville)
+
+
+def test_x_gate_choi_matrix_in_the_pauli_basis():
+    choi = jnp.array(
+        [
+            [0, 0, 0, 0],
+            [0, 1, 1, 0],
+            [0, 1, 1, 0],
+            [0, 0, 0, 0],
+        ],
+        dtype=complex,
+    )
+    pauli_liouville = jnp.diag(jnp.array([1, 1, -1, -1]))
+
+    assert jnp.allclose(qx.choi_to_pauli_liouville(qx.Choi.from_matrix(choi, ((2,), (2,)))).matrix, pauli_liouville)
+    assert jnp.allclose(
+        qx.pauli_liouville_to_choi(qx.PauliLiouville.from_matrix(pauli_liouville, ((2,), (2,)))).matrix, choi
+    )

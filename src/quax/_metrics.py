@@ -34,7 +34,7 @@ from ._quantum_objects import (
     StateVector,
     SuperOperator,
     Unitary,
-    _extract_measured_index,
+    extract_measured_index,
 )
 from ._superoperator_transformations import to_choi, to_pauli_liouville, to_superop
 
@@ -522,7 +522,7 @@ def instrument_fidelity(instrument: QuantumInstrument) -> Array:
     dims = instrument.dims[0]
 
     # The correct outcome for each input basis state j; inputs without one contribute nothing.
-    j_meas = np.array([_extract_measured_index(j, dims, instrument.measured_qudits) for j in range(d_total)])
+    j_meas = np.array([extract_measured_index(j, dims, instrument.measured_qudits) for j in range(d_total)])
     j_full = np.flatnonzero(j_meas < instrument.num_outcomes)
     outcome = j_meas[j_full]
 
