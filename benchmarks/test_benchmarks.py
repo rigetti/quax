@@ -622,3 +622,20 @@ def test_mana(benchmark, dims, ensemble_size):
     rho = make_density_matrix(dims, ensemble_size)
     qx.mana(rho).block_until_ready()
     benchmark(lambda: qx.mana(rho).block_until_ready())
+
+
+# ---------------------------------------------------------------------------
+# 19. Channel Wigner function and mana  (unitary channels, odd dimensions)
+# ---------------------------------------------------------------------------
+
+WIGNER_CHANNEL_SYSTEMS = [("1Qt", (3,)), ("2Qt", (3, 3)), ("Qt+Q5", (3, 5)), ("3Qt", (3,) * 3)]
+
+
+@pytest.mark.parametrize("name", ["wigner_function", "mana"])
+@pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in WIGNER_CHANNEL_SYSTEMS])
+def test_channel_magic(benchmark, name, dims):
+    """Benchmark the channel Wigner function and channel mana of a random unitary."""
+    unitary = make_unitary(dims)
+    f = getattr(qx, name)
+    f(unitary).block_until_ready()
+    benchmark(lambda: f(unitary).block_until_ready())

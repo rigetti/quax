@@ -13,18 +13,21 @@
 # limitations under the License.
 """Magic (non-stabilizerness) measures of quantum states."""
 
-from functools import singledispatch
+from functools import lru_cache, singledispatch
 from math import e, isfinite, isqrt, prod
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import numpy.typing as npt
 from jax import Array
 
 from ._characteristic_function import characteristic_distribution, characteristic_function
 from ._fast_weyl_transforms import wigner_transform
 from ._pauli_vector import square_dims
 from ._promotion import promote_state_vector_to_density_matrix
-from ._quantum_objects import DensityMatrix, Observable, StateVector
+from ._quantum_objects import Choi, DensityMatrix, KrausMap, Observable, PauliLiouville, StateVector, SuperOp, Unitary
+from ._superoperator_transformations import superop_in_product_basis, to_superop
 
 
 @singledispatch
@@ -268,6 +271,21 @@ def _require_odd(dims: tuple[int, ...]) -> None:
         raise ValueError(f"The discrete Wigner function needs odd local dimensions, got {dims}.")
 
 
+@lru_cache(maxsize=32)
+def _phase_point_factor(qudit_dim: int) -> npt.NDArray[np.complex128]:
+    """Gross's phase-point operators ``A(p, q) = w A(0) w^dagger``, indexed ``[q * d + p]``."""
+    d = qudit_dim
+    omega, half = np.exp(2j * np.pi / d), (d + 1) // 2
+    shift = np.roll(np.eye(d), 1, axis=0)
+    clock = np.diag(omega ** np.arange(d))
+    parity = np.eye(d)[(-np.arange(d)) % d]
+    operators = np.empty((d * d, d, d), dtype=complex)
+    for q, p in np.ndindex(d, d):
+        weyl = omega ** (-half * p * q % d) * np.linalg.matrix_power(clock, p) @ np.linalg.matrix_power(shift, q)
+        operators[q * d + p] = weyl @ parity @ weyl.conj().T
+    return operators
+
+
 @singledispatch
 def wigner_function(operator) -> Array:
     r"""The discrete Wigner function of a state or observable on qudits of odd dimension.
@@ -295,6 +313,18 @@ def wigner_function(operator) -> Array:
     first: ``W[q_0, ..., q_{n-1}, p_0, ..., p_{n-1}]``, the order of
     :func:`characteristic_function`'s :math:`(x, z)`.
 
+    For a channel :math:`\mathcal{N}` from qudits ``dims_in`` to ``dims_out`` it is the
+    conditional quasi-probability
+
+    .. math:: W_\mathcal{N}(v|u) = \frac{1}{D_\mathrm{out}}\,\mathrm{Tr}[A_v\,\mathcal{N}(A_u)]
+
+    ([MAGCHAN]_ Definition 2, Eq. (29)), which sums to 1 over the output point :math:`v` for every
+    input point :math:`u` and propagates Wigner functions,
+    :math:`W_{\mathcal{N}(\rho)}(v) = \sum_u W_\mathcal{N}(v|u)\,W_\rho(u)` ([MAGCHAN]_ Lemma 1).
+    It is indexed ``[q_out, p_out, q_in, p_in]``, output point first. A Clifford unitary gives a
+    permutation matrix. An :class:`Involution` is an observable as well as a unitary and is treated
+    as an observable; pass ``to_superop(gate)`` for its channel Wigner function.
+
     How to read it:
 
     * It is a real quasi-probability distribution. For a state it sums to 1, and summing over the
@@ -317,10 +347,19 @@ def wigner_function(operator) -> Array:
     ensembles broadcast; the function is jitted and differentiable. The full citation for
     [HUDSON]_ is under :func:`characteristic_function`.
 
-    :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, possibly an ensemble.
-    :return: Real array of shape ``(*ensemble, *dims, *dims)``, indexed ``[q, p]``.
+    :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, or a channel
+        (``Unitary``, ``SuperOp``, ``Choi``, ``KrausMap`` or ``PauliLiouville``), possibly an
+        ensemble.
+    :return: Real array of shape ``(*ensemble, *dims, *dims)`` indexed ``[q, p]``; for a channel,
+        ``(*ensemble, *dims_out, *dims_out, *dims_in, *dims_in)`` indexed
+        ``[q_out, p_out, q_in, p_in]``.
     :raises ValueError: If any local dimension is even.
 
+    .. [MAGCHAN] Quantifying the magic of quantum channels.
+             Wang, Wilde, Su.
+             New J. Phys. 21, 103002 (2019).
+             https://doi.org/10.1088/1367-2630/ab451d
+             https://arxiv.org/abs/1903.04483
     .. [RTSC] The resource theory of stabilizer quantum computation.
              Veitch, Mousavian, Gottesman, Emerson.
              New J. Phys. 16, 013009 (2014).
@@ -329,7 +368,7 @@ def wigner_function(operator) -> Array:
     """
     raise TypeError(
         f"wigner_function() does not support type {type(operator)!r}. "
-        "Expected a DensityMatrix, StateVector or Observable."
+        "Expected a DensityMatrix, StateVector, Observable or a channel."
     )
 
 
@@ -355,6 +394,35 @@ def _observable_wigner_function(operator: Observable) -> Array:
     return jnp.real(wigner_transform(operator.matrix, dims))
 
 
+@wigner_function.register(SuperOp)
+@wigner_function.register(Choi)
+@wigner_function.register(KrausMap)
+@wigner_function.register(PauliLiouville)
+@wigner_function.register(Unitary)
+@jax.jit
+def _channel_wigner_function(operator: SuperOp | Choi | KrausMap | PauliLiouville | Unitary) -> Array:
+    superop = to_superop(operator)
+    dims_out, dims_in = (tuple(dims) for dims in superop.dims)
+    _require_odd(dims_out + dims_in)
+    lead = superop.matrix.ndim - 2
+    table = superop_in_product_basis(
+        superop.matrix,
+        dims_out,
+        dims_in,
+        [_phase_point_factor(d) for d in dims_out],
+        [_phase_point_factor(d) for d in dims_in],
+    )
+    # [(q, p) per output qudit, (q, p) per input qudit] -> [q_out, p_out, q_in, p_in]
+    table = table.reshape(
+        *table.shape[:-2], *(d for d in dims_out for _ in (0, 1)), *(d for d in dims_in for _ in (0, 1))
+    )
+    n_out, n_in = len(dims_out), len(dims_in)
+    out_axes = [2 * k for k in range(n_out)] + [2 * k + 1 for k in range(n_out)]
+    in_axes = [2 * n_out + 2 * k for k in range(n_in)] + [2 * n_out + 2 * k + 1 for k in range(n_in)]
+    table = jnp.transpose(table, (*range(lead), *(lead + axis for axis in out_axes + in_axes)))
+    return jnp.real(table) / prod(dims_out)
+
+
 @singledispatch
 def sum_negativity(state) -> Array:
     r"""The sum negativity :math:`\mathrm{sn}(\rho)` of a state on qudits of odd dimension.
@@ -377,7 +445,8 @@ def sum_negativity(state) -> Array:
     * It is a magic monotone: no stabilizer protocol (Clifford unitaries, computational-basis
       preparation and measurement, partial trace, classical randomness) increases it on average
       ([RTSC]_ Theorem 11), and it is convex ([RTSC]_ Appendix B).
-    * It is not additive: :math:`\mathrm{sn}(\rho^{\otimes n}) = ((2\,\mathrm{sn}(\rho) + 1)^n - 1)/2`
+    * It is not additive:
+      :math:`\mathrm{sn}(\rho^{\otimes n}) = ((2\,\mathrm{sn}(\rho) + 1)^n - 1)/2`
       ([RTSC]_ Sec. IV A). :func:`mana`, the log of :math:`2\,\mathrm{sn} + 1`, is the additive
       version.
     * Any monotone fixed by the negative Wigner entries alone and blind to their positions in
@@ -439,16 +508,30 @@ def mana(state, base: float = e) -> Array:
       :math:`(-|0\rangle + 2|1\rangle - |2\rangle)/\sqrt{6}` ([RTSC]_ Sec. IV D). Both have mana
       :math:`\log(5/3)`.
 
-    The logarithm has base *base*, natural by default. As for :func:`sum_negativity`, any odd
-    dimension is accepted, mixed dimensions included, though [RTSC]_ states its results for odd
-    primes. The full citation for [RTSC]_ is under :func:`wigner_function`.
+    For a channel :math:`\mathcal{N}` it is the mana of the channel,
 
-    :param state: A ``DensityMatrix`` or ``StateVector``, possibly an ensemble.
+    .. math:: \mathcal{M}(\mathcal{N}) = \log \max_u \sum_v |W_\mathcal{N}(v|u)|
+
+    ([MAGCHAN]_ Definition 4), the largest mana the channel gives any phase-point operator. A
+    replacer channel :math:`\rho \mapsto \mathrm{Tr}[\rho]\,\sigma` has the mana of :math:`\sigma`
+    (Proposition 4). It is additive under tensor products and subadditive under composition,
+    :math:`\mathcal{M}(\mathcal{N}_2 \circ \mathcal{N}_1)` being at most
+    :math:`\mathcal{M}(\mathcal{N}_1) + \mathcal{M}(\mathcal{N}_2)` (Propositions 5, 6). It is
+    zero exactly on the channels that completely preserve non-negative Wigner functions, which
+    include every Clifford unitary (Proposition 7), and it is a magic measure for channels
+    (Theorem 9).
+
+    The logarithm has base *base*, natural by default. As for :func:`sum_negativity`, any odd
+    dimension is accepted, mixed dimensions included, though [RTSC]_ and [MAGCHAN]_ state their
+    results for odd primes. Both full citations are under :func:`wigner_function`.
+
+    :param state: A ``DensityMatrix`` or ``StateVector``, or a channel (``Unitary``, ``SuperOp``,
+        ``Choi``, ``KrausMap`` or ``PauliLiouville``), possibly an ensemble.
     :param base: Base of the logarithm.
     :return: Real array of shape ``(*ensemble,)``.
     :raises ValueError: If any local dimension is even.
     """
-    raise TypeError(f"mana() does not support type {type(state)!r}. Expected a DensityMatrix or StateVector.")
+    raise TypeError(f"mana() does not support type {type(state)!r}. Expected a state or a channel.")
 
 
 @mana.register(DensityMatrix)
@@ -463,3 +546,17 @@ def _density_matrix_mana(state: DensityMatrix, base: float = e) -> Array:
 def _state_vector_mana(state: StateVector, base: float = e) -> Array:
     w = wigner_function(state)
     return jnp.log(jnp.sum(jnp.abs(w), axis=tuple(range(-2 * len(state.dims), 0)))) / jnp.log(base)
+
+
+@mana.register(SuperOp)
+@mana.register(Choi)
+@mana.register(KrausMap)
+@mana.register(PauliLiouville)
+@mana.register(Unitary)
+@jax.jit
+def _channel_mana(state: SuperOp | Choi | KrausMap | PauliLiouville | Unitary, base: float = e) -> Array:
+    dims_out, dims_in = to_superop(state).dims
+    table = wigner_function(state)  # [*ensemble, q_out, p_out, q_in, p_in]
+    lead = table.ndim - 2 * (len(dims_out) + len(dims_in))
+    one_norms = jnp.sum(jnp.abs(table), axis=tuple(range(lead, lead + 2 * len(dims_out))))
+    return jnp.log(jnp.max(one_norms, axis=tuple(range(lead, one_norms.ndim)))) / jnp.log(base)

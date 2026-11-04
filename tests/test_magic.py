@@ -454,7 +454,7 @@ def test_wigner_function_dispatch_jit_grad_and_errors():
     with pytest.raises(ValueError):
         qx.wigner_function(qx.random_density_matrix(2, (3, 4), key=jax.random.key(34)))
     with pytest.raises(TypeError):
-        qx.wigner_function(qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(35)))
+        qx.wigner_function(jnp.eye(3))
 
 
 def test_sum_negativity_of_familiar_qutrit_states():
@@ -582,3 +582,97 @@ def test_mana_dispatch_jit_grad_and_errors():
         qx.mana(qx.random_density_matrix(2, (2, 3), key=jax.random.key(50)))
     with pytest.raises(TypeError):
         qx.mana(qx.random_observable(((3,), (3,)), key=jax.random.key(51)))
+
+
+def _qutrit_cliffords():
+    j = np.arange(3)
+    fourier = np.exp(2j * np.pi * np.outer(j, j) / 3) / np.sqrt(3)
+    phase = np.diag(np.exp(2j * np.pi * j * j / 3))
+    return fourier, phase
+
+
+def _unitary(matrix, dims):
+    return qx.Unitary.from_matrix(jnp.asarray(matrix, dtype=complex), (dims, dims))
+
+
+def _channel_wigner_by_definition(superop):
+    """W(v|u) = Tr[A_v N(A_u)] / D_out, applying the superoperator to each input phase-point operator."""
+    (d_out,), (d_in,) = superop.dims
+    points_in = _gross_point_operators(d_in).reshape(d_in * d_in, d_in, d_in)
+    points_out = _gross_point_operators(d_out).reshape(d_out * d_out, d_out, d_out)
+    images = (np.asarray(superop.matrix) @ points_in.transpose(0, 2, 1).reshape(d_in * d_in, -1).T).T
+    images = images.reshape(-1, d_out, d_out).transpose(0, 2, 1)  # unvec, column-stacked
+    table = np.einsum("vij,uji->vu", points_out, images).real / d_out
+    return table.reshape(d_out, d_out, d_in, d_in)
+
+
+def test_channel_wigner_function_of_familiar_qutrit_channels():
+    identity = _unitary(np.eye(3), (3,))
+    shift = _unitary(np.roll(np.eye(3), 1, axis=0), (3,))
+
+    assert jnp.allclose(qx.wigner_function(identity).reshape(9, 9), jnp.eye(9))
+    assert jnp.allclose(qx.wigner_function(shift).reshape(9, 9), jnp.roll(jnp.eye(9), 3, axis=0))
+    assert jnp.isclose(qx.mana(identity), 0)
+
+
+def test_channel_wigner_function_matches_the_definition():
+    unitary = qx.random_unitary(dims=((5,), (5,)), key=jax.random.key(52))
+    superop = qx.to_superop(unitary)
+    assert jnp.allclose(qx.wigner_function(unitary), _channel_wigner_by_definition(superop), atol=1e-12)
+    isometry, _ = np.linalg.qr(
+        np.random.default_rng(53).normal(size=(5, 3)) + 1j * np.random.default_rng(54).normal(size=(5, 3))
+    )
+    embedding = qx.SuperOp.from_matrix(jnp.asarray(np.kron(isometry.conj(), isometry)), ((5,), (3,)))
+    table = qx.wigner_function(embedding)
+    assert table.shape == (5, 5, 3, 3)
+    assert jnp.allclose(table, _channel_wigner_by_definition(embedding), atol=1e-12)
+    assert jnp.allclose(jnp.sum(table, axis=(0, 1)), 1)
+
+
+@pytest.mark.parametrize("dims", [(3,), (5,), (3, 3)], ids=str)
+def test_channel_wigner_function_propagates_wigner_functions(dims):
+    channel = qx.choi_to_superop(qx.random_choi((dims, dims), rank=2, key=jax.random.key(55)))
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(56))
+    n = len(dims)
+    propagated = jnp.tensordot(qx.wigner_function(channel), qx.wigner_function(rho), axes=2 * n)
+    assert jnp.allclose(propagated, qx.wigner_function(channel @ rho), atol=1e-12)
+
+
+def test_channel_wigner_function_agrees_across_representations():
+    unitary = qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(57))
+    expected = qx.wigner_function(unitary)
+    for channel in [qx.to_superop(unitary), qx.to_choi(unitary), qx.to_kraus(unitary), qx.to_pauli_liouville(unitary)]:
+        assert jnp.allclose(qx.wigner_function(channel), expected, atol=1e-12)
+        assert jnp.isclose(qx.mana(channel), qx.mana(unitary))
+
+
+def test_channel_mana_reduces_to_the_state_for_a_replacer_channel():
+    strange = _projector(_state(0, 1, -1))
+    replacer = qx.SuperOp.from_matrix(jnp.outer(strange.T.reshape(-1), jnp.eye(3).T.reshape(-1)), ((3,), (3,)))
+    assert jnp.isclose(qx.mana(replacer), np.log(5 / 3))
+
+
+def test_channel_mana_is_zero_on_cliffords_and_positive_otherwise():
+    fourier, phase = _qutrit_cliffords()
+    for gate in [fourier, phase, fourier @ phase, np.kron(fourier, phase)]:
+        dims = (3,) if len(gate) == 3 else (3, 3)
+        assert jnp.isclose(qx.mana(_unitary(gate, dims)), 0, atol=1e-12)
+    t_gate = np.diag(np.exp(2j * np.pi * np.array([0, 1, -1]) / 9))
+    assert qx.mana(_unitary(t_gate, (3,))) > 1e-3
+
+
+def test_channel_mana_is_additive_and_subadditive_under_composition():
+    a = qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(58))
+    b = qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(59))
+    c = qx.random_unitary(dims=((5,), (5,)), key=jax.random.key(60))
+    assert jnp.isclose(qx.mana(a | c), qx.mana(a) + qx.mana(c))
+    assert qx.mana(b @ a) <= qx.mana(a) + qx.mana(b) + 1e-12
+
+
+def test_channel_dispatch_jit_base_and_errors():
+    unitary = qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(61), size=(4,))
+    assert qx.wigner_function(unitary).shape == (4, 3, 3, 3, 3)
+    assert jnp.allclose(jax.jit(qx.mana)(unitary), qx.mana(unitary))
+    assert jnp.allclose(qx.mana(unitary, base=3), qx.mana(unitary) / np.log(3))
+    with pytest.raises(ValueError):
+        qx.mana(qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(62)))

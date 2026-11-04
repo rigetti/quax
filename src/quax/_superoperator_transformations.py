@@ -87,7 +87,7 @@ def _hermitian_factor(qudit_dim: int) -> npt.NDArray[np.complex128]:
         return np.asarray(hermitian_weyl_basis(qudit_dim).matrix)
 
 
-def _tensor_index_qudit_pair_order(n: int) -> list[int]:
+def _tensor_index_qudit_pair_order(n_out: int, n_in: int) -> list[int]:
     """Axis order that puts each qudit's column and row index side by side.
 
     One way to reshape a ``D**2 x D**2`` superoperator matrix into a tensor is to split each index
@@ -103,7 +103,7 @@ def _tensor_index_qudit_pair_order(n: int) -> list[int]:
     Qubit 0's basis matrix needs ``C_o_0`` and ``R_o_0`` together, but they sit two positions
     apart. This returns the permutation that interleaves them:
 
-    >>> _tensor_index_qudit_pair_order(2)
+    >>> _tensor_index_qudit_pair_order(2, 2)
     [0, 2, 1, 3, 4, 6, 5, 7]
 
     ``jnp.transpose`` with it gives
@@ -111,25 +111,63 @@ def _tensor_index_qudit_pair_order(n: int) -> list[int]:
         ``[C_o_0, R_o_0, C_o_1, R_o_1, C_i_0, R_i_0, C_i_1, R_i_1]``.
 
     The first half is ``j, n + j`` for each qudit ``j``: its column axis, then its row axis ``n``
-    positions later. The second half is the same pattern shifted by ``2n`` for the input side.
+    positions later. The second half is the same pattern shifted by ``2n`` for the input side. A
+    channel may change the qudits, so the output side has ``n_out`` qudits and the input ``n_in``.
 
-    With each qudit's pair adjacent, :func:`_to_pauli_basis` contracts the first two axes with the
-    next qudit's basis; ``tensordot`` drops them and appends the new basis index at the end. After
-    ``2n`` steps the basis indices are left in qudit order, output side then input side, which is
-    the Pauli-Liouville matrix's row and column order. :func:`_from_pauli_basis` runs this
+    With each qudit's pair adjacent, :func:`superop_in_product_basis` contracts the first two axes
+    with the next qudit's basis; ``tensordot`` drops them and appends the new basis index at the
+    end. After ``2n`` steps the basis indices are left in qudit order, output side then input side,
+    which is the Pauli-Liouville matrix's row and column order. :func:`_from_pauli_basis` runs this
     backwards and restores the column-stacked layout with
     :func:`_tensor_index_inverse_qudit_pair_order`.
 
-    :param n: Number of qudits.
-    :returns: A permutation of ``range(4 * n)``.
+    :param n_out: Number of output qudits.
+    :param n_in: Number of input qudits.
+    :returns: A permutation of ``range(2 * (n_out + n_in))``.
     """
-    pairs = [axis for j in range(n) for axis in (j, n + j)]
-    return pairs + [2 * n + axis for axis in pairs]
+    pairs_out = [axis for j in range(n_out) for axis in (j, n_out + j)]
+    pairs_in = [2 * n_out + axis for j in range(n_in) for axis in (j, n_in + j)]
+    return pairs_out + pairs_in
 
 
-def _tensor_index_inverse_qudit_pair_order(n: int) -> list[int]:
+def _tensor_index_inverse_qudit_pair_order(n_out: int, n_in: int) -> list[int]:
     """Inverse of :func:`_tensor_index_qudit_pair_order`."""
-    return np.argsort(_tensor_index_qudit_pair_order(n)).tolist()
+    return np.argsort(_tensor_index_qudit_pair_order(n_out, n_in)).tolist()
+
+
+def superop_in_product_basis(
+    superop: Array,
+    dims_out: tuple[int, ...],
+    dims_in: tuple[int, ...],
+    factors_out: list[npt.NDArray[np.complex128]],
+    factors_in: list[npt.NDArray[np.complex128]],
+) -> Array:
+    """A superoperator in an operator basis that is a tensor product over qudits.
+
+    Entry ``[i, j]`` is
+    ``sum F_out[i, C_o, R_o] S[(C_o, R_o), (C_i, R_i)] conj(F_in[j, C_i, R_i])``, with
+    ``F_out[i] = (x)_k factors_out[k][i_k]`` and likewise for the input. For a Hermitian basis
+    ``B`` on both sides this is ``Tr[B_i S(B_j)]``, the Pauli-Liouville matrix up to ``1/D``; with
+    phase-point operators it is the Wigner function of a channel up to ``1/D_out``. The large
+    change-of-basis matrix is never built: ``S``'s indices are grouped into one ``(col, row)`` pair
+    per qudit with :func:`_tensor_index_qudit_pair_order`, and each pair is contracted with its
+    qudit's factor, conjugated on the input side.
+
+    :param superop: Shape ``(*ensemble, D_out**2, D_in**2)``, acting on column-stacked ``vec(rho)``.
+    :param dims_out: Output qudit sizes; ``D_out`` is their product.
+    :param dims_in: Input qudit sizes; ``D_in`` is their product.
+    :param factors_out: One array per output qudit, indexed ``[i_k, col, row]``.
+    :param factors_in: One array per input qudit, indexed ``[j_k, col, row]``.
+    :returns: Complex array of shape ``(*ensemble, prod(len(F) for F in factors_out), prod(...))``,
+        each index running over its qudits' basis indices with qudit 0 most significant.
+    """
+    lead = superop.ndim - 2
+    x = superop.reshape(*superop.shape[:-2], *dims_out, *dims_out, *dims_in, *dims_in)
+    order = _tensor_index_qudit_pair_order(len(dims_out), len(dims_in))
+    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in order)))
+    for factor in [*factors_out, *(np.conj(f) for f in factors_in)]:
+        x = jnp.tensordot(x, factor, axes=([lead, lead + 1], [1, 2]))
+    return x.reshape(*superop.shape[:-2], prod(len(f) for f in factors_out), prod(len(f) for f in factors_in))
 
 
 def _to_pauli_basis(superop: Array, dims: tuple[int, ...]) -> Array:
@@ -147,12 +185,8 @@ def _to_pauli_basis(superop: Array, dims: tuple[int, ...]) -> Array:
     :returns: Real array of shape ``(*ensemble, D**2, D**2)``, in the order of
         :func:`~quax.n_qudit_herm_basis`.
     """
-    n, d, lead = len(dims), prod(dims), superop.ndim - 2
-    x = superop.reshape(*superop.shape[:-2], *(dims * 4))
-    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in _tensor_index_qudit_pair_order(n))))
-    for factor in [_hermitian_factor(q) for q in dims] + [np.conj(_hermitian_factor(q)) for q in dims]:
-        x = jnp.tensordot(x, factor, axes=([lead, lead + 1], [1, 2]))
-    return jnp.real(x.reshape(superop.shape)) / d
+    factors = [_hermitian_factor(q) for q in dims]
+    return jnp.real(superop_in_product_basis(superop, dims, dims, factors, factors)) / prod(dims)
 
 
 def _from_pauli_basis(pauli_liouville: Array, dims: tuple[int, ...]) -> Array:
@@ -172,7 +206,7 @@ def _from_pauli_basis(pauli_liouville: Array, dims: tuple[int, ...]) -> Array:
     x = pauli_liouville.reshape(*pauli_liouville.shape[:-2], *[q * q for q in dims] * 2)
     for factor in [np.conj(_hermitian_factor(q)) for q in dims] + [_hermitian_factor(q) for q in dims]:
         x = jnp.tensordot(x, factor, axes=([lead], [0]))
-    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in _tensor_index_inverse_qudit_pair_order(n))))
+    x = jnp.transpose(x, (*range(lead), *(lead + axis for axis in _tensor_index_inverse_qudit_pair_order(n, n))))
     return x.reshape(pauli_liouville.shape) / d
 
 
