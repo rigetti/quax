@@ -265,6 +265,7 @@ quantum computers.
    mixed_stabilizer_renyi_entropy
    stabilizer_states
    wigner_function
+   sum_negativity
 
 Projection onto Physical Maps
 -----------------------------

@@ -455,3 +455,68 @@ def test_wigner_function_dispatch_jit_grad_and_errors():
         qx.wigner_function(qx.random_density_matrix(2, (3, 4), key=jax.random.key(34)))
     with pytest.raises(TypeError):
         qx.wigner_function(qx.random_unitary(dims=((3,), (3,)), key=jax.random.key(35)))
+
+
+def test_sum_negativity_of_familiar_qutrit_states():
+    strange = _state(0, 1, -1)
+    assert jnp.isclose(qx.sum_negativity(qx.zero_state_vector(dims=(3,))), 0)
+    assert jnp.isclose(qx.sum_negativity(strange), 1 / 3)
+    assert jnp.isclose(qx.sum_negativity(strange | strange), 8 / 9)
+
+
+@pytest.mark.parametrize("dims", ODD_DIMS, ids=str)
+def test_sum_negativity_matches_both_forms_of_the_definition(dims):
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(36), size=(3,))
+    w = qx.wigner_function(rho).reshape(3, -1)
+    negative_entries = -jnp.sum(jnp.where(w < 0, w, 0), axis=-1)
+    one_norm = (jnp.sum(jnp.abs(w), axis=-1) - 1) / 2
+    assert jnp.allclose(qx.sum_negativity(rho), negative_entries, atol=1e-12)
+    assert jnp.allclose(qx.sum_negativity(rho), one_norm, atol=1e-12)
+
+
+@pytest.mark.parametrize("dims", [(3,), (5,), (3, 3)], ids=str)
+def test_sum_negativity_is_zero_on_stabilizer_states_and_mixtures(dims):
+    states = qx.stabilizer_states(dims)
+    assert jnp.allclose(qx.sum_negativity(states), 0, atol=1e-12)
+    projectors = qx.promote_state_vector_to_density_matrix(states).matrix
+    weights = jax.random.dirichlet(jax.random.key(37), jnp.ones(projectors.shape[0]), (10,))
+    mixtures = qx.DensityMatrix.from_matrix(jnp.einsum("mk,kij->mij", weights, projectors), dims)
+    assert jnp.allclose(qx.sum_negativity(mixtures), 0, atol=1e-12)
+
+
+@pytest.mark.parametrize("copies", [1, 2, 3])
+def test_sum_negativity_composition_law(copies):
+    rho = qx.random_density_matrix(2, (3,), key=jax.random.key(38))
+    power = reduce(lambda a, b: a | b, [rho] * copies)
+    sn = qx.sum_negativity(rho)
+    assert jnp.isclose(qx.sum_negativity(power), ((2 * sn + 1) ** copies - 1) / 2)
+
+
+def test_sum_negativity_is_clifford_invariant_and_drops_under_partial_trace():
+    d = 3
+    j = np.arange(d)
+    fourier = np.exp(2j * np.pi * np.outer(j, j) / d) / np.sqrt(d)
+    phase = np.diag(np.exp(2j * np.pi * j * j / d))
+    clifford = jnp.asarray(np.kron(fourier @ phase, phase @ fourier))
+    rho = qx.random_density_matrix(2, (3, 3), key=jax.random.key(39), size=(5,))
+    rotated = qx.DensityMatrix.from_matrix(clifford @ rho.matrix @ clifford.conj().T, (3, 3))
+    assert jnp.allclose(qx.sum_negativity(rotated), qx.sum_negativity(rho), atol=1e-12)
+    reduced = qx.DensityMatrix.from_matrix(jnp.einsum("nabcb->nac", rho.data), (3,))
+    assert jnp.all(qx.sum_negativity(reduced) <= qx.sum_negativity(rho) + 1e-12)
+
+
+def test_sum_negativity_dispatch_jit_grad_and_errors():
+    psi = qx.random_state_vector((3, 5), key=jax.random.key(40), size=(2,))
+    rho = qx.promote_state_vector_to_density_matrix(psi)
+    assert jnp.allclose(qx.sum_negativity(psi), qx.sum_negativity(rho))
+    assert jnp.allclose(jax.jit(qx.sum_negativity)(rho), qx.sum_negativity(rho))
+
+    def negativity_of_mixed_strange(p):
+        strange = _projector(_state(0, 1, -1))
+        return qx.sum_negativity(qx.DensityMatrix.from_matrix((1 - p) * strange + p * jnp.eye(3) / 3, (3,)))
+
+    assert jnp.isclose(jax.grad(negativity_of_mixed_strange)(0.2), -1 / 3 - 1 / 9)
+    with pytest.raises(ValueError):
+        qx.sum_negativity(qx.random_density_matrix(2, (2,), key=jax.random.key(41)))
+    with pytest.raises(TypeError):
+        qx.sum_negativity(qx.random_observable(((3,), (3,)), key=jax.random.key(42)))

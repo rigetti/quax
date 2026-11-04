@@ -72,7 +72,13 @@ from ._exponentiation import (
 )
 from ._generators import unitary_to_hamiltonian
 from ._leakage import leakage_rate, seepage_rate
-from ._magic import mixed_stabilizer_renyi_entropy, stabilizer_norm, stabilizer_renyi_entropy, wigner_function
+from ._magic import (
+    mixed_stabilizer_renyi_entropy,
+    stabilizer_norm,
+    stabilizer_renyi_entropy,
+    sum_negativity,
+    wigner_function,
+)
 from ._metrics import (
     average_fidelity_to_depolarizing_constant,
     average_fidelity_to_process_fidelity,
@@ -341,6 +347,7 @@ __all__ = [
     "state_vector_reduced_density_matrix",
     "states",
     "stochastic_infidelity",
+    "sum_negativity",
     "superop_to_choi",
     "superop_to_kraus",
     "superop_to_pauli_liouville",

@@ -594,3 +594,17 @@ def test_wigner_function(benchmark, dims, ensemble_size):
     rho = make_density_matrix(dims, ensemble_size)
     qx.wigner_function(rho).block_until_ready()
     benchmark(lambda: qx.wigner_function(rho).block_until_ready())
+
+
+@pytest.mark.parametrize(
+    "dims,ensemble_size",
+    [
+        pytest.param(dims, ens, id=f"{lbl}-ens{ens}")
+        for (lbl, dims), ens in product(WIGNER_SYSTEMS, PAULI_VECTOR_ENSEMBLE_SIZES)
+    ],
+)
+def test_sum_negativity(benchmark, dims, ensemble_size):
+    """Benchmark sum_negativity on density matrices."""
+    rho = make_density_matrix(dims, ensemble_size)
+    qx.sum_negativity(rho).block_until_ready()
+    benchmark(lambda: qx.sum_negativity(rho).block_until_ready())

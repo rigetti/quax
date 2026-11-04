@@ -353,3 +353,59 @@ def _observable_wigner_function(operator: Observable) -> Array:
     dims = square_dims(operator)
     _require_odd(dims)
     return jnp.real(wigner_transform(operator.matrix, dims))
+
+
+@singledispatch
+def sum_negativity(state) -> Array:
+    r"""The sum negativity :math:`\mathrm{sn}(\rho)` of a state on qudits of odd dimension.
+
+    .. math::
+
+        \mathrm{sn}(\rho) = \sum_{u:\,W_\rho(u) < 0} |W_\rho(u)|
+        = \frac{1}{2}\Big(\sum_u |W_\rho(u)| - 1\Big)
+
+    ([RTSC]_ Definition 10): the total weight of the negative entries of the
+    :func:`wigner_function`. The second form holds because the Wigner function of a state sums
+    to 1.
+
+    How to read it:
+
+    * It is zero on every stabilizer state and every mixture of them, since their Wigner
+      functions are non-negative, and positive only when the Wigner function goes negative.
+      It is not faithful: some magic states have a non-negative Wigner function (bound magic
+      states) and score zero.
+    * It is a magic monotone: no stabilizer protocol (Clifford unitaries, computational-basis
+      preparation and measurement, partial trace, classical randomness) increases it on average
+      ([RTSC]_ Theorem 11), and it is convex ([RTSC]_ Appendix B).
+    * It is not additive: :math:`\mathrm{sn}(\rho^{\otimes n}) = ((2\,\mathrm{sn}(\rho) + 1)^n - 1)/2`
+      ([RTSC]_ Sec. IV A). :func:`mana`, the log of :math:`2\,\mathrm{sn} + 1`, is the additive
+      version.
+    * Any monotone fixed by the negative Wigner entries alone and blind to their positions in
+      phase space is a function of the sum negativity ([RTSC]_ Theorem 15).
+    * The qutrit strange state :math:`(|1\rangle - |2\rangle)/\sqrt{2}` has a single entry
+      :math:`-1/3`, so its sum negativity is :math:`1/3`.
+
+    [RTSC]_ states its results for odd prime dimensions, but the monotonicity proof (Appendix B,
+    "Odd dimensions") uses only properties the Wigner function has for every odd dimension, so
+    this accepts what :func:`wigner_function` accepts: any odd dimension, mixed dimensions
+    included. The full citation for [RTSC]_ is under :func:`wigner_function`.
+
+    :param state: A ``DensityMatrix`` or ``StateVector``, possibly an ensemble.
+    :return: Real array of shape ``(*ensemble,)``.
+    :raises ValueError: If any local dimension is even.
+    """
+    raise TypeError(f"sum_negativity() does not support type {type(state)!r}. Expected a DensityMatrix or StateVector.")
+
+
+@sum_negativity.register(DensityMatrix)
+@jax.jit
+def _density_matrix_sum_negativity(state: DensityMatrix) -> Array:
+    w = wigner_function(state)
+    return jnp.sum(jnp.maximum(-w, 0), axis=tuple(range(-2 * len(state.dims), 0)))
+
+
+@sum_negativity.register(StateVector)
+@jax.jit
+def _state_vector_sum_negativity(state: StateVector) -> Array:
+    w = wigner_function(state)
+    return jnp.sum(jnp.maximum(-w, 0), axis=tuple(range(-2 * len(state.dims), 0)))
