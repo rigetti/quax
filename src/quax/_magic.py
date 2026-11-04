@@ -409,3 +409,57 @@ def _density_matrix_sum_negativity(state: DensityMatrix) -> Array:
 def _state_vector_sum_negativity(state: StateVector) -> Array:
     w = wigner_function(state)
     return jnp.sum(jnp.maximum(-w, 0), axis=tuple(range(-2 * len(state.dims), 0)))
+
+
+@singledispatch
+def mana(state, base: float = e) -> Array:
+    r"""The mana :math:`\mathcal{M}(\rho)` of a state on qudits of odd dimension.
+
+    .. math::
+
+        \mathcal{M}(\rho) = \log \sum_u |W_\rho(u)| = \log(2\,\mathrm{sn}(\rho) + 1)
+
+    ([RTSC]_ Definition 12): the log of the 1-norm of the :func:`wigner_function`, which is
+    :math:`2\,` :func:`sum_negativity` :math:`+ 1` for a state.
+
+    How to read it:
+
+    * It is zero on every stabilizer state and every mixture of them, and positive only when the
+      Wigner function goes negative. Like the sum negativity it is not faithful: bound magic
+      states have a non-negative Wigner function and score zero.
+    * It is a magic monotone: no stabilizer protocol increases it on average ([RTSC]_ Theorem 13).
+    * It is additive,
+      :math:`\mathcal{M}(\rho \otimes \sigma) = \mathcal{M}(\rho) + \mathcal{M}(\sigma)`
+      ([RTSC]_ Sec. IV A), which makes it a resource count: any stabilizer protocol that turns
+      copies of :math:`\rho` into :math:`m` copies of :math:`\sigma` needs on average at least
+      :math:`m\,\mathcal{M}(\sigma) / \mathcal{M}(\rho)` copies of :math:`\rho`
+      ([RTSC]_ Theorem 14).
+    * Among qutrit states the largest sum negativity is :math:`1/3`, reached by the Strange
+      states, e.g. :math:`(|1\rangle - |2\rangle)/\sqrt{2}`, and the Norrell states, e.g.
+      :math:`(-|0\rangle + 2|1\rangle - |2\rangle)/\sqrt{6}` ([RTSC]_ Sec. IV D). Both have mana
+      :math:`\log(5/3)`.
+
+    The logarithm has base *base*, natural by default. As for :func:`sum_negativity`, any odd
+    dimension is accepted, mixed dimensions included, though [RTSC]_ states its results for odd
+    primes. The full citation for [RTSC]_ is under :func:`wigner_function`.
+
+    :param state: A ``DensityMatrix`` or ``StateVector``, possibly an ensemble.
+    :param base: Base of the logarithm.
+    :return: Real array of shape ``(*ensemble,)``.
+    :raises ValueError: If any local dimension is even.
+    """
+    raise TypeError(f"mana() does not support type {type(state)!r}. Expected a DensityMatrix or StateVector.")
+
+
+@mana.register(DensityMatrix)
+@jax.jit
+def _density_matrix_mana(state: DensityMatrix, base: float = e) -> Array:
+    w = wigner_function(state)
+    return jnp.log(jnp.sum(jnp.abs(w), axis=tuple(range(-2 * len(state.dims), 0)))) / jnp.log(base)
+
+
+@mana.register(StateVector)
+@jax.jit
+def _state_vector_mana(state: StateVector, base: float = e) -> Array:
+    w = wigner_function(state)
+    return jnp.log(jnp.sum(jnp.abs(w), axis=tuple(range(-2 * len(state.dims), 0)))) / jnp.log(base)

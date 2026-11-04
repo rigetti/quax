@@ -266,6 +266,7 @@ quantum computers.
    stabilizer_states
    wigner_function
    sum_negativity
+   mana
 
 Projection onto Physical Maps
 -----------------------------

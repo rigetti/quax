@@ -73,6 +73,7 @@ from ._exponentiation import (
 from ._generators import unitary_to_hamiltonian
 from ._leakage import leakage_rate, seepage_rate
 from ._magic import (
+    mana,
     mixed_stabilizer_renyi_entropy,
     stabilizer_norm,
     stabilizer_renyi_entropy,
@@ -301,6 +302,7 @@ __all__ = [
     "lindbladians",
     "linear_inversion_process",
     "linear_inversion_state",
+    "mana",
     "mixed_stabilizer_renyi_entropy",
     "mixed_state_matrix",
     "n_qudit_basis",

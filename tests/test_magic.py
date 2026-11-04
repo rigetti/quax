@@ -520,3 +520,65 @@ def test_sum_negativity_dispatch_jit_grad_and_errors():
         qx.sum_negativity(qx.random_density_matrix(2, (2,), key=jax.random.key(41)))
     with pytest.raises(TypeError):
         qx.sum_negativity(qx.random_observable(((3,), (3,)), key=jax.random.key(42)))
+
+
+def test_mana_of_familiar_qutrit_states():
+    strange = _state(0, 1, -1)
+    norrell = _state(-1, 2, -1)
+    assert jnp.isclose(qx.mana(qx.zero_state_vector(dims=(3,))), 0)
+    assert jnp.isclose(qx.mana(strange), np.log(5 / 3))
+    assert jnp.isclose(qx.mana(norrell), np.log(5 / 3))
+    assert jnp.isclose(qx.mana(strange, base=2), np.log2(5 / 3))
+
+
+@pytest.mark.parametrize("dims", ODD_DIMS, ids=str)
+def test_mana_is_the_log_of_the_wigner_one_norm(dims):
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(43), size=(3,))
+    one_norm = jnp.sum(jnp.abs(qx.wigner_function(rho).reshape(3, -1)), axis=-1)
+    assert jnp.allclose(qx.mana(rho), jnp.log(one_norm), atol=1e-12)
+    assert jnp.allclose(qx.mana(rho), jnp.log(2 * qx.sum_negativity(rho) + 1), atol=1e-12)
+
+
+@pytest.mark.parametrize("dims", [(3,), (5,), (3, 3)], ids=str)
+def test_mana_is_zero_on_stabilizer_states_and_mixtures(dims):
+    states = qx.stabilizer_states(dims)
+    assert jnp.allclose(qx.mana(states), 0, atol=1e-12)
+    projectors = qx.promote_state_vector_to_density_matrix(states).matrix
+    weights = jax.random.dirichlet(jax.random.key(44), jnp.ones(projectors.shape[0]), (10,))
+    mixtures = qx.DensityMatrix.from_matrix(jnp.einsum("mk,kij->mij", weights, projectors), dims)
+    assert jnp.allclose(qx.mana(mixtures), 0, atol=1e-12)
+
+
+def test_mana_is_additive():
+    a = qx.random_density_matrix(2, (3,), key=jax.random.key(45), size=(4,))
+    b = qx.random_density_matrix(2, (5,), key=jax.random.key(46), size=(4,))
+    assert jnp.allclose(qx.mana(a | b), qx.mana(a) + qx.mana(b), atol=1e-12)
+
+
+def test_mana_of_qutrits_is_at_most_that_of_the_strange_state():
+    states = qx.random_state_vector((3,), key=jax.random.key(47), size=(200,))
+    assert jnp.all(qx.mana(states) <= np.log(5 / 3) + 1e-12)
+
+
+def test_mana_drops_under_partial_trace():
+    rho = qx.random_density_matrix(2, (3, 3), key=jax.random.key(48), size=(5,))
+    reduced = qx.DensityMatrix.from_matrix(jnp.einsum("nabcb->nac", rho.data), (3,))
+    assert jnp.all(qx.mana(reduced) <= qx.mana(rho) + 1e-12)
+
+
+def test_mana_dispatch_jit_grad_and_errors():
+    psi = qx.random_state_vector((3, 5), key=jax.random.key(49), size=(2,))
+    rho = qx.promote_state_vector_to_density_matrix(psi)
+    assert jnp.allclose(qx.mana(psi), qx.mana(rho))
+    assert jnp.allclose(jax.jit(qx.mana)(rho), qx.mana(rho))
+
+    def mana_of_mixed_strange(p):
+        strange = _projector(_state(0, 1, -1))
+        return qx.mana(qx.DensityMatrix.from_matrix((1 - p) * strange + p * jnp.eye(3) / 3, (3,)))
+
+    # sn = (1 - p)/3 - p/9, so the mana is log(5/3 - 8p/9).
+    assert jnp.isclose(jax.grad(mana_of_mixed_strange)(0.2), (-8 / 9) / (5 / 3 - 8 * 0.2 / 9))
+    with pytest.raises(ValueError):
+        qx.mana(qx.random_density_matrix(2, (2, 3), key=jax.random.key(50)))
+    with pytest.raises(TypeError):
+        qx.mana(qx.random_observable(((3,), (3,)), key=jax.random.key(51)))
