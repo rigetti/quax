@@ -91,16 +91,9 @@ def stabilizer_norm(state) -> Array:
 
 
 @stabilizer_norm.register(DensityMatrix)
-@jax.jit
-def _density_matrix_stabilizer_norm(state: DensityMatrix) -> Array:
-    chi = characteristic_function(state)
-    # |chi| directly: sqrt(|chi|**2) has a NaN gradient wherever chi is zero.
-    return jnp.sum(jnp.abs(chi), axis=-1) / isqrt(chi.shape[-1])
-
-
 @stabilizer_norm.register(StateVector)
 @jax.jit
-def _state_vector_stabilizer_norm(state: StateVector) -> Array:
+def _stabilizer_norm(state: DensityMatrix | StateVector) -> Array:
     chi = characteristic_function(state)
     # |chi| directly: sqrt(|chi|**2) has a NaN gradient wherever chi is zero.
     return jnp.sum(jnp.abs(chi), axis=-1) / isqrt(chi.shape[-1])
@@ -253,16 +246,9 @@ def mixed_stabilizer_renyi_entropy(state, base: float = e) -> Array:
 
 
 @mixed_stabilizer_renyi_entropy.register(DensityMatrix)
-@jax.jit
-def _density_matrix_mixed_stabilizer_renyi_entropy(state: DensityMatrix, base: float = e) -> Array:
-    xi = characteristic_distribution(state)
-    # sum |chi|^4 / sum |chi|^2 = D * sum xi^2 / sum xi, with xi = |chi|^2 / D.
-    return -jnp.log(isqrt(xi.shape[-1]) * jnp.sum(xi**2, axis=-1) / jnp.sum(xi, axis=-1)) / jnp.log(base)
-
-
 @mixed_stabilizer_renyi_entropy.register(StateVector)
 @jax.jit
-def _state_vector_mixed_stabilizer_renyi_entropy(state: StateVector, base: float = e) -> Array:
+def _mixed_stabilizer_renyi_entropy(state: DensityMatrix | StateVector, base: float = e) -> Array:
     xi = characteristic_distribution(state)
     # sum |chi|^4 / sum |chi|^2 = D * sum xi^2 / sum xi, with xi = |chi|^2 / D.
     return -jnp.log(isqrt(xi.shape[-1]) * jnp.sum(xi**2, axis=-1) / jnp.sum(xi, axis=-1)) / jnp.log(base)
@@ -469,15 +455,9 @@ def sum_negativity(state) -> Array:
 
 
 @sum_negativity.register(DensityMatrix)
-@jax.jit
-def _density_matrix_sum_negativity(state: DensityMatrix) -> Array:
-    w = wigner_function(state)
-    return jnp.sum(jnp.maximum(-w, 0), axis=tuple(range(-2 * len(state.dims), 0)))
-
-
 @sum_negativity.register(StateVector)
 @jax.jit
-def _state_vector_sum_negativity(state: StateVector) -> Array:
+def _sum_negativity(state: DensityMatrix | StateVector) -> Array:
     w = wigner_function(state)
     return jnp.sum(jnp.maximum(-w, 0), axis=tuple(range(-2 * len(state.dims), 0)))
 
@@ -537,15 +517,9 @@ def mana(state, base: float = e) -> Array:
 
 
 @mana.register(DensityMatrix)
-@jax.jit
-def _density_matrix_mana(state: DensityMatrix, base: float = e) -> Array:
-    w = wigner_function(state)
-    return jnp.log(jnp.sum(jnp.abs(w), axis=tuple(range(-2 * len(state.dims), 0)))) / jnp.log(base)
-
-
 @mana.register(StateVector)
 @jax.jit
-def _state_vector_mana(state: StateVector, base: float = e) -> Array:
+def _mana(state: DensityMatrix | StateVector, base: float = e) -> Array:
     w = wigner_function(state)
     return jnp.log(jnp.sum(jnp.abs(w), axis=tuple(range(-2 * len(state.dims), 0)))) / jnp.log(base)
 
