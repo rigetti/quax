@@ -36,39 +36,15 @@ def stabilizer_norm(state) -> Array:
 
     .. math:: \mathcal{D}(\rho) = \frac{1}{D}\sum_{x,z} |\mathrm{Tr}[W_{x,z}\,\rho]|
 
-    The sum runs over the :math:`D^2` Weyl operators :math:`W_{x,z}` of
-    :func:`characteristic_function`, which for qubits are the Pauli strings. [CATMAGIC]_ Lemma 1,
-    Eq. (19) introduces it as the st-norm :math:`\|\rho\|_{st} = \sum_j |a_j|` of the Pauli
-    expansion :math:`\rho = \sum_j a_j P_j`, and [ROMFTQC]_ Eq. (22) writes it as above. Only
-    :math:`|\mathrm{Tr}[W\rho]|` enters, so the phase convention of the Weyl operators does not
-    matter.
+    over the :math:`D^2` Weyl operators of :func:`characteristic_function` ([CATMAGIC]_ Lemma 1;
+    [ROMFTQC]_ Eq. (22)). The papers define it for qubits; quax extends it to qudits with the
+    Weyl operators.
 
-    Both papers define it for qubits. For qudits of any dimension it is extended here by replacing
-    the Pauli strings with the :math:`D^2` Weyl operators. The properties below carry over unchanged: a
-    pure stabilizer state is a uniform combination of the :math:`D` Weyl operators in its
-    stabilizer group, each with :math:`|\mathrm{Tr}[W\rho]| = 1`, and Weyl operators factor across
-    subsystems.
+    It equals 1 on pure stabilizer states and is at most 1 on every mixture of them, so a value
+    above 1 proves a state is magic. It is a witness, not a magic monotone.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
-    How to read it:
-
-    * It equals 1 on every pure stabilizer state and is at most 1 on every mixture of stabilizer
-      states, because it is convex ([CATMAGIC]_ Lemma 1; [ROMFTQC]_ D1). A value above 1 therefore
-      certifies that the state is not a stabilizer state ([ROMFTQC]_ D2). The converse fails beyond
-      one qubit: many magic states score at most 1. For a single qubit it is exact, marking out the
-      stabilizer octahedron in the Bloch ball.
-    * It is a lower bound on the robustness of magic :math:`\mathcal{R}(\rho)`, the least
-      :math:`\ell_1` norm of a decomposition of :math:`\rho` into stabilizer states, which governs
-      the cost of classical simulation: :math:`\mathcal{D}(\rho) \le \mathcal{R}(\rho)`, and for
-      :math:`n` qubits :math:`(\mathcal{D}(\rho) - 2^{-n}) / (1 - 2^{-n}) \le \mathcal{R}(\rho)`
-      ([ROMFTQC]_ D3, D3*, Eq. (23)).
-    * It is multiplicative,
-      :math:`\mathcal{D}(\rho_1 \otimes \rho_2) = \mathcal{D}(\rho_1)\,\mathcal{D}(\rho_2)`
-      ([CATMAGIC]_ Eq. (21); [ROMFTQC]_ D4, Eq. (35)).
-    * The maximally mixed state gives :math:`1/D`; the single-qubit T state
-      :math:`(|0\rangle + e^{i\pi/4}|1\rangle)/\sqrt{2}` gives :math:`(1 + \sqrt{2})/2`.
-
-    Computed from :func:`characteristic_function` in :math:`O(D^2 \log D)` time. Dispatches on the
-    type of *state*; ensembles broadcast; the function is jitted and differentiable.
+    Dispatches on the type of *state*; ensembles broadcast; jitted and differentiable.
 
     :param state: A ``StateVector`` or ``DensityMatrix``, possibly an ensemble.
     :return: Real array of shape ``(*ensemble,)``.
@@ -109,46 +85,24 @@ def stabilizer_renyi_entropy(state, alpha: float = 2.0, base: float = e) -> Arra
         \qquad
         \Xi_{x,z} = \frac{|\langle\psi| W_{x,z} |\psi\rangle|^2}{D}
 
-    ([SRENT]_ Eq. (1)). :math:`\Xi` is :func:`characteristic_distribution`, a probability
-    distribution over the :math:`D^2` Weyl operators of :func:`characteristic_function` (for
-    qubits the Pauli strings), and :math:`M_\alpha` is its Rényi entropy shifted by
-    :math:`-\log D`. The limit :math:`\alpha \to 1` is the Shannon entropy, and :math:`\alpha = 0`
-    counts the nonzero :math:`\Xi`. The limit :math:`\alpha \to \infty` is not offered: the
-    largest weight of a pure state is always the identity's, :math:`1/D`, so :math:`M_\infty = 0`
-    for every pure state ([SEMONOT]_ Sec. 4).
+    ([SRENT]_ Eq. (1)), where :math:`\Xi` is :func:`characteristic_distribution`. The limit
+    :math:`\alpha \to 1` is the Shannon entropy. [QDSRE]_ gives the same formula for qudits.
 
-    How to read it:
+    It is zero exactly on pure stabilizer states, unchanged by Clifford unitaries, and additive. For
+    qubits it is a magic monotone for integer :math:`\alpha \ge 2` ([SEMONO]_ Theorem 1) but not for
+    :math:`\alpha < 2` ([SEMONOT]_); for qudits monotonicity is unproven.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
-    * It is zero exactly on pure stabilizer states and positive otherwise (faithfulness),
-      unchanged by Clifford unitaries, and additive under tensor products ([SRENT]_ properties
-      (i)–(iii)).
-    * It is a magic monotone for every integer :math:`\alpha \ge 2`: no stabilizer protocol that
-      turns a pure state into a pure state, measurements and feed-forward included, increases it
-      ([SEMONO]_ Theorem 1). For :math:`0 \le \alpha < 2` it is not ([SEMONOT]_ Sec. 3.1), and for
-      non-integer :math:`\alpha > 2` the question is open.
-    * It is at most the stabilizer nullity ([SRENT]_ Eq. (5)). For :math:`\alpha \ge 1/2` it is at
-      most twice the log of the robustness of magic, and :math:`M_{1/2} = 2 \log \mathcal{D}` for
-      the :func:`stabilizer_norm` :math:`\mathcal{D}` ([SRENT]_).
-    * The T state :math:`|H\rangle = (|0\rangle + e^{i\pi/4}|1\rangle)/\sqrt{2}` gives
-      :math:`M_\alpha(|H\rangle^{\otimes n}) = \frac{n}{1-\alpha}(\log(2^{1-\alpha} + 1) - \log 2)`,
-      so :math:`M_2(|H\rangle) = \log(4/3)`.
-
-    The cited proofs are for qubits. [QDSRE]_ Eq. (32) defines the same quantity for qudits of any
-    dimension over all :math:`D^2` Weyl operators, and asserts the three properties above without
-    proof.
-
-    The logarithm has base *base*, natural by default; ``base=2`` gives bits. For
-    :math:`\alpha = 0`, weights below ``D**2 * eps * max(Xi)`` count as zero, since round-off
-    leaves exact zeros at about ``eps**2``. The order *alpha* selects the computation and is static
-    under ``jax.jit``.
-
-    Defined for pure states only; a :class:`DensityMatrix` raises.
+    Defined for pure states only; for a mixed state use :func:`mixed_stabilizer_renyi_entropy`.
+    *alpha* is static under ``jax.jit``. For :math:`\alpha = 0`, weights at round-off level count
+    as zero.
 
     :param state: A ``StateVector``, possibly an ensemble.
     :param alpha: Rényi order, finite and ``alpha >= 0``.
-    :param base: Base of the logarithm.
+    :param base: Base of the logarithm; ``2`` gives bits.
     :return: Real array of shape ``(*ensemble,)``.
     :raises ValueError: If ``alpha`` is negative or not finite.
+    :raises TypeError: If *state* is a ``DensityMatrix``.
 
     .. [SRENT] Stabilizer Rényi entropy.
              Leone, Oliviero, Hamma.
@@ -209,31 +163,16 @@ def mixed_stabilizer_renyi_entropy(state, base: float = e) -> Array:
 
     .. math::
 
-        \tilde M_2(\rho) = M_2(\rho) - S_2(\rho)
+        \tilde M_2(\rho)
         = -\log \frac{\sum_{x,z} |\mathrm{Tr}[W_{x,z}\,\rho]|^4}{\sum_{x,z} |\mathrm{Tr}[W_{x,z}\,\rho]|^2}
 
-    ([SRENT]_ Eq. (7); supplement Eqs. (S.29), (S.30)), with :math:`S_2(\rho) = -\log \mathrm{Tr}[\rho^2]`
-    the Rényi-2 entropy and :math:`M_2(\rho) = -\log D\,\mathrm{Tr}[Q \rho^{\otimes 4}]`,
-    :math:`Q = D^{-2}\sum_P P^{\otimes 4}`. The paper defines it for :math:`\alpha = 2` only. For a
-    pure state :math:`S_2 = 0` and it equals ``stabilizer_renyi_entropy(state, alpha=2)``.
+    ([SRENT]_ Eq. (7) and supplement Eq. (S.30)). On a pure state it equals
+    ``stabilizer_renyi_entropy(state, alpha=2)``.
 
-    How to read it:
-
-    * It is zero exactly on the states :math:`D^{-1}(I + \sum_{P \in G} \pm P)`, for any set
-      :math:`G` of Pauli strings and signs that makes this a valid state: pure stabilizer states,
-      the maximally mixed state, and the normalized projectors onto stabilizer codes ([SRENT]_
-      supplement, Theorem (i), Eq. (S.27)).
-    * It is **not** zero on a general mixture of stabilizer states:
-      :math:`(|0\rangle\langle 0| + |+\rangle\langle +|)/2` gives :math:`\log(4/3)`. So it is not
-      a faithful measure or monotone for the usual resource theory, whose free states are all
-      stabilizer mixtures. Use it as an indicator that is cheap to evaluate and to measure.
-    * It is unchanged by Clifford unitaries and additive under tensor products ([SRENT]_
-      supplement, Theorem (ii), (iii)). Numerical evidence suggests it does not increase under
-      partial trace ([SRENT]_).
-
-    The paper's proofs are for qubits; for qudits the Pauli strings are replaced by the
-    :math:`D^2` Weyl operators, as in :func:`stabilizer_renyi_entropy`. The logarithm has base
-    *base*, natural by default. The full citation is under :func:`stabilizer_renyi_entropy`.
+    It is zero on pure stabilizer states, the maximally mixed state and normalized
+    stabilizer-code projectors, but not on general mixtures of stabilizer states, so it is not a
+    magic monotone. Use it for nearly pure states.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
     :param state: A ``DensityMatrix`` or ``StateVector``, possibly an ensemble.
     :param base: Base of the logarithm.
@@ -276,71 +215,42 @@ def _phase_point_factor(qudit_dim: int) -> npt.NDArray[np.complex128]:
 
 @singledispatch
 def wigner_function(operator) -> Array:
-    r"""The discrete Wigner function of a state or observable on qudits of odd dimension.
+    r"""The discrete Wigner function of a state, observable or channel on qudits of odd dimension.
 
-    For a state :math:`\rho` on :math:`n` qudits,
+    For a state :math:`\rho`,
 
     .. math::
 
         W_\rho(u) = \frac{1}{D}\,\mathrm{Tr}[A_u\,\rho],
         \qquad
-        A_0 = \frac{1}{D}\sum_v T_v,
-        \qquad
         A_u = T_u A_0 T_u^\dagger,
 
-    over the :math:`D^2` phase-space points :math:`u` ([RTSC]_ Sec. II B). :math:`T_u` are the
-    Weyl operators :math:`\omega^{-2^{-1}pq} Z^p X^q`, and :math:`A_u` the phase-point operators;
-    :math:`A_0` is the parity operator, :math:`A_0|q\rangle = |-q\rangle`. This is the
-    symplectic Fourier transform of the characteristic function ([HUDSON]_ Definition 5,
-    Eq. (15), Theorem 6.5). For an observable or measurement operator :math:`E` the normalization
-    is :math:`W_E(u) = \mathrm{Tr}[A_u E]`, without the :math:`1/D` ([RTSC]_ Sec. II B), so that
+    over the :math:`D^2` phase-space points :math:`u`, where :math:`A_0|q\rangle = |-q\rangle` is
+    the parity operator and :math:`T_u` the Weyl operators ([HUDSON]_ Eq. (15); [RTSC]_ Sec. II B).
+    It is real and sums to 1. Stabilizer states and their mixtures are non-negative; negative
+    entries signal magic, measured by :func:`sum_negativity` and :func:`mana`. For an observable
+    :math:`E` it is :math:`\mathrm{Tr}[A_u E]`, without the :math:`1/D`, so that
     :math:`\mathrm{Tr}[E\rho] = \sum_u W_E(u)\,W_\rho(u)`.
 
-    The papers label a point :math:`u = (p, q)` by momentum (the power of :math:`Z`) and position
-    (the power of :math:`X`, the computational-basis index). The result is indexed position
-    first: ``W[q_0, ..., q_{n-1}, p_0, ..., p_{n-1}]``, the order of
-    :func:`characteristic_function`'s :math:`(x, z)`.
-
-    For a channel :math:`\mathcal{N}` from qudits ``dims_in`` to ``dims_out`` it is the
-    conditional quasi-probability
+    For a channel :math:`\mathcal{N}` it is the table
 
     .. math:: W_\mathcal{N}(v|u) = \frac{1}{D_\mathrm{out}}\,\mathrm{Tr}[A_v\,\mathcal{N}(A_u)]
 
-    ([MAGCHAN]_ Definition 2, Eq. (29)), which sums to 1 over the output point :math:`v` for every
-    input point :math:`u` and propagates Wigner functions,
-    :math:`W_{\mathcal{N}(\rho)}(v) = \sum_u W_\mathcal{N}(v|u)\,W_\rho(u)` ([MAGCHAN]_ Lemma 1).
-    It is indexed ``[q_out, p_out, q_in, p_in]``, output point first. A Clifford unitary gives a
-    permutation matrix. An :class:`Involution` is an observable as well as a unitary and is treated
-    as an observable; pass ``to_superop(gate)`` for its channel Wigner function.
+    ([MAGCHAN]_ Definition 2), which carries Wigner functions through the channel,
+    :math:`W_{\mathcal{N}(\rho)}(v) = \sum_u W_\mathcal{N}(v|u)\,W_\rho(u)`.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
-    How to read it:
-
-    * It is a real quasi-probability distribution. For a state it sums to 1, and summing over the
-      momenta gives the computational-basis probabilities,
-      :math:`\sum_p W_\rho(q, p) = \langle q|\rho|q\rangle` ([HUDSON]_ Theorem 6; [RTSC]_).
-    * A pure state has a non-negative Wigner function if and only if it is a stabilizer state
-      (the discrete Hudson theorem, [HUDSON]_ Theorem 2), and every mixture of stabilizer states
-      is non-negative. Negative entries are therefore a witness of magic, measured by
-      :func:`sum_negativity` and :func:`mana`.
-    * Clifford unitaries act on it as affine symplectic permutations of phase space
-      ([HUDSON]_ Theorem 7).
-    * The qutrit state :math:`|0\rangle` is :math:`1/3` on the line :math:`q = 0` and zero
-      elsewhere. The qutrit "strange state" :math:`(|1\rangle - |2\rangle)/\sqrt{2}` is
-      :math:`-1/3` at the origin.
-
-    It is defined for odd dimensions, where :math:`2^{-1} \bmod d` exists; composite odd
-    dimensions and mixtures such as ``(3, 5)`` are allowed. Computed from Gross's formula
-    :math:`W_\rho(q, p) = D^{-1}\sum_\xi \omega^{-\xi \cdot p}\,\rho[q + 2^{-1}\xi, q - 2^{-1}\xi]`
-    ([HUDSON]_ Theorem 6.2) in :math:`O(D^2 \log D)` time. Dispatches on the type of *operator*;
-    ensembles broadcast; the function is jitted and differentiable. The full citation for
-    [HUDSON]_ is under :func:`characteristic_function`.
+    A point is indexed position first: ``W[q_0, ..., q_{n-1}, p_0, ..., p_{n-1}]``, where
+    :math:`q` is the computational-basis index. A channel's table is indexed
+    ``[q_out, p_out, q_in, p_in]``. Any odd dimensions are accepted, mixed ones included. An
+    :class:`Involution` is treated as an observable; pass ``to_superop(gate)`` for its channel
+    table. Dispatches on the type of *operator*; ensembles broadcast; jitted and differentiable.
 
     :param operator: A ``DensityMatrix``, ``StateVector`` or ``Observable``, or a channel
         (``Unitary``, ``SuperOp``, ``Choi``, ``KrausMap`` or ``PauliLiouville``), possibly an
         ensemble.
-    :return: Real array of shape ``(*ensemble, *dims, *dims)`` indexed ``[q, p]``; for a channel,
-        ``(*ensemble, *dims_out, *dims_out, *dims_in, *dims_in)`` indexed
-        ``[q_out, p_out, q_in, p_in]``.
+    :return: Real array of shape ``(*ensemble, *dims, *dims)``; for a channel,
+        ``(*ensemble, *dims_out, *dims_out, *dims_in, *dims_in)``.
     :raises ValueError: If any local dimension is even.
 
     .. [MAGCHAN] Quantifying the magic of quantum channels.
@@ -420,32 +330,12 @@ def sum_negativity(state) -> Array:
         \mathrm{sn}(\rho) = \sum_{u:\,W_\rho(u) < 0} |W_\rho(u)|
         = \frac{1}{2}\Big(\sum_u |W_\rho(u)| - 1\Big)
 
-    ([RTSC]_ Definition 10): the total weight of the negative entries of the
-    :func:`wigner_function`. The second form holds because the Wigner function of a state sums
-    to 1.
+    ([RTSC]_ Definition 10), the total negative weight of the :func:`wigner_function`.
 
-    How to read it:
-
-    * It is zero on every stabilizer state and every mixture of them, since their Wigner
-      functions are non-negative, and positive only when the Wigner function goes negative.
-      It is not faithful: some magic states have a non-negative Wigner function (bound magic
-      states) and score zero.
-    * It is a magic monotone: no stabilizer protocol (Clifford unitaries, computational-basis
-      preparation and measurement, partial trace, classical randomness) increases it on average
-      ([RTSC]_ Theorem 11), and it is convex ([RTSC]_ Appendix B).
-    * It is not additive:
-      :math:`\mathrm{sn}(\rho^{\otimes n}) = ((2\,\mathrm{sn}(\rho) + 1)^n - 1)/2`
-      ([RTSC]_ Sec. IV A). :func:`mana`, the log of :math:`2\,\mathrm{sn} + 1`, is the additive
-      version.
-    * Any monotone fixed by the negative Wigner entries alone and blind to their positions in
-      phase space is a function of the sum negativity ([RTSC]_ Theorem 15).
-    * The qutrit strange state :math:`(|1\rangle - |2\rangle)/\sqrt{2}` has a single entry
-      :math:`-1/3`, so its sum negativity is :math:`1/3`.
-
-    [RTSC]_ states its results for odd prime dimensions, but the monotonicity proof (Appendix B,
-    "Odd dimensions") uses only properties the Wigner function has for every odd dimension, so
-    this accepts what :func:`wigner_function` accepts: any odd dimension, mixed dimensions
-    included. The full citation for [RTSC]_ is under :func:`wigner_function`.
+    It is a magic monotone ([RTSC]_ Theorem 11). It is zero on every mixture of stabilizer states,
+    but also on magic states whose Wigner function is non-negative. It is not additive;
+    :func:`mana` is the additive version.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
     :param state: A ``DensityMatrix`` or ``StateVector``, possibly an ensemble.
     :return: Real array of shape ``(*ensemble,)``.
@@ -464,48 +354,24 @@ def _sum_negativity(state: DensityMatrix | StateVector) -> Array:
 
 @singledispatch
 def mana(state, base: float = e) -> Array:
-    r"""The mana :math:`\mathcal{M}(\rho)` of a state on qudits of odd dimension.
+    r"""The mana :math:`\mathcal{M}` of a state or channel on qudits of odd dimension.
 
-    .. math::
+    For a state,
 
-        \mathcal{M}(\rho) = \log \sum_u |W_\rho(u)| = \log(2\,\mathrm{sn}(\rho) + 1)
+    .. math:: \mathcal{M}(\rho) = \log \sum_u |W_\rho(u)| = \log(2\,\mathrm{sn}(\rho) + 1)
 
-    ([RTSC]_ Definition 12): the log of the 1-norm of the :func:`wigner_function`, which is
-    :math:`2\,` :func:`sum_negativity` :math:`+ 1` for a state.
+    ([RTSC]_ Definition 12). It is an additive magic monotone ([RTSC]_ Theorem 13), zero on every
+    mixture of stabilizer states, and also zero on magic states whose Wigner function is
+    non-negative.
 
-    How to read it:
-
-    * It is zero on every stabilizer state and every mixture of them, and positive only when the
-      Wigner function goes negative. Like the sum negativity it is not faithful: bound magic
-      states have a non-negative Wigner function and score zero.
-    * It is a magic monotone: no stabilizer protocol increases it on average ([RTSC]_ Theorem 13).
-    * It is additive,
-      :math:`\mathcal{M}(\rho \otimes \sigma) = \mathcal{M}(\rho) + \mathcal{M}(\sigma)`
-      ([RTSC]_ Sec. IV A), which makes it a resource count: any stabilizer protocol that turns
-      copies of :math:`\rho` into :math:`m` copies of :math:`\sigma` needs on average at least
-      :math:`m\,\mathcal{M}(\sigma) / \mathcal{M}(\rho)` copies of :math:`\rho`
-      ([RTSC]_ Theorem 14).
-    * Among qutrit states the largest sum negativity is :math:`1/3`, reached by the Strange
-      states, e.g. :math:`(|1\rangle - |2\rangle)/\sqrt{2}`, and the Norrell states, e.g.
-      :math:`(-|0\rangle + 2|1\rangle - |2\rangle)/\sqrt{6}` ([RTSC]_ Sec. IV D). Both have mana
-      :math:`\log(5/3)`.
-
-    For a channel :math:`\mathcal{N}` it is the mana of the channel,
+    For a channel,
 
     .. math:: \mathcal{M}(\mathcal{N}) = \log \max_u \sum_v |W_\mathcal{N}(v|u)|
 
-    ([MAGCHAN]_ Definition 4), the largest mana the channel gives any phase-point operator. A
-    replacer channel :math:`\rho \mapsto \mathrm{Tr}[\rho]\,\sigma` has the mana of :math:`\sigma`
-    (Proposition 4). It is additive under tensor products and subadditive under composition,
-    :math:`\mathcal{M}(\mathcal{N}_2 \circ \mathcal{N}_1)` being at most
-    :math:`\mathcal{M}(\mathcal{N}_1) + \mathcal{M}(\mathcal{N}_2)` (Propositions 5, 6). It is
-    zero exactly on the channels that completely preserve non-negative Wigner functions, which
-    include every Clifford unitary (Proposition 7), and it is a magic measure for channels
-    (Theorem 9).
-
-    The logarithm has base *base*, natural by default. As for :func:`sum_negativity`, any odd
-    dimension is accepted, mixed dimensions included, though [RTSC]_ and [MAGCHAN]_ state their
-    results for odd primes. Both full citations are under :func:`wigner_function`.
+    ([MAGCHAN]_ Definition 4), the largest mana the channel's Wigner table gives any phase-space
+    point. For a quantum channel it is zero exactly when the table is non-negative, Clifford
+    unitaries included.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
     :param state: A ``DensityMatrix`` or ``StateVector``, or a channel (``Unitary``, ``SuperOp``,
         ``Choi``, ``KrausMap`` or ``PauliLiouville``), possibly an ensemble.

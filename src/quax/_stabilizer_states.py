@@ -76,38 +76,19 @@ def _canonical_keys(states: npt.NDArray[np.complex128]) -> list[bytes]:
 def stabilizer_states(dims: tuple[int, ...]) -> StateVector:
     r"""Every pure stabilizer state of qudits with prime dimensions ``dims``, up to global phase.
 
-    A stabilizer state is the common eigenvector of :math:`D` commuting Weyl operators. In
-    phase-space language it is :math:`|M, v\rangle`, fixed by a maximal isotropic subspace
-    :math:`M` (the operators' labels, :math:`|M| = D`) and a vector :math:`v` setting their
-    eigenvalues, with projector :math:`D^{-1}\sum_{m \in M} \chi([v, m])\, w(m)` ([HUDSON]_
-    Lemma 8, Eq. (17)). For qubits these are the familiar stabilizer states: :math:`|0\rangle`,
-    :math:`|+\rangle`, :math:`|{+i}\rangle`, GHZ and graph states, and their Pauli and Clifford
-    images.
+    There are :math:`d^n \prod_{i=1}^n (d^i + 1)` of them for :math:`n` qudits of prime dimension
+    :math:`d` ([HUDSON]_ Corollary 21); for mixed ``dims`` the counts of each prime's qudits
+    multiply. One qubit has 6, two have 60 and four 36,720; two qutrits have 360. Five qubits give
+    2,423,520 states, about 1.2 GB, so check the count before asking for more.
+    See the :doc:`magic tutorial </examples/magic>` for background and examples.
 
-    How many there are ([HUDSON]_ Corollary 21): :math:`n` qudits of prime dimension :math:`d`
-    have :math:`d^n \prod_{i=1}^n (d^i + 1)` stabilizer states. Qudits of different primes do not
-    share stabilizer states, so for mixed ``dims`` the counts of each prime's qudits multiply. One
-    qubit has 6, two have 60, three 1,080 and four 36,720; two qutrits have 360.
+    The states are the Clifford orbit of :math:`|0\cdots0\rangle`, found breadth first and checked
+    against the count. The first is :math:`|0\cdots0\rangle`; each has its first nonzero amplitude
+    real and positive. Results are cached per ``dims``.
 
-    Five qubits give 2,423,520 states, about 1.2 GB as state vectors; nothing stops a larger
-    request, so check the count first.
-
-    Uses: ground truth for tests of magic measures (each state has :func:`stabilizer_norm` 1 and
-    :func:`stabilizer_renyi_entropy` 0), and the vertices of the stabilizer polytope over which
-    the robustness of magic and the stabilizer fidelity are defined.
-
-    The states are found as the orbit of :math:`|0\cdots0\rangle` under the Clifford group, which
-    for prime :math:`d` acts transitively on them. The orbit is searched breadth first with the
-    Fourier, phase and :math:`Z` gates on each qudit and the ``SUM`` gate between qudits of equal
-    dimension, and its size is checked against the count above. The first state is
-    :math:`|0\cdots0\rangle`; the rest follow in search order, each with its first nonzero
-    amplitude real and positive. Results are cached per ``dims``.
-
-    :param dims: Prime local dimensions, e.g. ``(2, 2)`` or ``(2, 3)``; must be a tuple.
+    :param dims: Prime local dimensions as a tuple, e.g. ``(2, 2)`` or ``(2, 3)``.
     :return: A ``StateVector`` ensemble of shape ``(N, *dims)``.
     :raises ValueError: If any dimension is not prime.
-
-    The full citation for [HUDSON]_ is under :func:`characteristic_function`.
     """
     if not dims or not all(_is_prime(d) for d in dims):
         raise ValueError(f"Stabilizer states are enumerated for prime local dimensions only, got {dims}.")
