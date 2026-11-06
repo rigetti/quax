@@ -676,3 +676,15 @@ def test_channel_dispatch_jit_base_and_errors():
     assert jnp.allclose(qx.mana(unitary, base=3), qx.mana(unitary) / np.log(3))
     with pytest.raises(ValueError):
         qx.mana(qx.random_unitary(dims=((2,), (2,)), key=jax.random.key(62)))
+
+
+def test_channel_mana_of_an_involution_uses_its_channel():
+    involution = qx.Involution.from_matrix(jnp.diag(jnp.array([1, -1, -1], dtype=complex)), ((3,), (3,)))
+    assert jnp.isclose(qx.mana(involution), qx.mana(qx.to_superop(involution)))
+
+
+def test_stabilizer_renyi_entropy_alpha_zero_of_a_single_precision_state():
+    # The T state as single-precision T|+> leaves it: its <Z> is off by float32 round-off.
+    amplitudes = jnp.array([0.70710677, 0.49999997 + 0.49999997j], dtype=jnp.complex64)
+    t_state = qx.StateVector.from_matrix(amplitudes, (2,))
+    assert jnp.isclose(qx.stabilizer_renyi_entropy(t_state, alpha=0), np.log(3 / 2), atol=1e-6)

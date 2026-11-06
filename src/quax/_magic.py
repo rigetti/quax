@@ -201,7 +201,9 @@ def _state_vector_stabilizer_renyi_entropy(state: StateVector, alpha: float = 2.
     if alpha == 1:
         entropy = -jnp.sum(jnp.where(positive, xi * jnp.log(safe), 0.0), axis=-1)
     elif alpha == 0:
-        tolerance = xi.shape[-1] * jnp.finfo(xi.dtype).eps * jnp.max(xi, axis=-1, keepdims=True)
+        # The state's precision, not xi's: a complex64 state comes back as float64 with float32 error.
+        eps = jnp.finfo(state.matrix.dtype).eps
+        tolerance = xi.shape[-1] * eps * jnp.max(xi, axis=-1, keepdims=True)
         entropy = jnp.log(jnp.sum(xi > tolerance, axis=-1).astype(xi.dtype))
     else:
         entropy = jnp.log(jnp.sum(jnp.where(positive, safe**alpha, 0.0), axis=-1)) / (1 - alpha)
@@ -555,8 +557,10 @@ def _state_vector_mana(state: StateVector, base: float = e) -> Array:
 @mana.register(Unitary)
 @jax.jit
 def _channel_mana(state: SuperOp | Choi | KrausMap | PauliLiouville | Unitary, base: float = e) -> Array:
-    dims_out, dims_in = to_superop(state).dims
-    table = wigner_function(state)  # [*ensemble, q_out, p_out, q_in, p_in]
+    superop = to_superop(state)
+    dims_out, dims_in = superop.dims
+    # Not wigner_function(state): an Involution would dispatch there as an Observable.
+    table = _channel_wigner_function(superop)  # [*ensemble, q_out, p_out, q_in, p_in]
     lead = table.ndim - 2 * (len(dims_out) + len(dims_in))
     one_norms = jnp.sum(jnp.abs(table), axis=tuple(range(lead, lead + 2 * len(dims_out))))
     return jnp.log(jnp.max(one_norms, axis=tuple(range(lead, one_norms.ndim)))) / jnp.log(base)
