@@ -13,6 +13,7 @@
 # limitations under the License.
 """Tests for the qudit operator bases."""
 
+import jax
 import numpy as np
 import pytest
 
@@ -31,3 +32,20 @@ def test_tensor_basis_is_the_kronecker_product_of_single_qudit_bases(build, sing
     basis = np.asarray(build(dims).matrix)
     assert basis.dtype == np.complex128
     assert np.allclose(basis, np.array(expected), rtol=0, atol=1e-15)
+
+
+def test_weyl_phases_of_a_qubit_and_a_qutrit():
+    tau = -np.exp(1j * np.pi / 3)
+    assert qx.weyl_basis_labels(2) == ["W00", "W10", "W11", "W01"]
+    assert np.allclose(qx.weyl_phases((2,)), [1, 1, 1j, 1])
+    assert qx.weyl_basis_labels(3) == ["W00", "W01", "W02", "W11", "W22", "W10", "W20", "W21", "W12"]
+    assert np.allclose(qx.weyl_phases((3,)), [1, 1, 1, tau, tau**4, 1, 1, tau**2, tau**2])
+    assert not qx.weyl_phases((3,)).flags.writeable
+
+
+@pytest.mark.parametrize("dims", [(3,), (5,), (3, 5)], ids=str)
+def test_weyl_phases_turn_the_basis_into_the_characteristic_function_operators(dims):
+    weyl_operators = qx.weyl_phases(dims)[:, None, None] * np.asarray(qx.n_qudit_basis(dims).matrix)
+    rho = qx.random_density_matrix(2, dims, key=jax.random.key(0))
+    traces = np.einsum("kij,ji->k", weyl_operators, np.asarray(rho.matrix))
+    assert np.allclose(traces, qx.characteristic_function(rho))

@@ -278,14 +278,16 @@ def test_instrument_sv(benchmark, dims, ensemble_size, inst_type):
 
 
 # ---------------------------------------------------------------------------
-# 6. n_qudit_basis / n_qudit_herm_basis  (cold-cache construction)
+# 6. n_qudit_basis / n_qudit_herm_basis / weyl_phases  (cold-cache construction)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("dims", [pytest.param(dims, id=lbl) for lbl, dims in BASIS_SYSTEMS])
-@pytest.mark.parametrize("build", [qx.n_qudit_basis, qx.n_qudit_herm_basis], ids=["weyl", "hermitian"])
+@pytest.mark.parametrize(
+    "build", [qx.n_qudit_basis, qx.n_qudit_herm_basis, qx.weyl_phases], ids=["weyl", "hermitian", "phases"]
+)
 def test_tensor_basis_build(benchmark, build, dims):
-    """Benchmark building n_qudit_basis / n_qudit_herm_basis from a cold cache."""
+    """Benchmark building n_qudit_basis / n_qudit_herm_basis / weyl_phases from a cold cache."""
 
     def fn():
         build.cache_clear()

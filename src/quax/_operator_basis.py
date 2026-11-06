@@ -251,15 +251,28 @@ def n_qudit_basis(dims: tuple[int, ...]) -> Unitary:
 
 @lru_cache(maxsize=32)
 def weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
-    r"""The phase :math:`\tau_{x,z}` of each Weyl operator, in basis order.
+    r"""The phase of each Weyl operator, in the order of :func:`weyl_basis_labels`.
 
-    :math:`W_{x,z} = \tau_{x,z} X^x Z^z` with :math:`\tau_{x,z} = \prod_i \tau_{d_i}^{x_i z_i}`
-    and :math:`\tau_d = (-1)^d e^{i\pi/d}`, the convention of [SWCLIFF]_ (see
-    :func:`characteristic_function`). Each qudit's phases follow :func:`xz_pairs` and the
-    Kronecker product puts qudit 0 most significant, matching :func:`n_qudit_basis`.
+    The Weyl operators of :func:`characteristic_function` are
+
+    .. math::
+
+        W_{x,z} = \bigotimes_i \tau_{d_i}^{x_i z_i} X_i^{x_i} Z_i^{z_i},
+        \qquad
+        \tau_d = (-1)^d e^{i\pi/d},
+
+    the convention of [SWCLIFF]_ Eq. (2.1). This returns the phases
+    :math:`\prod_i \tau_{d_i}^{x_i z_i}`, one per Weyl operator, with qudit 0 most significant as
+    in :func:`n_qudit_basis`.
+
+    When every qudit has dimension greater than 2, :func:`n_qudit_basis` returns the plain products
+    :math:`X^x Z^z`, so ``weyl_phases(dims)[:, None, None] * n_qudit_basis(dims).matrix`` is the
+    :math:`W_{x,z}`. For qubits :func:`n_qudit_basis` already returns the Pauli strings, which are
+    the :math:`W_{x,z}`; do not apply these phases to them again. When qubits and larger qudits are
+    mixed, neither holds.
 
     :param dims: Local dimensions :math:`(d_0, \dots, d_{n-1})`.
-    :returns: Complex array of shape ``(D**2,)``.
+    :returns: Read-only complex array of shape ``(D**2,)``.
     """
     per_qudit = [
         np.array(
@@ -267,4 +280,6 @@ def weyl_phases(dims: tuple[int, ...]) -> npt.NDArray[np.complex128]:
         )
         for d in dims
     ]
-    return reduce(np.kron, per_qudit)
+    phases = np.asarray(reduce(np.kron, per_qudit))
+    phases.setflags(write=False)
+    return phases

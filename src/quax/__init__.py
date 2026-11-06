@@ -105,6 +105,7 @@ from ._operator_basis import (
     n_qudit_herm_basis,
     weyl_basis,
     weyl_basis_labels,
+    weyl_phases,
 )
 from ._pauli_vector import to_pauli_vector
 from ._projection import project_to_cp, project_to_cptp, project_to_tp
@@ -393,6 +394,7 @@ __all__ = [
     # Operator basis functions
     "weyl_basis",
     "weyl_basis_labels",
+    "weyl_phases",
     "wigner_function",
     # State functions
     "zero_state_matrix",

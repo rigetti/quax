@@ -248,6 +248,7 @@ for qubits).
 
    characteristic_function
    characteristic_distribution
+   weyl_phases
 
 Magic
 -----
