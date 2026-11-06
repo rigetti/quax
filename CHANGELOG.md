@@ -14,6 +14,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
   * **Fixed** for any bug fixes.
   * **Security** in case of vulnerabilities. -->
 
+## [0.7.11] - 2026-11-06
+
+### Added
+
+- Magic (non-stabilizerness) measures: `stabilizer_norm`, `stabilizer_renyi_entropy`,
+  `mixed_stabilizer_renyi_entropy`, `wigner_function`, `sum_negativity` and `mana`. The
+  Wigner-based measures take qudits of odd dimension; `wigner_function` and `mana` also take
+  channels.
+- `stabilizer_states`: every pure stabilizer state of qudits with prime dimensions.
+- `weyl_phases`: the phases that turn `n_qudit_basis` into the Weyl operators of
+  `characteristic_function` when every qudit has dimension greater than 2.
+- A tutorial notebook on magic, `docs/examples/magic.ipynb`.
+
+
 ## [0.7.10] - 2026-10-27
 
 ### Added
