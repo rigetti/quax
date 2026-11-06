@@ -77,6 +77,7 @@ Automatic Promotion
    examples/leakage-randomized-benchmarking
    examples/superoperator-representations
    examples/observables
+   examples/magic
    examples/random-operators
    api/index
    references
